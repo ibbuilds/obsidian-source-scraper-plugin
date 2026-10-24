@@ -12,6 +12,8 @@ test("optional bridge checks public version then invokes fixed CLI commands with
     writeFileSync(configPath,"{}");
     writeFileSync(cliPath,`const cmd=process.argv[2];
 if(cmd==="version")console.log(JSON.stringify({name:"source-scraper",version:"0.14.0",jsonSchemaVersion:1}));
+else if(cmd==="validate")console.log(JSON.stringify({valid:true,id:"generic-library"}));
+else if(cmd==="review")console.log(JSON.stringify({entity:{key:"record:no-url",review:"approved"}}));
 else if(cmd==="run")console.log(JSON.stringify({result:{success:true}}));
 else if(cmd==="export")console.log(JSON.stringify(${JSON.stringify(envelope)}));
 else process.exit(19);`);
@@ -20,6 +22,15 @@ else process.exit(19);`);
     const rows=await bridge.runAndImport(config);
     assert.equal(rows.records.length,2);
     assert.equal(bridge.running,false);
+    await bridge.review(config,"generic-library","record:no-url","approved","Human verification");
+    await assert.rejects(
+      bridge.review(config,"other-project","record:no-url","approved","Should not write"),
+      /differs from imported project/
+    );
+    await assert.rejects(
+      bridge.review(config,"generic-library","record:no-url","approved"," "),
+      /Review reason required/
+    );
   }finally{rmSync(root,{recursive:true,force:true});}
 });
 test("unsupported CLI version cannot trigger project collection",async()=>{
