@@ -24,7 +24,9 @@ function symlinkCheck(root:string|undefined,relative:string):void{
       if(lstatSync(current).isSymbolicLink())
         throw new Error("Refusing to write through a symbolic-link path");
     }catch(error){
-      if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;
+      const code=(error as NodeJS.ErrnoException).code;
+      if(code==="ENOTDIR")throw new Error("Output directory conflicts with a file");
+      if(code!=="ENOENT")throw error;
     }
   }
 }
