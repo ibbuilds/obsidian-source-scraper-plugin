@@ -32,7 +32,7 @@ If you installed the independent CLI (for example the standalone `source-scraper
 3. Click **Run local CLI (optional)**, review the warning (the configured project can contact its own sources or invoke configured trusted MCP extensions), and click **Run source collection and preview JSON**.
 4. The plugin checks `source-scraper version`, runs the normal engine command, imports `export --format json` into memory and **does not write any vault notes until you explicitly confirm a create-only export**.
 
-The bridge uses fixed argument arrays with `shell:false`, a timeout, cancellation and bounded output; no hidden downloads or external output adapters. Imported records in memory are cleared on Obsidian/app restart, while notes previously created remain.
+The bridge uses fixed argument arrays with `shell:false`, a timeout, cancellation and bounded output; no hidden downloads or external output adapters. If connected, open **Inspect data and evidence** and explicitly choose a human review plus required reason, then click **Save human review to engine**. The plugin verifies that the CLI manifest project matches the imported project, and it updates the view only after the engine confirms persistence. Imported records in memory are cleared on Obsidian/app restart, while notes previously created remain.
 
 ## Recovery and coexistence
 
