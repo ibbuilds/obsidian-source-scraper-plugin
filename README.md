@@ -13,7 +13,7 @@ Source Scraper remains a separate JSON-first engine. This repository does not du
 - Optional explicit CLI integration: user configures the trusted local `source-scraper.mjs`, Node executable and project JSON, and clicks a confirmation to run. Import-only works without the separate Node CLI.
 - No background collection, auto-approval, webhooks, external analytics or automatic vault writes.
 
-**MVP scope:** note import/export is for **entity exports**. Other Source Scraper datasets and automatic synchronization may be added in later releases. Imported session data lives in memory; created Markdown notes persist normally in Obsidian. Direct plugin-level editing of Source Scraper's SQLite reviews is not part of v0.1.0.
+**MVP scope:** note import/export is for **entity exports**. Other Source Scraper datasets and automatic synchronization may be added in later releases. Imported session data lives in memory; created Markdown notes persist normally in Obsidian. Review decisions can be saved only by an explicit human action through the configured matching Source Scraper CLI; the plugin never edits SQLite tables directly.
 
 ## Installation
 
