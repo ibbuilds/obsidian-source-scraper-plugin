@@ -54,7 +54,7 @@ Copy `entities.json` into your vault or paste its content into the plugin. Alter
 
 - No existing user note is automatically deleted, renamed, modified or overwritten. A path collision is skipped and reported.
 - No `References.md` or `Sources.md` integration runs by default. Your original vault contents are not treated as plugin-owned.
-- A human review value imported from JSON remains an *engine-supplied value*; the plugin does not fabricate approval or rewrite the SQLite database.
+- A human review imported from JSON remains an *engine-supplied value*. With a trusted CLI configured, the Inspect dialog can explicitly save a reasoned review to the matching engine project; local UI changes only after the engine confirms it. The plugin never edits SQLite directly.
 - The plugin assumes Obsidian Desktop and Node built-ins available within Obsidian; the **external Source Scraper CLI** is entirely optional.
 - Local JSON may contain sensitive data: review the preview before creating notes. Plugin settings contain only filesystem paths, not browser credentials.
 - A real X For You personalized feed is **not** provided by this plugin. Source acquisition remains the responsibility of authorized Source Scraper adapters.
