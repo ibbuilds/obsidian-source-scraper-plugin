@@ -62,7 +62,13 @@ class ImportModal extends Modal {
   onClose():void{this.contentEl.empty();}
 }
 class DetailModal extends Modal {
-  constructor(app:Plugin["app"],private entity:EntityRecord){super(app);}
+  private decision:"approved"|"rejected"|"pending";
+  private reason="";
+  private busy=false;
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin,private entity:EntityRecord){
+    super(app);
+    this.decision=entity.review;
+  }
   onOpen():void{
     const root=this.contentEl;root.empty();
     root.createEl("h3",{text:this.entity.title});
@@ -76,6 +82,35 @@ class DetailModal extends Modal {
       review:this.entity.review,reasons:this.entity.reasons,
       provenance:this.entity.provenance??"Not included in export"
     },null,2));
+    if(!this.plugin.settings.cliPath||!this.plugin.settings.configPath){
+      paragraph(root,"Connect the trusted CLI and project in Settings to save a human review to the engine.");
+      return;
+    }
+    paragraph(root,"A review is saved only when you explicitly confirm it with a reason.");
+    new Setting(root).setName("Human decision").addDropdown(d=>d.addOptions({
+      pending:"Pending",approved:"Approved",rejected:"Rejected"
+    }).setValue(this.decision).onChange(value=>{
+      this.decision=value as "pending"|"approved"|"rejected";
+    }));
+    new Setting(root).setName("Required reason").addTextArea(t=>
+      t.setPlaceholder("How was this decision verified?")
+        .onChange(value=>{this.reason=value;}));
+    new Setting(root).addButton(b=>b.setButtonText("Save human review to engine")
+      .onClick(async()=>{
+        if(this.busy)return;
+        this.busy=true;
+        try{
+          const s=this.plugin.settings;
+          await this.plugin.cli.review({
+            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable
+          },this.entity.projectId,this.entity.key,this.decision,this.reason);
+          this.entity.review=this.decision;
+          this.plugin.refresh();
+          this.close();
+          new Notice("Human review saved to the matching Source Scraper project.");
+        }catch(error){notify(error);}
+        finally{this.busy=false;}
+      }));
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -216,7 +251,7 @@ class ScraperView extends ItemView {
         "Machine score: "+entity.score+" · Review: "+entity.review+
         " · Evidence mentions: "+(entity.provenance?.mentions.length??"not exported")});
       const inspect=item.createEl("button",{text:"Inspect data and evidence"});
-      inspect.onclick=()=>new DetailModal(this.app,entity).open();
+      inspect.onclick=()=>new DetailModal(this.app,this.plugin,entity).open();
     }
     const selected=this.plugin.getSelected();
     const exportButton=action("Preview and create selected notes",()=>{
