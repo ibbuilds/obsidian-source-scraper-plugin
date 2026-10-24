@@ -33,7 +33,7 @@ Users choose their own projects, schemas, sources, processors, evaluation criter
 
 ## Implementation
 
-The complete staged plan, architecture decisions, dependencies and acceptance gates are in [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md). There is **no installable plugin yet**; this repository will get `manifest.json` and built `main.js` only as working implementation milestones are completed.
+The complete staged plan, architecture decisions, dependencies and acceptance gates are in [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md). The [code migration map](docs/CODE-MIGRATION-MAP.md) identifies safe reusable parts and legacy behaviors to exclude. Execution is tracked in [master issue #1](https://github.com/ibbuilds/obsidian-source-scraper-plugin/issues/1) and its six linked milestone issues. There is **no installable plugin yet**; this repository will get `manifest.json` and built `main.js` only as working implementation milestones are completed.
 
 **Planned manifest identity:** `source-scraper` (subject to official Community directory uniqueness validation). The repository name can include `obsidian`, but the *plugin ID* cannot contain it or end in `plugin`, per Obsidian's manifest requirements.
 
