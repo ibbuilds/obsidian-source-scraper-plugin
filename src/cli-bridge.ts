@@ -68,13 +68,11 @@ export class CliBridge {
     if(!["pending","approved","rejected"].includes(decision))throw new Error("Invalid review decision");
     const manifest=realpathSync(config.configPath);
     await this.checkVersion(config);
-    const validation=(await this.command(config,"validate",["--config",manifest],15000))
-      as Record<string,unknown>;
+    const validation=(await this.command(config,"validate",["--config",manifest],15000)) as Record<string,unknown>;
     if(validation.valid!==true||validation.id!==projectId)
       throw new Error("Configured CLI project differs from imported project");
     const response=(await this.command(config,"review",
-      ["--config",manifest,"--key",key,"--decision",decision,"--reason",reason],30000))
-      as {entity?:{review?:string;key?:string}};
+      ["--config",manifest,"--key",key,"--decision",decision,"--reason",reason],30000)) as {entity?:{review?:string;key?:string}};
     if(response.entity?.review!==decision||response.entity?.key!==key)
       throw new Error("Source Scraper did not confirm the saved human decision");
   }
