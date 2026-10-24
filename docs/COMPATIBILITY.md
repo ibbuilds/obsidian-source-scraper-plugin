@@ -11,7 +11,7 @@
 | Personal vault | No automatic migration or modifications to pre-existing notes |
 | Legacy plugin | Existing `Discovery Engine` (`x-feed-scraper`) remains independently functional; never auto-removed |
 
-JSON is an interchange contract. The plugin does not inspect or modify engine SQLite files directly. The optional local CLI bridge uses documented commands and validates its JSON schema version before running user-confirmed collection.
+JSON is an interchange contract. The plugin does not inspect or modify engine SQLite files directly. The optional local CLI bridge uses documented commands and validates its JSON schema version before running user-confirmed collection. The human-review action uses documented `validate` and `review` CLI commands with an exact project ID check; it never edits the engine's SQLite tables directly.
 
 Release tags in this plugin repository **must match** manifest version exactly (e.g. `0.1.0`, no prefix `v`), with `main.js`, `manifest.json`, `styles.css` attached. Plugin releases are **not purged** because older Obsidian installations may require older compatible downloads.
 
