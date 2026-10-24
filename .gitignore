@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.log
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.base.tmp
+*.tmp-*
+.DS_Store
+*.zip
+# Never commit local user-vault settings or credentials.
+.obsidian/
