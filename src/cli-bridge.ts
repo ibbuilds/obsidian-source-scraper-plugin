@@ -61,6 +61,23 @@ export class CliBridge {
       throw new Error("Unsupported Source Scraper CLI or JSON schema");
     return v.version;
   }
+  /** Persist a human decision only in the explicitly configured matching engine project. */
+  async review(config:CliConfig,projectId:string,key:string,
+    decision:"pending"|"approved"|"rejected",reason:string):Promise<void>{
+    if(!reason.trim()||reason.length>1000)throw new Error("Review reason required (maximum 1000 characters)");
+    if(!["pending","approved","rejected"].includes(decision))throw new Error("Invalid review decision");
+    const manifest=realpathSync(config.configPath);
+    await this.checkVersion(config);
+    const validation=await this.command(config,"validate",["--config",manifest],15000)
+      as Record<string,unknown>;
+    if(validation.valid!==true||validation.id!==projectId)
+      throw new Error("Configured CLI project differs from imported project");
+    const response=await this.command(config,"review",
+      ["--config",manifest,"--key",key,"--decision",decision,"--reason",reason],30000)
+      as {entity?:{review?:string;key?:string}};
+    if(response.entity?.review!==decision||response.entity?.key!==key)
+      throw new Error("Source Scraper did not confirm the saved human decision");
+  }
   async runAndImport(config:CliConfig):Promise<EntityExport>{
     const manifest=realpathSync(config.configPath);
     await this.checkVersion(config);
