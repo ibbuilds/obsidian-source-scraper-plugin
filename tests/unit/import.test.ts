@@ -43,7 +43,7 @@ test("reject malicious URL schemes, credentials, prototype keys and oversized in
     records:Array(MAX_RECORDS+1).fill(first)})),/record limit/);
 });
 test("NDJSON requires one project, version and no blank lines",()=>{
-  const line=record=>JSON.stringify({schemaVersion:1,dataset:"entities",
+  const line=(record:unknown)=>JSON.stringify({schemaVersion:1,dataset:"entities",
     projectId:"generic-library",record});
   assert.throws(()=>parseExport(line(first)+"\n\n"+line(second)),/blank NDJSON/);
   assert.throws(()=>parseExport(line(first)+"\n"+line({...second,projectId:"other"})),/entity belongs/);
