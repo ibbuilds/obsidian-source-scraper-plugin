@@ -1,0 +1,56 @@
+name: Plugin CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  typecheck-test-build:
+    name: Build and protect vault (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Check standard Obsidian release assets
+        shell: bash
+        run: |
+          test -s main.js
+          test -s manifest.json
+          test -s styles.css
+          node --input-type=module - <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const manifest=JSON.parse(readFileSync('manifest.json','utf8'));
+          const pkg=JSON.parse(readFileSync('package.json','utf8'));
+          if(manifest.id!=='source-scraper'||manifest.version!==pkg.version||
+             manifest.name!=='Source Scraper'||!manifest.isDesktopOnly){
+            throw Error('Manifest identity and package version mismatch');
+          }
+          const built=readFileSync('main.js','utf8');
+          if(built.includes('collector.cjs')||built.includes('~/.x-feed-scraper')){
+            throw Error('The standalone plugin must not embed the legacy X collector');
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: source-scraper-obsidian-plugin
+          path: |
+            main.js
+            manifest.json
+            styles.css
+          if-no-files-found: error
+          retention-days: 30
