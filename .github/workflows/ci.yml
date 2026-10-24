@@ -82,3 +82,30 @@ jobs:
           OBSIDIAN_VERSIONS: latest/latest
           WDIO_MAX_INSTANCES: '1'
         run: ./tests/desktop/node_modules/.bin/wdio run ./tests/desktop/wdio.conf.mts
+
+  real-engine-contract:
+    name: Consume real Source Scraper JSON v1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: ibbuilds/source-scraper
+          ref: v0.14.0-beta.1
+          path: engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --prefix engine --no-audit --no-fund
+      - run: npm run build:cli --prefix engine
+      - name: Generate a genuine offline engine export
+        working-directory: engine
+        run: |
+          node dist/source-scraper.mjs init --dir ./ci-demo
+          node dist/source-scraper.mjs run --config ./ci-demo/project.json
+          node dist/source-scraper.mjs export --config ./ci-demo/project.json --out ./real-export.json
+      - name: Verify independent plugin can parse and render the real JSON
+        run: node --experimental-strip-types plugin/scripts/verify-engine-json.mjs engine/real-export.json
