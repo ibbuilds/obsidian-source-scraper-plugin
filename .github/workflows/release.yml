@@ -1,0 +1,88 @@
+name: Publish Obsidian Plugin
+on:
+  workflow_run:
+    workflows: ["Plugin CI"]
+    types: [completed]
+permissions:
+  contents: write
+concurrency:
+  group: obsidian-source-scraper-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run package
+      - name: Verify exact version, newest main commit and all assets
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$current" != "$TESTED_SHA" ]]; then
+            echo "Stale CI commit; only main HEAD may be published"
+            exit 1
+          fi
+          node --input-type=module - <<'NODE'
+          import {readFileSync,existsSync,appendFileSync,statSync} from 'node:fs';
+          const m=JSON.parse(readFileSync('manifest.json','utf8'));
+          const p=JSON.parse(readFileSync('package.json','utf8'));
+          if(m.id!=='source-scraper'||m.version!==p.version||
+             !/^\d+\.\d+\.\d+$/.test(m.version)||m.isDesktopOnly!==true)
+            throw Error('Invalid Obsidian manifest or mismatched package version');
+          for(const file of ['main.js','manifest.json','styles.css']){
+            if(!existsSync(file)||statSync(file).size===0)throw Error('Missing release asset '+file);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT,'tag='+m.version+'\n');
+          NODE
+          sha256sum main.js manifest.json styles.css
+      - name: Publish tested Obsidian assets (preserve historical releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists; not modifying its files"
+          else
+            gh release create "$TAG" main.js manifest.json styles.css \
+              --title "Source Scraper for Obsidian $TAG" \
+              --target "$TESTED_SHA" --prerelease \
+              --notes-file "docs/releases/$TAG.md"
+          fi
+      - name: Verify published tag and official install artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          actual=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" --jq '.object.sha')
+          if [[ "$actual" != "$TESTED_SHA" ]]; then
+            echo "Release tag does not point to tested main commit"
+            exit 1
+          fi
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort)
+          expected=$(printf '%s\n' main.js manifest.json styles.css | LC_ALL=C sort)
+          if [[ "$assets" != "$expected" ]]; then
+            echo "Release assets incomplete"
+            exit 1
+          fi
+          echo "Verified independently versioned Obsidian release $TAG"
