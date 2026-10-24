@@ -116,4 +116,46 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     expect(after.references).toContain("Unmodified original");
     expect(after.important).toContain("Do not overwrite");
   });
+  it("inspects provenance and pending human reviews without creating notes",async()=>{
+    const inspector=browser.$(".ss-record button");
+    await inspector.waitForClickable({timeout:15000});
+    await inspector.click();
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:15000});
+    const details=await modal.getText();
+    expect(details).toContain("Independent research sample");
+    expect(details).toContain("local-fixture");
+    expect(details).toContain("pending");
+    const close=browser.$(".modal-close-button");
+    await close.click();
+    await modal.waitForDisplayed({reverse:true,timeout:15000});
+  });
+  it("rejects incompatible JSON schema without modifying imported data or notes",async()=>{
+    await click("Import JSON / NDJSON");
+    const input=browser.$(".modal-container textarea");
+    await input.waitForDisplayed({timeout:10000});
+    await input.setValue(JSON.stringify({...fixture,schemaVersion:99}));
+    await click("Import without writing notes");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:10000});
+    expect(await browser.$(".source-scraper-view").getText()).toContain("Independent research sample");
+    await browser.$(".modal-close-button").click();
+  });
+  it("keeps existing user files byte-for-byte unchanged after navigation and rejected imports",async()=>{
+    await click("Diagnostics");
+    const data=await browser.executeObsidian(async({app,obsidian})=>{
+      const ref=app.vault.getAbstractFileByPath("References.md");
+      const prior=app.vault.getAbstractFileByPath("Projects/Important.md");
+      if(!(ref instanceof obsidian.TFile)||!(prior instanceof obsidian.TFile)){
+        throw Error("User files missing");
+      }
+      return {references:await app.vault.read(ref),important:await app.vault.read(prior),
+        count:app.vault.getMarkdownFiles().filter(f=>
+          f.path.startsWith("Source Scraper/Imported/desktop-generic/")).length};
+    });
+    expect(data.references).toBe("# Existing references\n\n- [Unmodified original](https://example.org/original)\n");
+    expect(data.important).toBe("# Important user data\n\nDo not overwrite this document.\n");
+    expect(data.count).toBe(1);
+  });
+
 });
