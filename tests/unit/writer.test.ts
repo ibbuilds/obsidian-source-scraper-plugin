@@ -7,7 +7,8 @@ import {createOnlyNotes,selectedPlans,type VaultLike} from "../../src/vault-writ
 import {first,second} from "./fixtures.ts";
 
 class MockVault implements VaultLike{
-  constructor(readonly root:string){}
+  readonly root:string;
+  constructor(root:string){this.root=root;}
   getAbstractFileByPath(path:string):{path:string;children?:unknown[]}|null{
     const absolute=join(this.root,path);
     if(!existsSync(absolute))return null;

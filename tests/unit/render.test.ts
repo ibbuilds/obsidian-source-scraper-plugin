@@ -29,6 +29,7 @@ test("markdown injection stays in escaped text or an indented JSON block",()=>{
   const md=renderNote(evil);
   assert.doesNotMatch(md,/\n# injected/);
   assert.doesNotMatch(md,/\n!\[\[Vault\.md\]\]/);
-  assert.match(md,/    !\\?\[\\?\[Vault\.md/);
+  assert.match(md,/    "custom":/);
+  assert.ok(md.includes("\\n![[Vault.md]]"),"Unsafe embed stays escaped inside JSON");
   assert.match(md,/review: "pending"/);
 });

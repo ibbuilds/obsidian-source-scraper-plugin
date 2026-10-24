@@ -1,4 +1,4 @@
-import {existsSync,lstatSync,realpathSync} from "node:fs";
+import {lstatSync,realpathSync} from "node:fs";
 import {join} from "node:path";
 import type {EntityRecord} from "./contracts.ts";
 import {folderPath,notePath,renderNote} from "./render.ts";
@@ -20,8 +20,12 @@ function symlinkCheck(root:string|undefined,relative:string):void{
   let current=canonical;
   for(const part of parts){
     current=join(current,part);
-    if(existsSync(current)&&lstatSync(current).isSymbolicLink())
-      throw new Error("Refusing to write through a symbolic-link path");
+    try{
+      if(lstatSync(current).isSymbolicLink())
+        throw new Error("Refusing to write through a symbolic-link path");
+    }catch(error){
+      if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;
+    }
   }
 }
 export interface WriteResult {created:number;conflicts:string[];paths:string[]}

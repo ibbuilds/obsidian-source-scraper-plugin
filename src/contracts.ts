@@ -139,8 +139,9 @@ function envelope(source:unknown):EntityExport{
   return {schemaVersion:1,dataset:"entities",projectId,exportedAt,records:validated};
 }
 export function parseExport(content:string):EntityExport{
-  if(typeof content!=="string"||!content.trim())fail("file is empty");
+  if(typeof content!=="string")fail("file is empty");
   if(Buffer.byteLength(content,"utf8")>MAX_BYTES)fail("file exceeds 8 MB");
+  if(!content.trim())fail("file is empty");
   let value:unknown;
   const trimmed=content.trim();
   try{value=JSON.parse(trimmed);}
