@@ -1,1 +1,3 @@
-# Existing references\n\n- [Unmodified original](https://example.org/original)\n
+# Existing references
+
+- [Unmodified original](https://example.org/original)
