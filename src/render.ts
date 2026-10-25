@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto";
 import type {EntityRecord} from "./contracts.ts";
 import {checkedUrl} from "./contracts.ts";
+import {DEFAULT_NOTE_MAPPING,mappedEntityField,type NoteMapping} from "./note-mapping.ts";
 
 /** Only relative, ordinary note folders. No root file or dot/hidden folders. */
 export function folderPath(input:string):string{
@@ -27,9 +28,22 @@ function codeBlock(value:unknown):string{
   // escape back into active Markdown/Obsidian embeds.
   return JSON.stringify(value,null,2).split("\n").map(line=>"    "+line).join("\n");
 }
-export function renderNote(entity:EntityRecord):string{
-  const heading=escaped(entity.title,200);
+export function renderNote(entity:EntityRecord,
+  mapping:NoteMapping=DEFAULT_NOTE_MAPPING):string{
+  const selectedTitle=mappedEntityField(entity,mapping.titleField);
+  const heading=escaped(
+    (typeof selectedTitle==="string"||typeof selectedTitle==="number")&&String(selectedTitle).trim()?
+      selectedTitle:entity.title,200);
   const url=checkedUrl(entity.url,"entity URL");
+  const additional=Object.entries(mapping.properties).flatMap(([alias,path])=>{
+    const value=mappedEntityField(entity,path);
+    if(value===undefined)return [];
+    if(value===null)return [alias+": null"];
+    if(typeof value==="boolean"||typeof value==="number")
+      return [alias+": "+JSON.stringify(value)];
+    const text=typeof value==="string"?value:JSON.stringify(value);
+    return [alias+": "+yaml(text)];
+  });
   const lines=[
     "---",
     "type: source-scraper-entity",
@@ -43,27 +57,32 @@ export function renderNote(entity:EntityRecord):string{
     "confidence: "+entity.confidence,
     "observation_count: "+entity.observationCount,
     "updated_at: "+yaml(entity.updatedAt),
+    ...additional,
     "---","",
     "# "+heading,"",
     ...(url?["Source: ["+heading+"](<"+url+">)",""]:[]),
-    "## Machine assessment","",
-    "- **Category:** "+escaped(entity.category,100),
-    "- **Score:** "+entity.score+"/100",
-    "- **Confidence:** "+entity.confidence,
-    "- **Human review:** "+escaped(entity.review,20),
-    ...entity.reasons.map(reason=>"- "+escaped(reason,400)),
-    "",
-    "## Structured attributes","",
-    codeBlock(entity.attributes),"",
-    "## Evidence and review history","",
+    ...(mapping.sections.assessment?[
+      "## Machine assessment","",
+      "- **Category:** "+escaped(entity.category,100),
+      "- **Score:** "+entity.score+"/100",
+      "- **Confidence:** "+entity.confidence,
+      "- **Human review:** "+escaped(entity.review,20),
+      ...entity.reasons.map(reason=>"- "+escaped(reason,400)),
+      ""
+    ]:[]),
+    ...(mapping.sections.attributes?[
+      "## Structured attributes","",
+      codeBlock(entity.attributes),""
+    ]:[]),
+    ...(mapping.sections.provenance?["## Evidence and review history",""]:[])
   ];
-  if(entity.provenance){
+  if(mapping.sections.provenance&&entity.provenance){
     lines.push("**Source mentions:** "+entity.provenance.mentions.length+
       (entity.provenance.mentionsTruncated?" (truncated by source export)":""));
     lines.push("","### Mentions","",codeBlock(entity.provenance.mentions),"",
       "### Human reviews","",codeBlock(entity.provenance.reviews),"",
       "### Assessment history","",codeBlock(entity.provenance.assessmentHistory),"");
-  }else lines.push("Provenance was not included in the source export. No evidence was inferred.","");
+  }else if(mapping.sections.provenance)lines.push("Provenance was not included in the source export. No evidence was inferred.","");
   lines.push("> Automated scores are not human approval. Verify sources and licenses independently.","");
   return lines.join("\n");
 }
