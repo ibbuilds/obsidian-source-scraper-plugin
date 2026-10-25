@@ -8,6 +8,7 @@ import {CliBridge} from "./cli-bridge.ts";
 import {folderPath} from "./render.ts";
 import {join} from "node:path";
 import {GENERIC_TEMPLATE,parseProjectManifest,createNewProjectFile} from "./project-manifest.ts";
+import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
 
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
@@ -16,8 +17,10 @@ interface Preferences {
   configPath:string;
   nodeExecutable:string;
   projectFolder:string;
+  noteMappingJson:string;
 }
-const defaults:Preferences={outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",projectFolder:""};
+const defaults:Preferences={outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+  projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
   return message.replace(/https?:\/\/[^\s"'<>()]+/gi,"[redacted-url]")
@@ -161,6 +164,49 @@ class ProjectModal extends Modal {
   }
   onClose():void{this.contentEl.empty();}
 }
+class NoteMappingModal extends Modal {
+  private text:string;
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin){
+    super(app);this.text=plugin.settings.noteMappingJson;
+  }
+  onOpen():void{
+    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
+    root.createEl("h3",{text:"Portable note mapping JSON"});
+    paragraph(root,"Choose additional YAML properties, a note-title field and which generic data sections to include. This configuration changes previews and future new notes only; existing notes are never edited.");
+    const area=root.createEl("textarea",{attr:{rows:"12",placeholder:"Source-independent note mapping JSON"}});
+    area.value=this.text;
+    area.addEventListener("input",()=>{this.text=area.value;});
+    const result=root.createEl("pre",{cls:"ss-preview"});
+    const validate=():void=>{
+      const mapping=parseNoteMapping(this.text);
+      const selected=this.plugin.getSelected();
+      if(selected.length){
+        const folder=this.plugin.settings.outputFolder||"Source Scraper/Imported";
+        const plans=selectedPlans(folder,selected.slice(0,1),mapping);
+        result.setText(plans[0].content.slice(0,4500));
+      }else result.setText("Valid portable mapping (version 1). Import and select a record to see its preview.");
+    };
+    new Setting(root).addButton(b=>b.setButtonText("Validate and preview mapping")
+      .onClick(()=>{try{validate();}catch(error){result.setText(errorMessage(error));}}));
+    new Setting(root).addButton(b=>b.setButtonText("Save mapping (no note writes)")
+      .setCta().onClick(async()=>{
+        try{
+          const mapping=parseNoteMapping(this.text);
+          this.plugin.settings.noteMappingJson=JSON.stringify(mapping,null,2);
+          await this.plugin.savePrefs();
+          this.close();
+          new Notice("Saved portable JSON mapping. Existing notes were untouched.");
+        }catch(error){notify(error);}
+      }));
+    new Setting(root).addButton(b=>b.setButtonText("Restore generic default in editor")
+      .onClick(()=>{
+        this.text=DEFAULT_NOTE_MAPPING_JSON;
+        area.value=this.text;
+        result.setText("Default loaded into the editor. Press Save to apply.");
+      }));
+  }
+  onClose():void{this.contentEl.empty();}
+}
 class DetailModal extends Modal {
   private decision:"approved"|"rejected"|"pending";
   private reason="";
@@ -228,7 +274,8 @@ class ExportModal extends Modal {
     const preview=root.createEl("pre",{cls:"ss-preview"});
     const refresh=()=>{
       try{
-        const plans=selectedPlans(this.folder,this.records);
+        const mapping=parseNoteMapping(this.plugin.settings.noteMappingJson);
+        const plans=selectedPlans(this.folder,this.records,mapping);
         preview.setText(plans.map(x=>x.path).join("\n")+
           (plans.length?"\n\nFirst note preview:\n\n"+plans[0].content.slice(0,3500):""));
       }catch(error){preview.setText(errorMessage(error));}
@@ -247,7 +294,8 @@ class ExportModal extends Modal {
           if(!this.records.length)throw new Error("Select at least one entity");
           const adapter=this.app.vault.adapter;
           const rootPath=adapter instanceof FileSystemAdapter?adapter.getBasePath():undefined;
-          const result=await createOnlyNotes(this.app.vault,folder,this.records,rootPath);
+          const mapping=parseNoteMapping(this.plugin.settings.noteMappingJson);
+          const result=await createOnlyNotes(this.app.vault,folder,this.records,rootPath,mapping);
           this.plugin.settings.outputFolder=folder;
           await this.plugin.savePrefs();
           this.close();
@@ -311,6 +359,7 @@ class ScraperView extends ItemView {
     };
     action("Import JSON / NDJSON",()=>new ImportModal(this.app,this.plugin).open());
     action("Project JSON editor",()=>new ProjectModal(this.app,this.plugin).open());
+    action("Note mapping",()=>new NoteMappingModal(this.app,this.plugin).open());
     action("Run local CLI (optional)",()=>new RunModal(this.app,this.plugin).open());
     action("Diagnostics",()=>{
       new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+
@@ -390,6 +439,10 @@ class ScraperSettings extends PluginSettingTab {
         .setValue(this.plugin.settings.outputFolder).onChange(async value=>{
           this.plugin.settings.outputFolder=value;await this.plugin.savePrefs();
         }));
+    new Setting(root).setName("Portable note mapping")
+      .setDesc("Configure extra frontmatter properties, optional note sections and a title field. This never changes existing notes.")
+      .addButton(b=>b.setButtonText("Edit mapping JSON")
+        .onClick(()=>new NoteMappingModal(this.app,this.plugin).open()));
     new Setting(root).setName("Trusted standalone Source Scraper CLI")
       .setDesc("Absolute path to a locally installed source-scraper.mjs; never auto-downloaded.")
       .addText(t=>t.setValue(this.plugin.settings.cliPath).onChange(async value=>{
