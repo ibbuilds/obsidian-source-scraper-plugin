@@ -126,8 +126,7 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     expect(details).toContain("Independent research sample");
     expect(details).toContain("local-fixture");
     expect(details).toContain("pending");
-    const close=browser.$(".modal-close-button");
-    await close.click();
+    await browser.keys("Escape");
     await modal.waitForDisplayed({reverse:true,timeout:15000});
   });
   it("rejects incompatible JSON schema without modifying imported data or notes",async()=>{
@@ -139,9 +138,14 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     const modal=browser.$(".modal-container");
     await modal.waitForDisplayed({timeout:10000});
     expect(await browser.$(".source-scraper-view").getText()).toContain("Independent research sample");
-    await browser.$(".modal-close-button").click();
+    await browser.keys("Escape");
+    await modal.waitForDisplayed({reverse:true,timeout:15000});
   });
   it("keeps existing user files byte-for-byte unchanged after navigation and rejected imports",async()=>{
+    // The schema rejection shows a transient notice above the toolbar.
+    await browser.waitUntil(async()=>!(await browser.$(".notice").isDisplayed().catch(()=>false)),{
+      timeout:20000,interval:250,timeoutMsg:"Transient warning still blocks toolbar"
+    });
     await click("Diagnostics");
     const data=await browser.executeObsidian(async({app,obsidian})=>{
       const ref=app.vault.getAbstractFileByPath("References.md");
