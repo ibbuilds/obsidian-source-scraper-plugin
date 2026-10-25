@@ -209,4 +209,33 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     await modal.waitForDisplayed({reverse:true,timeout:10000});
   });
 
+  it("imports and saves a portable note mapping without editing existing user notes",async()=>{
+    await click("Note mapping");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:12000});
+    const mapping=modal.$("textarea");
+    await mapping.setValue(JSON.stringify({
+      version:1,titleField:"title",
+      properties:{source_measurement:"attributes.measurement"},
+      sections:{assessment:true,attributes:false,provenance:true}
+    }));
+    await click("Validate and preview mapping");
+    const preview=modal.$(".ss-preview");
+    await expect(preview).toHaveText(expect.stringContaining("source_measurement: 2"));
+    await click("Save mapping (no note writes)");
+    await modal.waitForDisplayed({reverse:true,timeout:15000});
+    const original=await browser.executeObsidian(async({app,obsidian})=>{
+      const reference=app.vault.getAbstractFileByPath("References.md");
+      const project=app.vault.getAbstractFileByPath("Projects/Important.md");
+      if(!(reference instanceof obsidian.TFile)||!(project instanceof obsidian.TFile))
+        throw Error("User notes disappeared");
+      return {reference:await app.vault.read(reference),project:await app.vault.read(project),
+        createdNotes:app.vault.getMarkdownFiles().filter(f=>
+          f.path.startsWith("Source Scraper/Imported/desktop-generic/")).length};
+    });
+    expect(original.reference).toContain("Unmodified original");
+    expect(original.project).toContain("Do not overwrite");
+    expect(original.createdNotes).toBe(1);
+  });
+
 });
