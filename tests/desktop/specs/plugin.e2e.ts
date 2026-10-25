@@ -162,4 +162,95 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     expect(data.count).toBe(1);
   });
 
+  it("validates a neutral project manifest and saves only a new config file",async()=>{
+    await click("Project JSON editor");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:10000});
+    expect(await modal.getText()).toContain("General project configuration");
+    await click("Validate project JSON");
+    expect(await modal.getText()).toContain("Valid basic project structure");
+    await click("Create new project file");
+    await browser.waitUntil(async()=>browser.executeObsidian(async({app})=>
+      app.vault.getFiles().some(f=>f.path==="Source Scraper/Projects/my-research.json")),{
+      timeout:15000,timeoutMsg:"General project manifest was not created"
+    });
+    const details=await browser.executeObsidian(async({app,obsidian})=>{
+      const manifest=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      const refs=app.vault.getAbstractFileByPath("References.md");
+      if(!(manifest instanceof obsidian.TFile)||!(refs instanceof obsidian.TFile))
+        throw Error("Missing project or original references");
+      return {manifest:JSON.parse(await app.vault.read(manifest)),
+        references:await app.vault.read(refs)};
+    });
+    expect(details.manifest.policy.includeKeywords).toEqual([]);
+    expect(details.manifest.policy.excludeKeywords).toEqual([]);
+    expect(details.manifest.outputs).toEqual([]);
+    expect(details.references).toBe("# Existing references\n\n- [Unmodified original](https://example.org/original)\n");
+  });
+  it("never overwrites a manually edited project manifest on repeated creation",async()=>{
+    const edited=await browser.executeObsidian(async({app,obsidian})=>{
+      const file=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      if(!(file instanceof obsidian.TFile))throw Error("Project manifest missing");
+      await app.vault.append(file,"\nManual owner annotation; never erase.\n");
+      return await app.vault.read(file);
+    });
+    await click("Project JSON editor");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:12000});
+    await click("Create new project file");
+    expect(await modal.isDisplayed()).toBe(true);
+    const original=await browser.executeObsidian(async({app,obsidian})=>{
+      const f=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      if(!(f instanceof obsidian.TFile))throw Error("Missing project");
+      return app.vault.read(f);
+    });
+    expect(original).toBe(edited);
+    await browser.keys("Escape");
+    await modal.waitForDisplayed({reverse:true,timeout:10000});
+  });
+
+  it("imports and saves a portable note mapping without editing existing user notes",async()=>{
+    await click("Note mapping");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:12000});
+    const mapping=modal.$("textarea");
+    await mapping.setValue(JSON.stringify({
+      version:1,titleField:"title",
+      properties:{source_measurement:"attributes.measurement"},
+      sections:{assessment:true,attributes:false,provenance:true}
+    }));
+    await click("Validate and preview mapping");
+    const preview=modal.$(".ss-preview");
+    await expect(preview).toHaveText(expect.stringContaining("source_measurement: 2"));
+    await click("Save mapping (no note writes)");
+    await modal.waitForDisplayed({reverse:true,timeout:15000});
+    const original=await browser.executeObsidian(async({app,obsidian})=>{
+      const reference=app.vault.getAbstractFileByPath("References.md");
+      const project=app.vault.getAbstractFileByPath("Projects/Important.md");
+      if(!(reference instanceof obsidian.TFile)||!(project instanceof obsidian.TFile))
+        throw Error("User notes disappeared");
+      return {reference:await app.vault.read(reference),project:await app.vault.read(project),
+        createdNotes:app.vault.getMarkdownFiles().filter(f=>
+          f.path.startsWith("Source Scraper/Imported/desktop-generic/")).length};
+    });
+    expect(original.reference).toContain("Unmodified original");
+    expect(original.project).toContain("Do not overwrite");
+    expect(original.createdNotes).toBe(1);
+  });
+
+  it("keeps keyboard focus while filtering multiple characters",async()=>{
+    const search=browser.$('input[placeholder="Any title, key or type"]');
+    await search.waitForDisplayed({timeout:12000});
+    await search.click();
+    await browser.keys("Public");
+    const value=await browser.execute(()=>{
+      const el=document.activeElement;
+      return el instanceof HTMLInputElement?el.value:"not-focused";
+    });
+    expect(value).toBe("Public");
+    const content=await browser.$(".source-scraper-view").getText();
+    expect(content).toContain("Public catalog sample");
+    expect(content).not.toContain("Independent research sample");
+  });
+
 });

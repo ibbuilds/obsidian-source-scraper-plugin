@@ -51,3 +51,54 @@ test("NDJSON requires one project, version and no blank lines",()=>{
     schemaVersion:2,dataset:"entities",projectId:"generic-library",record:second
   })),/unsupported NDJSON/);
 });
+
+test("one-line NDJSON (without newline) is a complete v1 export",()=>{
+  const line=JSON.stringify({schemaVersion:1,dataset:"entities",
+    projectId:envelope.projectId,record:first});
+  const value=parseExport(line);
+  assert.equal(value.records.length,1);
+  assert.equal(value.records[0].key,first.key);
+  assert.deepEqual(value.records[0].provenance?.mentions,first.provenance?.mentions);
+});
+test("one-line NDJSON cannot bypass project, schema, or entity validation",()=>{
+  for(const line of [
+    {schemaVersion:2,dataset:"entities",projectId:envelope.projectId,record:first},
+    {schemaVersion:1,dataset:"alerts",projectId:envelope.projectId,record:first},
+    {schemaVersion:1,dataset:"entities",projectId:"different",record:first},
+    {schemaVersion:1,dataset:"entities",projectId:envelope.projectId,record:null}
+  ])assert.throws(()=>parseExport(JSON.stringify(line)),/Invalid Source Scraper export/);
+});
+
+test("credential-like camelCase query names and OAuth fragments cannot enter entity exports",()=>{
+  const urls=[
+    "https://example.org/?accessToken=private",
+    "https://example.org/?authToken=private",
+    "https://example.org/?clientSecret=private",
+    "https://example.org/?refreshToken=private",
+    "https://example.org/?accesstoken=private",
+    "https://example.org/#access_token=private&token_type=bearer",
+    "https://example.org/#refreshToken=private",
+    "https://example.org/#?access_token=private",
+    "https://example.org/#/callback?authToken=private",
+    "https://example.org/#access%5Ftoken=private"
+  ];
+  for(const url of urls){
+    assert.throws(()=>checkedUrl(url),error=>{
+      assert.match(String(error),/credential-like URL parameters/);
+      assert.doesNotMatch(String(error),/private/);
+      return true;
+    });
+    assert.throws(()=>parseExport(JSON.stringify({...envelope,count:1,records:[{...first,url}]})),
+      /credential-like URL parameters/);
+  }
+});
+
+test("ordinary query fields, document anchors and text fragments remain usable",()=>{
+  for(const url of [
+    "https://example.org/?search=token&sessionCount=4&tokenLimit=10&clientId=public#overview",
+    "https://example.org/#access-token",
+    "https://example.org/#section=example",
+    "https://example.org/#:~:text=access_token%3Dexample",
+    "https://example.org/#/search?q=token&page=2"
+  ])assert.equal(checkedUrl(url),url);
+});

@@ -35,6 +35,12 @@ export const MAX_RECORDS=5000;
 const id=/^[a-z][a-z0-9_-]{1,63}$/;
 const unsafeKey=new Set(["__proto__","constructor","prototype"]);
 const secretQuery=/(?:^|[_-])(?:token|accesskey|apikey|api[_-]?key|key|secret|password|passwd|pwd|session|sessionid|auth|authorization|jwt|signature|sig|cookie)(?:$|[_-])/i;
+/** Match credential names without treating metrics such as sessionCount as secrets. */
+export function isCredentialKey(key:string):boolean{
+  const words=key.replace(/([a-z0-9])([A-Z])/g,"$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/g,"$1_$2");
+  return /(?:^|[_-])(?:api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|(?:access|refresh|auth|id)token|token|secret|password|passwd|pwd|session(?:[_-]?id)?|auth|authorization|jwt|signature|sig|cookie)$/i.test(words);
+}
 function fail(reason:string):never{throw new Error("Invalid Source Scraper export: "+reason);}
 function object(v:unknown,label:string):Record<string,unknown>{
   if(v===null||typeof v!=="object"||Array.isArray(v))fail(label+" must be an object");
@@ -73,7 +79,16 @@ export function checkedUrl(value:unknown,label="URL"):string|undefined{
   catch{fail(label+" is not a valid URL");}
   if(!["https:","http:"].includes(url.protocol)||url.username||url.password)
     fail(label+" uses unsafe URL credentials or protocol");
-  for(const key of url.searchParams.keys())if(secretQuery.test(key))fail(label+" contains credential-like query parameters");
+  const checkParameters=(params:URLSearchParams):void=>{
+    for(const key of params.keys())if(secretQuery.test(key)||isCredentialKey(key))
+      fail(label+" contains credential-like URL parameters");
+  };
+  checkParameters(url.searchParams);
+  // OAuth responses can carry credentials in a fragment rather than a query.
+  // Keep ordinary document anchors and text fragments usable.
+  const fragment=url.hash.slice(1);
+  const fragmentParameters=fragment.includes("?")?fragment.slice(fragment.indexOf("?")+1):fragment;
+  if(fragmentParameters.includes("="))checkParameters(new URLSearchParams(fragmentParameters));
   if(/[\u0000-\u001F<>]/.test(input))fail(label+" has unsupported characters");
   return url.toString();
 }
@@ -163,6 +178,16 @@ export function parseExport(content:string):EntityExport{
       records.push(data.record);
     }
     value={schemaVersion:1,dataset:"entities",projectId,count:records.length,records};
+  }
+  // A valid NDJSON export can contain exactly one JSON object. It parses as
+  // ordinary JSON, so recognize its singular "record" envelope explicitly.
+  if(value!==null&&typeof value==="object"&&!Array.isArray(value)){
+    const item=value as Record<string,unknown>;
+    if(Object.prototype.hasOwnProperty.call(item,"record")&&
+      !Object.prototype.hasOwnProperty.call(item,"records")){
+      value={schemaVersion:item.schemaVersion,dataset:item.dataset,
+        projectId:item.projectId,count:1,records:[item.record]};
+    }
   }
   return envelope(value);
 }

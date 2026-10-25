@@ -1,7 +1,7 @@
 {
   "id": "source-scraper",
   "name": "Source Scraper",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "minAppVersion": "1.9.2",
   "description": "Import Source Scraper JSON, review evidence, and create notes safely without overwriting existing files.",
   "author": "Source Scraper contributors",

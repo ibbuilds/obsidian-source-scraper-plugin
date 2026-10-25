@@ -1,9 +1,10 @@
 import {spawn} from "node:child_process";
 import {realpathSync} from "node:fs";
+import {StringDecoder} from "node:string_decoder";
 import type {EntityExport} from "./contracts.ts";
 import {parseExport} from "./contracts.ts";
 
-const MAX_STDOUT=9_000_000,MAX_STDERR=2000;
+const MAX_STDOUT=9_000_000,MAX_STDERR=2000,STOP_GRACE_MS=1000;
 function safe(s:string):string{
   return s.replace(/https?:\/\/[^\s"'<>]+/gi,"[redacted-url]")
     .replace(/(?:token|password|secret|cookie|session|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi,"[redacted]")
@@ -22,7 +23,8 @@ export class CliBridge {
     const node=config.nodeExecutable.trim()||"node";
     const abort=new AbortController();
     this.controller=abort;
-    let stdout="",stderr="";
+    const decoder=new StringDecoder("utf8");
+    let stdout="",stdoutBytes=0,stderr="",exceeded=false;
     try{
       return await new Promise<unknown>((resolve,reject)=>{
         let closed=false;
@@ -31,27 +33,70 @@ export class CliBridge {
           signal:abort.signal
         });
         const timer=setTimeout(()=>abort.abort(),timeout);
-        const end=(err?:Error)=>{
+        let forceTimer:ReturnType<typeof setTimeout>|undefined;
+        let pendingError:Error|undefined;
+        const interrupted=(message:string)=>new Error(exceeded?
+          "Source Scraper JSON exceeded the 9 MB response cap":
+          "CLI could not start or was cancelled: "+safe(message));
+        const closeCancelledPipes=()=>{
+          // Descendants may inherit these pipes after the direct CLI exits.
+          // On cancellation, detach our readers only once that exit is real;
+          // waiting for a descendant's EOF must not keep this command locked.
+          if(abort.signal.aborted&&(child.exitCode!==null||child.signalCode!==null)){
+            child.stdout.destroy();
+            child.stderr.destroy();
+          }
+        };
+        const stop=()=>{
+          pendingError??=interrupted("The operation was aborted");
+          if(child.exitCode!==null||child.signalCode!==null){
+            closeCancelledPipes();
+            return;
+          }
+          // AbortSignal sends SIGTERM. A CLI may delay or ignore that signal;
+          // keep the command locked and escalate only this child if needed.
+          forceTimer=setTimeout(()=>{
+            if(!closed&&child.exitCode===null&&child.signalCode===null)
+              child.kill("SIGKILL");
+          },STOP_GRACE_MS);
+        };
+        const onError=(error:Error)=>{pendingError=interrupted(error.message);};
+        const onStdout=(bytes:Buffer)=>{
+          if(exceeded||abort.signal.aborted)return;
+          stdoutBytes+=bytes.length;
+          if(stdoutBytes>MAX_STDOUT){exceeded=true;abort.abort();return;}
+          // A pipe chunk can end partway through a UTF-8 character. Preserve
+          // the decoder state so titles and identity keys survive unchanged.
+          stdout+=decoder.write(bytes);
+        };
+        const onStderr=(bytes:Buffer)=>{
+          stderr=(stderr+bytes.toString("utf8")).slice(-MAX_STDERR);
+        };
+        const onClose=(code:number|null)=>{
           if(closed)return;
           closed=true;clearTimeout(timer);
-          if(err)reject(err);
+          if(forceTimer)clearTimeout(forceTimer);
+          abort.signal.removeEventListener("abort",stop);
+          child.stdout.off("data",onStdout);
+          child.stderr.off("data",onStderr);
+          child.off("error",onError);
+          child.off("exit",closeCancelledPipes);
+          // Even AbortError arrives before the child has actually exited.
+          // The close event also follows failed spawn, so it is the common
+          // point at which the lock and all timers can safely be released.
+          if(pendingError)reject(pendingError);
+          else if(code!==0)reject(new Error("Source Scraper command failed: "+safe(stderr)));
           else{
-            try{resolve(JSON.parse(stdout));}
+            try{resolve(JSON.parse(stdout+decoder.end()));}
             catch{reject(new Error("CLI did not produce valid JSON"));}
           }
         };
-        child.stdout.on("data",(bytes:Buffer)=>{
-          stdout+=bytes.toString("utf8");
-          if(Buffer.byteLength(stdout)>MAX_STDOUT)abort.abort();
-        });
-        child.stderr.on("data",(bytes:Buffer)=>{
-          stderr=(stderr+bytes.toString("utf8")).slice(-MAX_STDERR);
-        });
-        child.on("error",e=>end(new Error("CLI could not start or was cancelled: "+safe(e.message))));
-        child.on("close",code=>{
-          if(code!==0)end(new Error("Source Scraper command failed: "+safe(stderr)));
-          else end();
-        });
+        child.stdout.on("data",onStdout);
+        child.stderr.on("data",onStderr);
+        child.on("error",onError);
+        child.once("exit",closeCancelledPipes);
+        child.once("close",onClose);
+        abort.signal.addEventListener("abort",stop,{once:true});
       });
     }finally{this.controller=undefined;}
   }
@@ -79,11 +124,21 @@ export class CliBridge {
   async runAndImport(config:CliConfig):Promise<EntityExport>{
     const manifest=realpathSync(config.configPath);
     await this.checkVersion(config);
-    const result=await this.command(config,"run",["--config",manifest],120000) as Record<string,unknown>;
-    if((result.result as Record<string,unknown>|undefined)?.success!==true)
+    const verified=await this.command(config,"validate",["--config",manifest],15000) as {valid?:boolean;id?:string};
+    if(verified.valid!==true||typeof verified.id!=="string")
+      throw new Error("The selected project JSON did not validate in the engine");
+    // The engine's normal run only persists its own knowledge; note writing and
+    // webhook delivery are separate explicit export operations.
+    const result=await this.command(config,"run",["--config",manifest],120000) as {result?:{success?:boolean};id?:string};
+    if(result.result?.success!==true||result.id!==verified.id)
       throw new Error("Source collection did not complete successfully");
-    const exportValue=await this.command(config,"export",["--config",manifest,"--format","json"],
-      120000);
-    return parseExport(JSON.stringify(exportValue));
+    // The plugin has a deliberately bounded in-memory import. A bigger
+    // library may be imported in separately generated pages later.
+    const exportValue=await this.command(config,"export",
+      ["--config",manifest,"--format","json","--dataset","entities","--limit","5000"],120000);
+    const imported=parseExport(JSON.stringify(exportValue));
+    if(imported.projectId!==verified.id)
+      throw new Error("Exported data did not match the selected project");
+    return imported;
   }
 }

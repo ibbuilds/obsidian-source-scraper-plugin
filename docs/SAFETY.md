@@ -9,7 +9,7 @@ The user specifically required that existing material must never be deleted or b
 - New paths produced from a SHA-256 digest of project ID + entity identity.
 - Settings JSON when the user explicitly changes plugin preferences.
 
-The importer, detail/preview views, and `onload`/startup **do not write notes**. CLI source collection (if explicitly requested) runs independently and returns JSON; its normal `run`/`export` do not implicitly send Obsidian notes or webhooks.
+The importer, detail/preview and project/mapping editor views, and `onload`/startup **do not write notes**. Project file creation itself requires a separate explicit click and is create-only, never a rewrite. CLI source collection (if explicitly requested) runs independently and returns JSON; its normal `run`/`export` do not implicitly send Obsidian notes or webhooks.
 
 ## What the plugin must never do
 
@@ -32,3 +32,7 @@ Unit tests create a disposable filesystem vault, add sentinel `References.md` an
 The actual Obsidian Desktop E2E suite uses a separate synthetic vault, imports entities, creates one selected note, manually edits it, retries the import and ensures the manual edit survives and original references remain unchanged.
 
 **The real owner's Obsidian vault is NEVER a CI test target.** The earlier MCP-created `Source Scraper/Acceptance Test.md` remains an existing user note, not a file owned by this plugin.
+
+## Portable configuration safety
+
+Project and note-mapping JSON are validated before saving. The project editor refuses inline credential-like keys, credential-bearing URLs, prototype pollution and invalid source identities. The mapping editor cannot execute code or navigate arbitrary object paths; it allows only known entity fields or bounded nested `attributes` paths, forbids reserved YAML keys and escapes injected Markdown/YAML syntax. New mappings do not rewrite previous notes. CI covers malicious source fields, unsafe paths, symlinks, duplicate files and original user-file preservation.
