@@ -22,7 +22,7 @@ export class CliBridge {
     const node=config.nodeExecutable.trim()||"node";
     const abort=new AbortController();
     this.controller=abort;
-    let stdout="",stderr="";
+    let stdout="",stderr="",exceeded=false;
     try{
       return await new Promise<unknown>((resolve,reject)=>{
         let closed=false;
@@ -42,14 +42,18 @@ export class CliBridge {
         };
         child.stdout.on("data",(bytes:Buffer)=>{
           stdout+=bytes.toString("utf8");
-          if(Buffer.byteLength(stdout)>MAX_STDOUT)abort.abort();
+          if(Buffer.byteLength(stdout)>MAX_STDOUT){exceeded=true;abort.abort();}
         });
         child.stderr.on("data",(bytes:Buffer)=>{
           stderr=(stderr+bytes.toString("utf8")).slice(-MAX_STDERR);
         });
-        child.on("error",e=>end(new Error("CLI could not start or was cancelled: "+safe(e.message))));
+        child.on("error",e=>end(new Error(exceeded?
+          "Source Scraper JSON exceeded the 9 MB response cap":
+          "CLI could not start or was cancelled: "+safe(e.message))));
         child.on("close",code=>{
-          if(code!==0)end(new Error("Source Scraper command failed: "+safe(stderr)));
+          if(code!==0)end(new Error(exceeded?
+            "Source Scraper JSON exceeded the 9 MB response cap":
+            "Source Scraper command failed: "+safe(stderr)));
           else end();
         });
       });
@@ -79,11 +83,23 @@ export class CliBridge {
   async runAndImport(config:CliConfig):Promise<EntityExport>{
     const manifest=realpathSync(config.configPath);
     await this.checkVersion(config);
-    const result=await this.command(config,"run",["--config",manifest],120000) as Record<string,unknown>;
-    if((result.result as Record<string,unknown>|undefined)?.success!==true)
+    const verified=(await this.command(config,"validate",["--config",manifest],15000))
+      as {valid?:boolean;id?:string};
+    if(verified.valid!==true||typeof verified.id!=="string")
+      throw new Error("The selected project JSON did not validate in the engine");
+    // The engine's normal run only persists its own knowledge; note writing and
+    // webhook delivery are separate explicit export operations.
+    const result=await this.command(config,"run",["--config",manifest],120000) as
+      {result?:{success?:boolean};id?:string};
+    if(result.result?.success!==true||result.id!==verified.id)
       throw new Error("Source collection did not complete successfully");
-    const exportValue=await this.command(config,"export",["--config",manifest,"--format","json"],
-      120000);
-    return parseExport(JSON.stringify(exportValue));
+    // The plugin has a deliberately bounded in-memory import. A bigger
+    // library may be imported in separately generated pages later.
+    const exportValue=await this.command(config,"export",
+      ["--config",manifest,"--format","json","--dataset","entities","--limit","5000"],120000);
+    const imported=parseExport(JSON.stringify(exportValue));
+    if(imported.projectId!==verified.id)
+      throw new Error("Exported data did not match the selected project");
+    return imported;
   }
 }
