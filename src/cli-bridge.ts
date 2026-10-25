@@ -83,14 +83,12 @@ export class CliBridge {
   async runAndImport(config:CliConfig):Promise<EntityExport>{
     const manifest=realpathSync(config.configPath);
     await this.checkVersion(config);
-    const verified=(await this.command(config,"validate",["--config",manifest],15000))
-      as {valid?:boolean;id?:string};
+    const verified=await this.command(config,"validate",["--config",manifest],15000) as {valid?:boolean;id?:string};
     if(verified.valid!==true||typeof verified.id!=="string")
       throw new Error("The selected project JSON did not validate in the engine");
     // The engine's normal run only persists its own knowledge; note writing and
     // webhook delivery are separate explicit export operations.
-    const result=await this.command(config,"run",["--config",manifest],120000) as
-      {result?:{success?:boolean};id?:string};
+    const result=await this.command(config,"run",["--config",manifest],120000) as {result?:{success?:boolean};id?:string};
     if(result.result?.success!==true||result.id!==verified.id)
       throw new Error("Source collection did not complete successfully");
     // The plugin has a deliberately bounded in-memory import. A bigger
