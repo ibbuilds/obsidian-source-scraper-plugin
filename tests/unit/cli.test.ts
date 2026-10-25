@@ -14,7 +14,7 @@ test("optional bridge checks public version then invokes fixed CLI commands with
 if(cmd==="version")console.log(JSON.stringify({name:"source-scraper",version:"0.14.0",jsonSchemaVersion:1}));
 else if(cmd==="validate")console.log(JSON.stringify({valid:true,id:"generic-library"}));
 else if(cmd==="review")console.log(JSON.stringify({entity:{key:"record:no-url",review:"approved"}}));
-else if(cmd==="run")console.log(JSON.stringify({result:{success:true}}));
+else if(cmd==="run")console.log(JSON.stringify({id:"generic-library",result:{success:true}}));
 else if(cmd==="export")console.log(JSON.stringify(${JSON.stringify(envelope)}));
 else process.exit(19);`);
     const bridge=new CliBridge(),config={nodeExecutable:process.execPath,cliPath,configPath};

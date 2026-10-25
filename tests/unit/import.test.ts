@@ -51,3 +51,20 @@ test("NDJSON requires one project, version and no blank lines",()=>{
     schemaVersion:2,dataset:"entities",projectId:"generic-library",record:second
   })),/unsupported NDJSON/);
 });
+
+test("one-line NDJSON (without newline) is a complete v1 export",()=>{
+  const line=JSON.stringify({schemaVersion:1,dataset:"entities",
+    projectId:envelope.projectId,record:first});
+  const value=parseExport(line);
+  assert.equal(value.records.length,1);
+  assert.equal(value.records[0].key,first.key);
+  assert.deepEqual(value.records[0].provenance?.mentions,first.provenance.mentions);
+});
+test("one-line NDJSON cannot bypass project, schema, or entity validation",()=>{
+  for(const line of [
+    {schemaVersion:2,dataset:"entities",projectId:envelope.projectId,record:first},
+    {schemaVersion:1,dataset:"alerts",projectId:envelope.projectId,record:first},
+    {schemaVersion:1,dataset:"entities",projectId:"different",record:first},
+    {schemaVersion:1,dataset:"entities",projectId:envelope.projectId,record:null}
+  ])assert.throws(()=>parseExport(JSON.stringify(line)),/Invalid Source Scraper export/);
+});
