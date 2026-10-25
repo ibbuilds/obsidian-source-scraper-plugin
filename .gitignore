@@ -16,3 +16,5 @@ coverage/
 *.zip
 # Never commit local user-vault settings or credentials.
 .obsidian/
+main.js
+.obsidian-cache/
