@@ -162,4 +162,51 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     expect(data.count).toBe(1);
   });
 
+  it("validates a neutral project manifest and saves only a new config file",async()=>{
+    await click("Project JSON editor");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:10000});
+    expect(await modal.getText()).toContain("General project configuration");
+    await click("Validate project JSON");
+    expect(await modal.getText()).toContain("Valid basic project structure");
+    await click("Create new project file");
+    await browser.waitUntil(async()=>browser.executeObsidian(async({app})=>
+      app.vault.getFiles().some(f=>f.path==="Source Scraper/Projects/my-research.json")),{
+      timeout:15000,timeoutMsg:"General project manifest was not created"
+    });
+    const details=await browser.executeObsidian(async({app,obsidian})=>{
+      const manifest=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      const refs=app.vault.getAbstractFileByPath("References.md");
+      if(!(manifest instanceof obsidian.TFile)||!(refs instanceof obsidian.TFile))
+        throw Error("Missing project or original references");
+      return {manifest:JSON.parse(await app.vault.read(manifest)),
+        references:await app.vault.read(refs)};
+    });
+    expect(details.manifest.policy.includeKeywords).toEqual([]);
+    expect(details.manifest.policy.excludeKeywords).toEqual([]);
+    expect(details.manifest.outputs).toEqual([]);
+    expect(details.references).toBe("# Existing references\n\n- [Unmodified original](https://example.org/original)\n");
+  });
+  it("never overwrites a manually edited project manifest on repeated creation",async()=>{
+    const edited=await browser.executeObsidian(async({app,obsidian})=>{
+      const file=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      if(!(file instanceof obsidian.TFile))throw Error("Project manifest missing");
+      await app.vault.append(file,"\nManual owner annotation; never erase.\n");
+      return await app.vault.read(file);
+    });
+    await click("Project JSON editor");
+    const modal=browser.$(".modal-container");
+    await modal.waitForDisplayed({timeout:12000});
+    await click("Create new project file");
+    expect(await modal.isDisplayed()).toBe(true);
+    const original=await browser.executeObsidian(async({app,obsidian})=>{
+      const f=app.vault.getAbstractFileByPath("Source Scraper/Projects/my-research.json");
+      if(!(f instanceof obsidian.TFile))throw Error("Missing project");
+      return app.vault.read(f);
+    });
+    expect(original).toBe(edited);
+    await browser.keys("Escape");
+    await modal.waitForDisplayed({reverse:true,timeout:10000});
+  });
+
 });
