@@ -6,6 +6,8 @@ import {parseExport,type EntityExport,type EntityRecord} from "./contracts.ts";
 import {selectedPlans,createOnlyNotes} from "./vault-writer.ts";
 import {CliBridge} from "./cli-bridge.ts";
 import {folderPath} from "./render.ts";
+import {join} from "node:path";
+import {GENERIC_TEMPLATE,parseProjectManifest,createNewProjectFile} from "./project-manifest.ts";
 
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
@@ -13,8 +15,9 @@ interface Preferences {
   cliPath:string;
   configPath:string;
   nodeExecutable:string;
+  projectFolder:string;
 }
-const defaults:Preferences={outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node"};
+const defaults:Preferences={outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",projectFolder:""};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
   return message.replace(/https?:\/\/[^\s"'<>()]+/gi,"[redacted-url]")
@@ -56,6 +59,103 @@ class ImportModal extends Modal {
           this.plugin.setImported(parseExport(text));
           this.close();
           new Notice("Imported data into preview only. No files were written.");
+        }catch(error){notify(error);}
+      }));
+  }
+  onClose():void{this.contentEl.empty();}
+}
+/** Project configuration is data, never executable code in the plugin. */
+class ProjectModal extends Modal {
+  private body=GENERIC_TEMPLATE;
+  private directory:string;
+  private selectedPath="";
+  private busy=false;
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin){
+    super(app);
+    this.directory=plugin.settings.projectFolder||"Source Scraper/Projects";
+  }
+  onOpen():void{
+    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
+    root.createEl("h3",{text:"General project configuration"});
+    paragraph(root,"Define any project with the public Source Scraper JSON manifest format. No topic rules are imposed, and editing this form never executes a source or writes a note.");
+    const candidates=this.app.vault.getFiles()
+      .filter(f=>f.extension==="json"&&f.stat.size<=200000);
+    new Setting(root).setName("Existing project in this vault (optional)")
+      .setDesc("Inspect or use a project JSON without overwriting it.")
+      .addDropdown(d=>{
+        d.addOption("","Start from the neutral local JSON template");
+        for(const file of candidates.slice(0,200))d.addOption(file.path,file.path);
+        d.onChange(async path=>{
+          this.selectedPath=path;
+          if(!path)return;
+          try{
+            const file=this.app.vault.getAbstractFileByPath(path);
+            if(!(file instanceof TFile))throw Error("Project JSON is unavailable");
+            const input=await this.app.vault.read(file);
+            const manifest=parseProjectManifest(input);
+            this.body=JSON.stringify(manifest,null,2);
+            area.value=this.body;
+            status.setText("Loaded project "+manifest.id+". No file was changed.");
+          }catch(error){notify(error);}
+        });
+      });
+    const area=root.createEl("textarea",{
+      attr:{rows:"14",placeholder:"Public Source Scraper project JSON"}
+    });
+    area.value=this.body;
+    area.addEventListener("input",()=>{
+      this.body=area.value;
+      // Once edited, do not claim that the selected existing file is identical.
+      this.selectedPath="";
+    });
+    const status=root.createEl("pre",{cls:"ss-preview"});
+    status.setText("Nothing has been written. Validate before creating a project file.");
+    new Setting(root).setName("Project manifest folder")
+      .setDesc("Choose a new vault-relative location. Existing files cannot be replaced.")
+      .addText(t=>t.setValue(this.directory)
+        .onChange(value=>{this.directory=value;}));
+    new Setting(root).addButton(b=>b.setButtonText("Validate project JSON")
+      .onClick(()=>{
+        try{
+          const manifest=parseProjectManifest(this.body);
+          status.setText("Valid basic project structure\n"+
+            "ID: "+manifest.id+"\nSources: "+manifest.sources.length+
+            "\nPipeline: "+manifest.pipeline.join(", ")+
+            "\nOutputs: "+manifest.outputs.length+
+            "\nThe engine performs adapter-specific validation when run. No sources executed.");
+        }catch(error){status.setText(errorMessage(error));}
+      }));
+    new Setting(root).addButton(b=>b.setButtonText("Create new project file")
+      .setCta().onClick(async()=>{
+        if(this.busy)return;
+        this.busy=true;
+        try{
+          const manifest=parseProjectManifest(this.body);
+          const adapter=this.app.vault.adapter;
+          const base=adapter instanceof FileSystemAdapter?adapter.getBasePath():undefined;
+          const result=await createNewProjectFile(this.app.vault,this.directory,this.body,base);
+          if(!result.created)throw Error("Project manifest already exists: no content was replaced");
+          this.plugin.settings.projectFolder=folderPath(this.directory);
+          if(base)this.plugin.settings.configPath=join(base,result.path);
+          await this.plugin.savePrefs();
+          this.close();
+          new Notice("Created "+manifest.id+" project JSON. No collection has run.");
+        }catch(error){notify(error);}
+        finally{this.busy=false;}
+      }));
+    new Setting(root).addButton(b=>b.setButtonText("Use selected existing project (no writes)")
+      .onClick(async()=>{
+        try{
+          if(!this.selectedPath)throw Error("Choose an existing project JSON above");
+          const file=this.app.vault.getAbstractFileByPath(this.selectedPath);
+          const adapter=this.app.vault.adapter;
+          if(!(file instanceof TFile)||!(adapter instanceof FileSystemAdapter))
+            throw Error("A local desktop vault project file is required");
+          parseProjectManifest(await this.app.vault.read(file));
+          this.plugin.settings.configPath=join(adapter.getBasePath(),file.path);
+          await this.plugin.savePrefs();
+          this.close();
+          new Notice("Selected existing project for optional CLI use. No source has run.");
         }catch(error){notify(error);}
       }));
   }
@@ -210,6 +310,7 @@ class ScraperView extends ItemView {
       return button;
     };
     action("Import JSON / NDJSON",()=>new ImportModal(this.app,this.plugin).open());
+    action("Project JSON editor",()=>new ProjectModal(this.app,this.plugin).open());
     action("Run local CLI (optional)",()=>new RunModal(this.app,this.plugin).open());
     action("Diagnostics",()=>{
       new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+
@@ -225,7 +326,19 @@ class ScraperView extends ItemView {
       " entities · Selected: "+this.plugin.selected.size});
     const filter=new Setting(root).setName("Search records");
     filter.addText(t=>t.setPlaceholder("Any title, key or type")
-      .setValue(this.search).onChange(value=>{this.search=value;this.page=0;this.render();}));
+      .setValue(this.search).onChange(value=>{
+        const cursor=t.inputEl.selectionStart??value.length;
+        this.search=value;this.page=0;this.render();
+        // Keep focus and caret when filtering: otherwise every keystroke
+        // destroys the text input and makes multi-character searches unusable.
+        const restored=root.querySelector<HTMLInputElement>(
+          'input[placeholder="Any title, key or type"]');
+        if(restored){
+          restored.focus();
+          const position=Math.min(cursor,value.length);
+          restored.setSelectionRange(position,position);
+        }
+      }));
     const filtered=imported.records.filter(e=>
       [e.title,e.key,e.type,e.category].some(v=>v.toLowerCase().includes(this.search.toLowerCase())));
     const pageSize=40;
@@ -283,7 +396,7 @@ class ScraperSettings extends PluginSettingTab {
         this.plugin.settings.cliPath=value.trim();await this.plugin.savePrefs();
       }));
     new Setting(root).setName("Explicit project JSON manifest")
-      .setDesc("Local manifest to run when the user presses Run.")
+      .setDesc("Local manifest to run only when you press Run. Use Project JSON editor to create a new config without overwriting existing files.")
       .addText(t=>t.setValue(this.plugin.settings.configPath).onChange(async value=>{
         this.plugin.settings.configPath=value.trim();await this.plugin.savePrefs();
       }));
