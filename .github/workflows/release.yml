@@ -79,8 +79,14 @@ jobs:
           set -euo pipefail
           actual=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" --jq '.object.sha')
           if [[ "$actual" != "$TESTED_SHA" ]]; then
-            echo "Release tag does not point to tested main commit"
-            exit 1
+            # A previous release remains immutable when main advances without a version bump.
+            # Never move a historical tag; verify it still points at its original target.
+            original=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '.target_commitish')
+            if [[ "$actual" != "$original" ]]; then
+              echo "Published release tag differs from its original target; manual review required"
+              exit 1
+            fi
+            echo "Existing release $TAG is immutable at $actual; main is now $TESTED_SHA"
           fi
           assets=$(gh release view "$TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort)
           expected=$(printf '%s\n' main.js manifest.json styles.css | LC_ALL=C sort)
