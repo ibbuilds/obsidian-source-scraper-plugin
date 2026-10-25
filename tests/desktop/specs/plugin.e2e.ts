@@ -238,4 +238,19 @@ describe("Independent Source Scraper in real Obsidian Desktop",()=>{
     expect(original.createdNotes).toBe(1);
   });
 
+  it("keeps keyboard focus while filtering multiple characters",async()=>{
+    const search=browser.$('input[placeholder="Any title, key or type"]');
+    await search.waitForDisplayed({timeout:12000});
+    await search.click();
+    await browser.keys("Public");
+    const value=await browser.execute(()=>{
+      const el=document.activeElement;
+      return el instanceof HTMLInputElement?el.value:"not-focused";
+    });
+    expect(value).toBe("Public");
+    const content=await browser.$(".source-scraper-view").getText();
+    expect(content).toContain("Public catalog sample");
+    expect(content).not.toContain("Independent research sample");
+  });
+
 });
