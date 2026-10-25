@@ -109,3 +109,5 @@ jobs:
           node dist/source-scraper.mjs export --config ./ci-demo/project.json --out ./real-export.json
       - name: Verify independent plugin can parse and render the real JSON
         run: node --experimental-strip-types plugin/scripts/verify-engine-json.mjs engine/real-export.json
+      - name: Execute real CLI bridge, persist review and verify replay
+        run: node --experimental-strip-types plugin/scripts/verify-real-cli.mjs engine/dist/source-scraper.mjs engine/ci-demo/project.json
