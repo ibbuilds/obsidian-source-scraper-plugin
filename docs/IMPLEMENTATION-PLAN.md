@@ -1,6 +1,6 @@
 # Implementation plan — independent, general-purpose Obsidian client
 
-**Status:** execution in progress on [implementation PR #8](https://github.com/ibbuilds/obsidian-source-scraper-plugin/pull/8). M1–M4 are implemented and tested; M5 generic configuration-editor portability remains future work; M6 first release requires green CI and real Obsidian Desktop; M7 removal of duplicated legacy code is **intentionally blocked until proven replacement parity**. Last reviewed: 2026-10-24.
+**Status:** general-purpose v1 implementation and final CI gating in [PR #9](https://github.com/ibbuilds/obsidian-source-scraper-plugin/pull/9). Project manifest and portable note-mapping editors are implemented, including actual Source Scraper CLI run/export/review acceptance. Legacy engine plugin and user's vault remain untouched. Owner-device installation and eventual legacy removal are deliberately separate steps. Last reviewed: 2026-10-24.
 
 - Target: [ibbuilds/obsidian-source-scraper-plugin](https://github.com/ibbuilds/obsidian-source-scraper-plugin).
 - Existing engine and legacy plugin: [ibbuilds/source-scraper](https://github.com/ibbuilds/source-scraper), verified at `0f9271cf92fde6d0c773e60590df4f009ac4cedf` / `v0.14.0-beta.1`.

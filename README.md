@@ -4,7 +4,7 @@
 
 Source Scraper remains a separate JSON-first engine. This repository does not duplicate source adapters, SQLite, research/evaluation rules or any specific X/React/design workflow.
 
-## Features implemented in 0.1.0
+## Features in 1.0.0
 
 - Import `schemaVersion: 1`, `dataset: entities` JSON or NDJSON (paste or select a JSON file already inside your vault).
 - Search and inspect generic source entities, including original evidence, review decisions, history and attributes; entries without URLs are valid.
@@ -19,7 +19,7 @@ Source Scraper remains a separate JSON-first engine. This repository does not du
 
 **This repository is a plugin, not the Source Scraper CLI. It does not have to be installed unless you want an interface in Obsidian.**
 
-After the CI-validated GitHub release is published, download `main.js`, `manifest.json` and `styles.css` from the **same** release tagged `0.1.0`. Place them in:
+After the CI-validated GitHub release is published, download `main.js`, `manifest.json` and `styles.css` from the **same** release tagged `1.0.0`. Place them in:
 
 ```text
 <your-vault>/.obsidian/plugins/source-scraper/
@@ -31,6 +31,14 @@ After the CI-validated GitHub release is published, download `main.js`, `manifes
 Enable **Source Scraper** under Settings → Community plugins (manually installed plugin). Obsidian Desktop 1.9.2+ required. This plugin has **not** been submitted to or approved for the official Community directory, so do not expect it to appear in directory search.
 
 The old optional `Discovery Engine` plugin with ID `x-feed-scraper` is not replaced or deleted. Its files and settings stay untouched.
+
+## General project and note mapping editors
+
+Use **Project JSON editor** to compose or inspect **any** Source Scraper v1 project. It starts with a neutral, editable local JSON example: no React, X, design rules or personal filters. Validate first, then explicitly create a new manifest inside a folder you choose. Existing project files cannot be overwritten; alternatively use an already existing valid project without modifying it. The optional CLI is only invoked when you click Run.
+
+Use **Note mapping** to paste or edit a portable version-1 JSON template. Choose a heading field, add source-independent YAML properties (e.g. `attributes.license`) and select whether to include assessment, full attributes and provenance in future **newly created** notes. Changing the mapping never revises existing notes.
+
+Valid exports with **a single NDJSON record** are supported. Import accepts up to 5,000 entities / 8 MB; the optional CLI exports no more than 5,000 in a single import. Large libraries can be imported as explicit pages.
 
 ## First run
 

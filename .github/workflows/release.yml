@@ -62,9 +62,12 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release already exists; not modifying its files"
           else
+            # 0.x previews remain prereleases; 1.x+ is a normal stable release.
+            prerelease=()
+            if [[ "$TAG" == 0.* ]]; then prerelease+=(--prerelease); fi
             gh release create "$TAG" main.js manifest.json styles.css \
               --title "Source Scraper for Obsidian $TAG" \
-              --target "$TESTED_SHA" --prerelease \
+              --target "$TESTED_SHA" "${prerelease[@]}" \
               --notes-file "docs/releases/$TAG.md"
           fi
       - name: Verify published tag and official install artifacts

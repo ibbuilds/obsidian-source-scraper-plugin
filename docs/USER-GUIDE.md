@@ -34,6 +34,38 @@ If you installed the independent CLI (for example the standalone `source-scraper
 
 The bridge uses fixed argument arrays with `shell:false`, a timeout, cancellation and bounded output; no hidden downloads or external output adapters. If connected, open **Inspect data and evidence** and explicitly choose a human review plus required reason, then click **Save human review to engine**. The plugin verifies that the CLI manifest project matches the imported project, and it updates the view only after the engine confirms persistence. Imported records in memory are cleared on Obsidian/app restart, while notes previously created remain.
 
+## Generic project JSON editor
+
+Click **Project JSON editor** in the Source Scraper sidebar. Supply any Source Scraper public project schema v1 JSON; the neutral starter uses a local JSON file with **empty** keyword filters and **no outputs**. Use **Validate project JSON** before pressing **Create new project file**; the plugin writes only a brand-new `<project-id>.json` in an explicitly selected vault folder. Existing user-authored manifests remain untouched. If you choose an existing `.json` project in the vault, use **Use selected existing project (no writes)** to set its absolute path for optional CLI execution. Changing JSON in the editor does not execute a source.
+
+Project validation checks schema structure, size, unsafe property names, duplicate source/output IDs, suspicious credential fields and URL query tokens. Adapter-specific details are additionally checked by the Source Scraper engine when the user explicitly executes its `validate` or `run` command. This plugin never embeds or silently runs source adapters or MCP commands.
+
+## Portable note mapping JSON
+
+Click **Note mapping** to edit a versioned JSON configuration. A safe example:
+
+```json
+{
+  "version": 1,
+  "titleField": "title",
+  "properties": {
+    "source_license": "attributes.license",
+    "original_score": "score"
+  },
+  "sections": {
+    "assessment": true,
+    "attributes": true,
+    "provenance": true
+  }
+}
+```
+
+Field selectors are restricted to known entity fields and nested `attributes.*` keys; aliases cannot collide with the reserved system properties. The mapping editor validates and previews without writing notes. **Saving a new mapping affects only future note creation.** Existing notes, including manually edited generated Markdown, stay untouched. Users may copy the JSON to share their mapping without sharing any collected source data.
+
+## Source-independent CLI review
+
+When the optional CLI is configured, open an entity's **Inspect data and evidence** dialog, choose Pending/Approved/Rejected, enter a required explanation and click **Save human review to engine**. The plugin verifies the project ID with the actual Source Scraper CLI and only updates the UI if SQLite confirms the recorded decision. Without a CLI, imported review states are read-only source values.
+
 ## Recovery and coexistence
 
 The old plugin `x-feed-scraper` may remain installed. The new plugin uses ID `source-scraper`, saves only its own settings and does not read/migrate `~/.x-feed-scraper` data or delete old files.
