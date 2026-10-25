@@ -2,16 +2,18 @@ import {lstatSync,realpathSync} from "node:fs";
 import {join} from "node:path";
 import type {EntityRecord} from "./contracts.ts";
 import {folderPath,notePath,renderNote} from "./render.ts";
+import type {NoteMapping} from "./note-mapping.ts";
 export interface VaultLike {
   getAbstractFileByPath(path:string):{path:string;children?:unknown[]}|null;
   createFolder(path:string):Promise<unknown>;
   create(path:string,content:string):Promise<unknown>;
 }
 /** Never calls modify, rename, delete, trash or process on a vault note. */
-export function selectedPlans(folder:string,items:readonly EntityRecord[]):Array<{path:string;content:string;entity:EntityRecord}>{
+export function selectedPlans(folder:string,items:readonly EntityRecord[],
+  mapping?:NoteMapping):Array<{path:string;content:string;entity:EntityRecord}>{
   if(items.length>200)throw new Error("Select at most 200 records per write");
   const checked=folderPath(folder);
-  return items.map(entity=>({path:notePath(checked,entity),content:renderNote(entity),entity}));
+  return items.map(entity=>({path:notePath(checked,entity),content:renderNote(entity,mapping),entity}));
 }
 function symlinkCheck(root:string|undefined,relative:string):void{
   if(!root)return;
@@ -32,8 +34,8 @@ function symlinkCheck(root:string|undefined,relative:string):void{
 }
 export interface WriteResult {created:number;conflicts:string[];paths:string[]}
 export async function createOnlyNotes(vault:VaultLike,folder:string,items:readonly EntityRecord[],
-  rootPath?:string):Promise<WriteResult>{
-  const plans=selectedPlans(folder,items);
+  rootPath?:string,mapping?:NoteMapping):Promise<WriteResult>{
+  const plans=selectedPlans(folder,items,mapping);
   // Preflight every target before creating *any* folders, including symlinks.
   for(const item of plans)symlinkCheck(rootPath,item.path);
   const folders=new Set<string>();
