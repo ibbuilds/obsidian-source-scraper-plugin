@@ -24,6 +24,9 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run check
       - run: npm test
+      - name: Bounded large-project JSON and Markdown profile
+        if: runner.os == 'Linux'
+        run: node --experimental-strip-types scripts/bench-import.mjs
       - run: npm run build
       - name: Check standard Obsidian release assets
         shell: bash
