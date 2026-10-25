@@ -33,3 +33,9 @@ test("markdown injection stays in escaped text or an indented JSON block",()=>{
   assert.ok(md.includes("\\n![[Vault.md]]"),"Unsafe embed stays escaped inside JSON");
   assert.match(md,/review: "pending"/);
 });
+test("rendering refuses credential-bearing links even for directly supplied entities",()=>{
+  for(const url of ["https://example.org/?accessToken=private",
+    "https://example.org/#access_token=private"]){
+    assert.throws(()=>renderNote({...first,url}),/credential-like URL parameters/);
+  }
+});

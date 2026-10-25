@@ -1,4 +1,4 @@
-import {checkedUrl} from "./contracts.ts";
+import {checkedUrl,isCredentialKey} from "./contracts.ts";
 import {folderPath} from "./render.ts";
 import {createOnlyDocument,type VaultLike} from "./vault-writer.ts";
 
@@ -33,7 +33,7 @@ function safe(value:unknown,depth=0):void{
   if(depth>12)throw Error("Project JSON is too deeply nested");
   if(typeof value==="string"){
     if(value.length>20000)throw Error("Project field is too long");
-    if(/^https?:\/\//i.test(value))checkedUrl(value,"project URL");
+    if(/^https?:\/\//i.test(value.trim()))checkedUrl(value,"project URL");
     return;
   }
   if(value===null||typeof value==="boolean"||
@@ -48,7 +48,8 @@ function safe(value:unknown,depth=0):void{
   for(const [key,item] of entries){
     if(!key||key.length>120||["__proto__","constructor","prototype"].includes(key))
       throw Error("Unsafe project JSON property");
-    if(sensitiveKey.test(key))throw Error("Credentials must not be stored in a vault manifest");
+    if(sensitiveKey.test(key)||isCredentialKey(key))
+      throw Error("Credentials must not be stored in a vault manifest");
     safe(item,depth+1);
   }
 }
@@ -95,7 +96,9 @@ export function parseProjectManifest(raw:string):ProjectManifest{
     if(new Set(items.map(v=>v.id)).size!==items.length)
       throw Error("Duplicate project connection IDs");
   }
-  const pipeline=array(v.pipeline??["observation-entity"],"pipeline",25)
+  // Match the engine's omitted-pipeline default; the neutral starter
+  // opts into observation-entity explicitly rather than changing loaded data.
+  const pipeline=array(v.pipeline??["extract-links"],"pipeline",25)
     .map(value=>ident(value,"pipeline step"));
   if(!pipeline.length)throw Error("Project pipeline cannot be empty");
   const evaluator=ident(v.evaluator??"keyword","evaluator");

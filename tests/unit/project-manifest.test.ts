@@ -28,6 +28,14 @@ test("neutral generalist template is valid with no personal keywords or outputs"
   assert.deepEqual(p.policy.includeKeywords,[]);
   assert.deepEqual(p.policy.excludeKeywords,[]);
   assert.deepEqual(p.outputs,[]);
+  assert.deepEqual(p.pipeline,["observation-entity"]);
+});
+test("an omitted pipeline retains the Source Scraper engine default",()=>{
+  const minimal={id:"minimal-project",name:"Minimal project",
+    sources:[{id:"local",adapter:"json-file",config:{path:"./observations.json"}}]};
+  const parsed=parseProjectManifest(JSON.stringify(minimal));
+  assert.deepEqual(parsed.pipeline,["extract-links"]);
+  assert.deepEqual(parseProjectManifest(JSON.stringify(parsed)),parsed);
 });
 test("general projects allow any normalized adapter, nested watch rules and a generic evaluator",()=>{
   const input={id:"neutral-research",name:"Source-independent workflow",
@@ -55,6 +63,7 @@ test("reject malformed project objects, duplicate connection IDs, unsafe source 
     {...source,pipeline:["__proto__"]},
     {...source,sources:[{id:"local",adapter:"json-file",config:{api_key:"secret"}}]},
     {...source,sources:[{id:"local",adapter:"rss",config:{url:"https://example.org?session=abcd"}}]},
+    {...source,sources:[{id:"local",adapter:"rss",config:{url:" https://example.org?accessToken=synthetic "}}]},
     {...source,outputs:[{id:"notify",adapter:"webhook",config:{authorization:"Bearer secret"}}]},
     {...source,sources:[{id:"local",adapter:"json-file",config:JSON.parse('{"__proto__":123}')}]}
   ];
@@ -64,6 +73,17 @@ test("reject malformed project objects, duplicate connection IDs, unsafe source 
   }
   assert.throws(()=>parseProjectManifest("{"),/Invalid project JSON/);
   assert.throws(()=>parseProjectManifest(" ".repeat(200001)),/200 KB/);
+});
+test("credential names in camelCase are rejected without blocking generic config fields",()=>{
+  const source=JSON.parse(GENERIC_TEMPLATE);
+  for(const name of ["accessToken","clientSecret","refreshToken","bearerToken"]){
+    const input={...source,sources:[{id:"remote",adapter:"public-json",
+      config:{settings:{[name]:"synthetic-credential"}}}]};
+    assert.throws(()=>parseProjectManifest(JSON.stringify(input)),/Credentials/);
+  }
+  const config={key:"id",sessionCount:3,tokenLimit:1000};
+  const generic={...source,sources:[{id:"custom",adapter:"custom-source",config}]};
+  assert.deepEqual(parseProjectManifest(JSON.stringify(generic)).sources[0].config,config);
 });
 test("a new manifest can be created once; changing source afterward cannot replace it",async()=>{
   const root=mkdtempSync(join(tmpdir(),"source-scraper-manifest-"));
