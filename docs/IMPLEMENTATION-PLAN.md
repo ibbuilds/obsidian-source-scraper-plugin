@@ -1,10 +1,10 @@
 # Implementation plan — independent, general-purpose Obsidian client
 
-**Status:** planned, **not implemented**. This document is the acceptance contract before migrating code. Last reviewed: 2026-10-24.
+**Status:** execution in progress on [implementation PR #8](https://github.com/ibbuilds/obsidian-source-scraper-plugin/pull/8). M1–M4 are implemented and tested; M5 generic configuration-editor portability remains future work; M6 first release requires green CI and real Obsidian Desktop; M7 removal of duplicated legacy code is **intentionally blocked until proven replacement parity**. Last reviewed: 2026-10-24.
 
 - Target: [ibbuilds/obsidian-source-scraper-plugin](https://github.com/ibbuilds/obsidian-source-scraper-plugin).
 - Existing engine and legacy plugin: [ibbuilds/source-scraper](https://github.com/ibbuilds/source-scraper), verified at `0f9271cf92fde6d0c773e60590df4f009ac4cedf` / `v0.14.0-beta.1`.
-- Initial state of this repository: empty before this planning commit; **no plugin installation/release exists yet**.
+- Initial repository was empty before planning. Implementation assets now exist in PR #8, but a user installation is **not implied** and no release is claimed before the publisher succeeds.
 - Old optional plugin: Obsidian ID `x-feed-scraper`, branded `Discovery Engine`, built from `apps/obsidian-plugin`. Preserve it and its data until the new independent client is proven compatible.
 
 ## 1. Goal, product boundary, and explicit non-goals
