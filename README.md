@@ -19,7 +19,7 @@ Source Scraper remains a separate JSON-first engine. This repository does not du
 
 **This repository is a plugin, not the Source Scraper CLI. It does not have to be installed unless you want an interface in Obsidian.**
 
-After the CI-validated GitHub release is published, download `main.js`, `manifest.json` and `styles.css` from the **same** release tagged `1.0.0`. Place them in:
+Download `main.js`, `manifest.json` and `styles.css` from the **published [1.0.0 release](https://github.com/ibbuilds/obsidian-source-scraper-plugin/releases/tag/1.0.0)** (all three from the same release). Place them in:
 
 ```text
 <your-vault>/.obsidian/plugins/source-scraper/
