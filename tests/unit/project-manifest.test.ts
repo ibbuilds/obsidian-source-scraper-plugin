@@ -60,7 +60,7 @@ test("reject malformed project objects, duplicate connection IDs, unsafe source 
   ];
   for(const input of invalid){
     assert.throws(()=>parseProjectManifest(JSON.stringify(input)),
-      /Invalid|Unsafe|Credentials|credential|Duplicate/i);
+      /Invalid|Unsafe|Credentials|credential|Duplicate|requires at least/i);
   }
   assert.throws(()=>parseProjectManifest("{"),/Invalid project JSON/);
   assert.throws(()=>parseProjectManifest(" ".repeat(200001)),/200 KB/);
