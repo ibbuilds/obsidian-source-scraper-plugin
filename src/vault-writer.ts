@@ -70,3 +70,44 @@ export async function createOnlyNotes(vault:VaultLike,folder:string,items:readon
   }
   return result;
 }
+
+/**
+ * Save a user-authored project JSON manifest without taking ownership of any
+ * existing vault file. This follows the same symlink and path preflight as
+ * entity-note output, and only supports validated project-id JSON filenames.
+ */
+export async function createOnlyDocument(vault:VaultLike,relativePath:string,
+  content:string,rootPath?:string):Promise<{path:string;created:boolean}>{
+  const slash=relativePath.lastIndexOf("/");
+  if(slash<1)throw new Error("A dedicated project folder is required");
+  const dir=folderPath(relativePath.slice(0,slash));
+  const name=relativePath.slice(slash+1);
+  if(!/^[a-z][a-z0-9_-]{1,63}\.json$/.test(name))
+    throw new Error("Project filename must be a safe project id with .json");
+  if(typeof content!=="string"||!content||Buffer.byteLength(content,"utf8")>200000)
+    throw new Error("Project manifest exceeds its size limit");
+  const path=dir+"/"+name;
+  // Verify every ancestor before any file or directory creation.
+  symlinkCheck(rootPath,path);
+  const ancestors=dir.split("/");
+  for(let i=1;i<=ancestors.length;i++){
+    const parent=ancestors.slice(0,i).join("/");
+    symlinkCheck(rootPath,parent);
+    const existing=vault.getAbstractFileByPath(parent);
+    if(existing){
+      if(!Array.isArray(existing.children))
+        throw new Error("Project directory conflicts with an existing file");
+      continue;
+    }
+    await vault.createFolder(parent);
+  }
+  symlinkCheck(rootPath,path);
+  if(vault.getAbstractFileByPath(path))return {path,created:false};
+  try{
+    await vault.create(path,content);
+    return {path,created:true};
+  }catch(error){
+    if(vault.getAbstractFileByPath(path))return {path,created:false};
+    throw error;
+  }
+}
