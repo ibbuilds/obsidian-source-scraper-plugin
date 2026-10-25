@@ -164,5 +164,15 @@ export function parseExport(content:string):EntityExport{
     }
     value={schemaVersion:1,dataset:"entities",projectId,count:records.length,records};
   }
+  // A valid NDJSON export can contain exactly one JSON object. It parses as
+  // ordinary JSON, so recognize its singular "record" envelope explicitly.
+  if(value!==null&&typeof value==="object"&&!Array.isArray(value)){
+    const item=value as Record<string,unknown>;
+    if(Object.prototype.hasOwnProperty.call(item,"record")&&
+      !Object.prototype.hasOwnProperty.call(item,"records")){
+      value={schemaVersion:item.schemaVersion,dataset:item.dataset,
+        projectId:item.projectId,count:1,records:[item.record]};
+    }
+  }
   return envelope(value);
 }
