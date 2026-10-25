@@ -191,13 +191,28 @@ test("cancel detaches inherited pipes after the direct CLI has exited",{timeout:
   let directPid:number|undefined,descendantPid:number|undefined;
   try{
     const cliPath=join(root,"mock.mjs"),configPath=join(root,"project.json"),started=join(root,"started");
+    const descendantPath=join(root,"descendant.mjs"),ready=join(root,"descendant-ready");
     writeFileSync(configPath,"{}");
+    // Windows needs detached:true for the descendant to survive its parent's
+    // exit. Keep inherited pipes intentionally, and wait for the descendant's
+    // own ready marker so this tests cancellation rather than a startup race.
+    writeFileSync(descendantPath,`import {writeFileSync,renameSync} from "node:fs";
+setInterval(()=>{},1000);
+writeFileSync(${JSON.stringify(ready+".tmp")},String(process.pid));
+renameSync(${JSON.stringify(ready+".tmp")},${JSON.stringify(ready)});`);
     writeFileSync(cliPath,`import {spawn} from "node:child_process";
-import {writeFileSync} from "node:fs";
-const descendant=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{
-  stdio:["ignore","inherit","inherit"]
+import {writeFileSync,renameSync,existsSync} from "node:fs";
+import {setTimeout as delay} from "node:timers/promises";
+const descendant=spawn(process.execPath,[${JSON.stringify(descendantPath)}],{
+  detached:true,windowsHide:true,stdio:["ignore","inherit","inherit"]
 });
-writeFileSync(${JSON.stringify(started)},JSON.stringify({direct:process.pid,descendant:descendant.pid}));
+writeFileSync(${JSON.stringify(started+".tmp")},JSON.stringify({direct:process.pid,descendant:descendant.pid}));
+renameSync(${JSON.stringify(started+".tmp")},${JSON.stringify(started)});
+const deadline=Date.now()+3000;
+while(!existsSync(${JSON.stringify(ready)})){
+  if(Date.now()>deadline)throw new Error("Descendant fixture did not start");
+  await delay(10);
+}
 descendant.unref();
 console.log(JSON.stringify({name:"source-scraper",version:"0.14.0",jsonSchemaVersion:1}));`);
     const outcome=bridge.checkVersion({nodeExecutable:process.execPath,cliPath,configPath})
@@ -205,6 +220,8 @@ console.log(JSON.stringify({name:"source-scraper",version:"0.14.0",jsonSchemaVer
     await waitForFile(started);
     const pids=JSON.parse(readFileSync(started,"utf8")) as {direct:number;descendant:number};
     directPid=pids.direct;descendantPid=pids.descendant;
+    await waitForFile(ready);
+    assert.equal(Number(readFileSync(ready,"utf8")),descendantPid);
     const deadline=Date.now()+3000;
     while(alive(directPid)){
       if(Date.now()>deadline)throw new Error("Direct CLI fixture did not exit");
