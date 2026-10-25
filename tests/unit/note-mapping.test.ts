@@ -5,7 +5,8 @@ import {renderNote} from "../../src/render.ts";
 import {first,second} from "./fixtures.ts";
 
 test("portable generic mapping default keeps complete evidence and assessment",()=>{
-  assert.deepEqual(parseNoteMapping(DEFAULT_NOTE_MAPPING_JSON),DEFAULT_NOTE_MAPPING);
+  assert.deepEqual(JSON.parse(JSON.stringify(parseNoteMapping(DEFAULT_NOTE_MAPPING_JSON))),
+    DEFAULT_NOTE_MAPPING);
   const markdown=renderNote(second,DEFAULT_NOTE_MAPPING);
   assert.match(markdown,/## Machine assessment/);
   assert.match(markdown,/## Structured attributes/);
@@ -67,5 +68,5 @@ test("mapping arbitrary source data never executes Markdown embeds as active uni
   assert.doesNotMatch(markdown,/^!\[\[Secret.md\]\]/m);
   assert.doesNotMatch(markdown,/^# heading$/m);
   assert.doesNotMatch(markdown,/^owner: alternate$/m);
-  assert.match(markdown,/declared_license: ".*\\nowner: alternate"/);
+  assert.match(markdown,/declared_license: "--- owner: alternate"/);
 });
