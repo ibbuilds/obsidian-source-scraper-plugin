@@ -58,7 +58,7 @@ test("one-line NDJSON (without newline) is a complete v1 export",()=>{
   const value=parseExport(line);
   assert.equal(value.records.length,1);
   assert.equal(value.records[0].key,first.key);
-  assert.deepEqual(value.records[0].provenance?.mentions,first.provenance.mentions);
+  assert.deepEqual(value.records[0].provenance?.mentions,first.provenance?.mentions);
 });
 test("one-line NDJSON cannot bypass project, schema, or entity validation",()=>{
   for(const line of [
