@@ -114,3 +114,52 @@ jobs:
         run: node --experimental-strip-types plugin/scripts/verify-engine-json.mjs engine/real-export.json
       - name: Execute real CLI bridge, persist review and verify replay
         run: node --experimental-strip-types plugin/scripts/verify-real-cli.mjs engine/dist/source-scraper.mjs engine/ci-demo/project.json
+
+  provider-engine-contract:
+    name: Review-only provider with matching engine capabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: ibbuilds/source-scraper
+          ref: 100d2fa7f7d7484c40ee9c8139599f1c1e5935a9
+          path: engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --prefix plugin --no-audit --no-fund
+      - run: npm ci --prefix engine --no-audit --no-fund
+      - run: npm run build:cli --prefix engine
+      - name: Verify real provider, assessments, drafts and zero note creation
+        run: node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs engine/dist/source-scraper.mjs
+
+  host-provider-contract:
+    name: Reproducible existing MCP host extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: ebullient/obsidian-vault-mcp
+          ref: 0f801bdb94cbf543a8f303b1ca950f30b2783595
+          path: host
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Apply the pinned provider patch
+        run: |
+          git -C host apply --check ../plugin/compat/vault-as-mcp-1.2.0-provider-api.patch
+          git -C host apply ../plugin/compat/vault-as-mcp-1.2.0-provider-api.patch
+      - run: npm ci --prefix host --no-audit --no-fund
+      - name: Type-check the existing host
+        working-directory: host
+        run: npx tsc --noEmit
+      - run: npm test --prefix host
+      - run: npm run build --prefix host

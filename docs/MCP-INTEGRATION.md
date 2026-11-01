@@ -16,6 +16,8 @@ Install this development checkout at `<vault>/.obsidian/plugins/source-scraper`,
 
 The MCP host must have the reviewed provider-API build and local `enabledToolProviders: ["source-scraper"]` configuration. Registration cannot be performed through a remote tool call. Upstream host releases without that API show an explicit compatibility diagnostic; they are not silently patched at runtime.
 
+The exact host source patch, pinned upstream revision, checksum and build/rollback procedure are included in [Host provider API](HOST-PROVIDER-API.md). This makes the local extension reproducible without creating another repository or server.
+
 Configure the plugin's trusted CLI path, its SHA-256, an absolute trusted Node executable, and an external project workspace. Configure `mcpProjectsJson` as an array of `{id, configPath, manifestHash}` objects. Hashes are SHA-256 of the actual file bytes. Editing a manifest or rebuilding the CLI requires locally verifying and updating the matching digest. Enable `mcpEnabled`. Do not store credentials in these settings or manifests. Local `data.json` is ignored by Git.
 
 The CLI must advertise entity schema v1, `agent-assessments-v1`, and `selected-entity-export-v1`. Basic JSON import remains usable without the CLI or provider. The current MCP adapter admits json-file, json-snapshot, rss, public-json and public-product sources. It rejects executable/custom source adapters; configuring mcp-stdio subprocess access is not implicitly authorized by a manifest. File-source paths must stay within the registered workspace. Remote project creation is limited to admitted public network sources and cannot create project files inside the user vault.
