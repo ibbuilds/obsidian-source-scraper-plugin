@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,writeFileSync,readFileSync,mkdirSync,rmSync} from "node:fs";
+import {mkdtempSync,writeFileSync,readFileSync,mkdirSync,rmSync,symlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {createHash} from "node:crypto";
@@ -42,6 +42,27 @@ test("changed local manifests fail before a subprocess or source can run",async(
       stage:()=>{},checkRead:()=>{},readReference:async()=>""});
     writeFileSync(projectPath,raw+" ");
     await assert.rejects(provider.execute("source_scraper_validate_project",{projectId:"local-project"}),/manifest changed/);
+    provider.dispose();
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+for(const descendantLink of [false,true])test(descendantLink?
+  "links below a trusted workspace remain forbidden even when they point inside it":
+  "a trusted workspace may have a system-style alias above its root",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"ss-provider-root-alias-"));
+  try{
+    const physical=join(root,"physical"),alias=join(root,"alias");mkdirSync(physical);mkdirSync(join(physical,"workspace"));
+    symlinkSync(physical,alias,process.platform==="win32"?"junction":"dir");
+    const workspace=join(alias,"workspace");mkdirSync(join(workspace,"origin"));
+    const path=join(workspace,"origin","project.json"),raw="{}\n";writeFileSync(path,raw);
+    let configPath=path;
+    if(descendantLink){symlinkSync(join(physical,"workspace","origin"),join(workspace,"linked"),process.platform==="win32"?"junction":"dir");configPath=join(workspace,"linked","project.json");}
+    const digest=createHash("sha256").update(raw).digest("hex");
+    const provider=new SourceScraperProvider({cliPath:join(root,"absent.mjs"),cliHash:"",nodeExecutable:process.execPath,
+      projects:[{id:"local-project",configPath,manifestHash:digest}],workspacePath:workspace,statePath:join(root,"state.json"),vaultPath:root,
+      mapping:()=>DEFAULT_NOTE_MAPPING_JSON,pathExists:()=>false,stage:()=>{},checkRead:()=>{},readReference:async()=>""});
+    writeFileSync(path,raw+" ");
+    await assert.rejects(provider.execute("source_scraper_validate_project",{projectId:"local-project"}),descendantLink?/linked project path/:/manifest changed/);
     provider.dispose();
   }finally{rmSync(root,{recursive:true,force:true});}
 });

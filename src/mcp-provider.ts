@@ -58,10 +58,16 @@ function selection(value:unknown):string[]{
   return result;
 }
 function safePath(root:string,file:string):void{
+  const lexicalRoot=resolve(root),lexicalFile=resolve(file),lexicalRelative=relative(lexicalRoot,lexicalFile);
+  if(!lexicalRelative||lexicalRelative===".."||lexicalRelative.startsWith(".."+sep)||isAbsolute(lexicalRelative))
+    throw Error("PROJECT_NOT_ALLOWED: file outside configured workspace");
   const base=realpathSync.native(root),target=realpathSync.native(file),rel=relative(base,target);
   if(!rel||rel===".."||rel.startsWith(".."+sep)||isAbsolute(rel))throw Error("PROJECT_NOT_ALLOWED: file outside workspace");
-  let current=base;
-  for(const part of relative(base,resolve(file)).split(sep)){
+  // The trusted root may have a system alias (macOS /var -> /private/var).
+  // Inspect descendants using the same lexical root instead of walking back
+  // through unrelated ancestors between canonical and lexical path spellings.
+  let current=lexicalRoot;
+  for(const part of lexicalRelative.split(sep)){
     current=join(current,part);
     if(lstatSync(current).isSymbolicLink())throw Error("PROJECT_NOT_ALLOWED: linked project path");
   }
