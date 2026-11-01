@@ -50,7 +50,7 @@ test("blocks symlink destination and mixed-up folder conflicts without touching 
   const outside=mkdtempSync(join(tmpdir(),"ss-external-"));
   try{
     const vault=new MockVault(root);
-    symlinkSync(outside,join(root,"Linked"));
+    symlinkSync(outside,join(root,"Linked"),process.platform==="win32"?"junction":"dir");
     await assert.rejects(createOnlyNotes(vault,"Linked/Imports",[first],root),/symbolic-link/);
     assert.equal(existsSync(join(outside,"Imports")),false);
     writeFileSync(join(root,"Existing"),"not a directory");

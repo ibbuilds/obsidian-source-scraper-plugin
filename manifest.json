@@ -3,7 +3,7 @@
   "name": "Source Scraper",
   "version": "1.0.0",
   "minAppVersion": "1.9.2",
-  "description": "Import Source Scraper JSON, review evidence, and create notes safely without overwriting existing files.",
+  "description": "Review Source Scraper findings, evidence and drafts. Only ChatGPT writes notes through the separate Obsidian connector on user instruction.",
   "author": "Source Scraper contributors",
   "isDesktopOnly": true
 }

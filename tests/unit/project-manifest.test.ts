@@ -111,7 +111,7 @@ test("project manifest cannot follow symlinks or escape to a hidden/foreign fold
   const outside=mkdtempSync(join(tmpdir(),"source-scraper-manifest-outside-"));
   try{
     const vault=new TestVault(root);
-    symlinkSync(outside,join(root,"Linked"));
+    symlinkSync(outside,join(root,"Linked"),process.platform==="win32"?"junction":"dir");
     await assert.rejects(createNewProjectFile(vault,"Linked/Projects",GENERIC_TEMPLATE,root),/symbolic-link/);
     assert.equal(existsSync(join(outside,"Projects")),false);
     for(const folder of [".obsidian/plugins","../Projects","/root","a//b","a\\b"]){

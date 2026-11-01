@@ -3,15 +3,21 @@ import {
   Setting,WorkspaceLeaf,TFile
 } from "obsidian";
 import {parseExport,type EntityExport,type EntityRecord} from "./contracts.ts";
-import {selectedPlans,createOnlyNotes} from "./vault-writer.ts";
+import {selectedPlans} from "./vault-writer.ts";
 import {CliBridge} from "./cli-bridge.ts";
-import {folderPath} from "./render.ts";
+import {SourceScraperProvider,type RegisteredProject} from "./mcp-provider.ts";
+import {createHash} from "node:crypto";
+import {homedir} from "node:os";
 import {join} from "node:path";
-import {GENERIC_TEMPLATE,parseProjectManifest,createNewProjectFile} from "./project-manifest.ts";
+import {GENERIC_TEMPLATE,parseProjectManifest} from "./project-manifest.ts";
 import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
 
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
+  mcpEnabled:string;
+  mcpProjectsJson:string;
+  mcpCliHash:string;
+  mcpWorkspacePath:string;
   outputFolder:string;
   cliPath:string;
   configPath:string;
@@ -19,7 +25,7 @@ interface Preferences {
   projectFolder:string;
   noteMappingJson:string;
 }
-const defaults:Preferences={outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+const defaults:Preferences={mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
   projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -70,12 +76,9 @@ class ImportModal extends Modal {
 /** Project configuration is data, never executable code in the plugin. */
 class ProjectModal extends Modal {
   private body=GENERIC_TEMPLATE;
-  private directory:string;
   private selectedPath="";
-  private busy=false;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){
     super(app);
-    this.directory=plugin.settings.projectFolder||"Source Scraper/Projects";
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
@@ -112,11 +115,7 @@ class ProjectModal extends Modal {
       this.selectedPath="";
     });
     const status=root.createEl("pre",{cls:"ss-preview"});
-    status.setText("Nothing has been written. Validate before creating a project file.");
-    new Setting(root).setName("Project manifest folder")
-      .setDesc("Choose a new vault-relative location. Existing files cannot be replaced.")
-      .addText(t=>t.setValue(this.directory)
-        .onChange(value=>{this.directory=value;}));
+    status.setText("Validate or copy project JSON. Project files are created outside the vault through registered MCP workspaces.");
     new Setting(root).addButton(b=>b.setButtonText("Validate project JSON")
       .onClick(()=>{
         try{
@@ -127,24 +126,6 @@ class ProjectModal extends Modal {
             "\nOutputs: "+manifest.outputs.length+
             "\nThe engine performs adapter-specific validation when run. No sources executed.");
         }catch(error){status.setText(errorMessage(error));}
-      }));
-    new Setting(root).addButton(b=>b.setButtonText("Create new project file")
-      .setCta().onClick(async()=>{
-        if(this.busy)return;
-        this.busy=true;
-        try{
-          const manifest=parseProjectManifest(this.body);
-          const adapter=this.app.vault.adapter;
-          const base=adapter instanceof FileSystemAdapter?adapter.getBasePath():undefined;
-          const result=await createNewProjectFile(this.app.vault,this.directory,this.body,base);
-          if(!result.created)throw Error("Project manifest already exists: no content was replaced");
-          this.plugin.settings.projectFolder=folderPath(this.directory);
-          if(base)this.plugin.settings.configPath=join(base,result.path);
-          await this.plugin.savePrefs();
-          this.close();
-          new Notice("Created "+manifest.id+" project JSON. No collection has run.");
-        }catch(error){notify(error);}
-        finally{this.busy=false;}
       }));
     new Setting(root).addButton(b=>b.setButtonText("Use selected existing project (no writes)")
       .onClick(async()=>{
@@ -228,6 +209,7 @@ class DetailModal extends Modal {
       review:this.entity.review,reasons:this.entity.reasons,
       provenance:this.entity.provenance??"Not included in export"
     },null,2));
+    void this.plugin.showAgentAssessments(this.entity,root);
     if(!this.plugin.settings.cliPath||!this.plugin.settings.configPath){
       paragraph(root,"Connect the trusted CLI and project in Settings to save a human review to the engine.");
       return;
@@ -262,15 +244,14 @@ class DetailModal extends Modal {
 }
 class ExportModal extends Modal {
   private folder:string;
-  private busy=false;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin,
     private records:EntityRecord[]){
     super(app);this.folder=plugin.settings.outputFolder;
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Preview create-only notes"});
-    paragraph(root,"Only the selected records will be created. Existing files will NEVER be modified, replaced, renamed or deleted.");
+    root.createEl("h3",{text:"Preview Markdown drafts"});
+    paragraph(root,"These are drafts for ChatGPT to consume. This project never creates or changes vault notes.");
     const preview=root.createEl("pre",{cls:"ss-preview"});
     const refresh=()=>{
       try{
@@ -285,26 +266,7 @@ class ExportModal extends Modal {
       .addText(t=>t.setPlaceholder("Source Scraper/Imported")
         .setValue(this.folder).onChange(value=>{this.folder=value;refresh();}));
     refresh();
-    new Setting(root).addButton(b=>b.setButtonText("Create new notes only")
-      .setCta().onClick(async()=>{
-        if(this.busy)return;
-        this.busy=true;
-        try{
-          const folder=folderPath(this.folder);
-          if(!this.records.length)throw new Error("Select at least one entity");
-          const adapter=this.app.vault.adapter;
-          const rootPath=adapter instanceof FileSystemAdapter?adapter.getBasePath():undefined;
-          const mapping=parseNoteMapping(this.plugin.settings.noteMappingJson);
-          const result=await createOnlyNotes(this.app.vault,folder,this.records,rootPath,mapping);
-          this.plugin.settings.outputFolder=folder;
-          await this.plugin.savePrefs();
-          this.close();
-          this.plugin.refresh();
-          new Notice("Created "+result.created+" new notes. Existing paths preserved: "+
-            result.conflicts.length+".",7000);
-        }catch(error){notify(error);}
-        finally{this.busy=false;}
-      }));
+    paragraph(root,"Drafts only. Ask ChatGPT to write selected content through your existing Obsidian connector; this plugin cannot create or change notes.");
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -350,7 +312,7 @@ class ScraperView extends ItemView {
     const root=this.containerEl.children[1] as HTMLElement;
     root.empty();root.addClass("source-scraper-view");
     root.createEl("h2",{text:"Source Scraper"});
-    paragraph(root,"Import, examine, preview and safely create notes from any JSON v1 project.");
+    paragraph(root,"Collect, inspect and preview candidates. Only ChatGPT writes notes through the separate Obsidian connector on your instruction.");
     const controls=root.createDiv({cls:"ss-controls"});
     const action=(text:string,click:()=>void)=>{
       const button=controls.createEl("button",{text});
@@ -416,7 +378,7 @@ class ScraperView extends ItemView {
       inspect.onclick=()=>new DetailModal(this.app,this.plugin,entity).open();
     }
     const selected=this.plugin.getSelected();
-    const exportButton=action("Preview and create selected notes",()=>{
+    const exportButton=action("Preview selected drafts",()=>{
       try{
         if(!selected.length)throw new Error("Select records before previewing notes");
         if(selected.length>200)throw new Error("Select no more than 200 records per export");
@@ -424,7 +386,7 @@ class ScraperView extends ItemView {
       }catch(error){notify(error);}
     });
     exportButton.disabled=selected.length===0;
-    paragraph(root,"No existing note or reference will be overwritten, even when importing the same data twice.");
+    paragraph(root,"Source Scraper never creates or changes vault notes. Only ChatGPT may write through the separate Obsidian connector when you explicitly order it.");
   }
 }
 class ScraperSettings extends PluginSettingTab {
@@ -432,9 +394,20 @@ class ScraperSettings extends PluginSettingTab {
   display():void{
     const root=this.containerEl;root.empty();
     root.createEl("h2",{text:"Source Scraper"});
+    paragraph(root,"MCP: "+this.plugin.mcpStatus);
+    new Setting(root).setName("Expose tools through Vault as MCP")
+      .setDesc("Requires the locally enabled provider API. Collection never creates final notes.")
+      .addToggle(t=>t.setValue(this.plugin.settings.mcpEnabled==="true").onChange(async v=>{
+        this.plugin.settings.mcpEnabled=String(v);await this.plugin.savePrefs();
+      }));
+    for(const [key,label] of [["mcpProjectsJson","Trusted project registry JSON"],["mcpWorkspacePath","MCP project workspace"],["mcpCliHash","Trusted CLI SHA-256"]] as const){
+      new Setting(root).setName(label).addTextArea(t=>t.setValue(this.plugin.settings[key]).onChange(async v=>{
+        this.plugin.settings[key]=v;await this.plugin.savePrefs();
+      }));
+    }
     paragraph(root,"JSON import works without Node. The CLI is optional, executes only when you explicitly click Run, and may contact your configured sources.");
     new Setting(root).setName("Default destination folder")
-      .setDesc("No destination is chosen until you set it. Creates new notes only.")
+      .setDesc("Optional suggested folder for Markdown drafts. This plugin never creates notes.")
       .addText(t=>t.setPlaceholder("Source Scraper/Imported")
         .setValue(this.plugin.settings.outputFolder).onChange(async value=>{
           this.plugin.settings.outputFolder=value;await this.plugin.savePrefs();
@@ -465,6 +438,11 @@ export default class ScraperPlugin extends Plugin {
   imported:EntityExport|null=null;
   selected=new Set<string>();
   readonly cli=new CliBridge();
+  mcpStatus="disabled";
+  private provider?:SourceScraperProvider;
+  private providerHost?:unknown;
+  private providerSignature="";
+  private disposeProvider?:()=>void;
   async onload():Promise<void>{
     const stored=await this.loadData() as Partial<Preferences>|null;
     if(stored&&typeof stored==="object"){
@@ -476,9 +454,47 @@ export default class ScraperPlugin extends Plugin {
     this.addRibbonIcon("database","Source Scraper",()=>{void this.openView();});
     this.addCommand({id:"open-panel",name:"Open Source Scraper",callback:()=>{void this.openView();}});
     this.addSettingTab(new ScraperSettings(this.app,this));
+    this.app.workspace.onLayoutReady(()=>this.connectMcp());
+    this.registerInterval(window.setInterval(()=>this.connectMcp(),3000));
   }
-  onunload():void{this.cli.cancel();}
-  async savePrefs():Promise<void>{await this.saveData(this.settings);}
+  onunload():void{this.disposeProvider?.();this.provider?.dispose();this.cli.cancel();}
+  async savePrefs():Promise<void>{await this.saveData(this.settings);this.connectMcp();}
+  private connectMcp():void{
+    const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
+    const signature=JSON.stringify(this.settings);
+    if(host===this.providerHost&&signature===this.providerSignature&&this.provider)return;
+    this.disposeProvider?.();this.provider?.dispose();this.provider=undefined;this.disposeProvider=undefined;
+    this.providerHost=host;this.providerSignature=signature;
+    if(this.settings.mcpEnabled!=="true"){this.mcpStatus="disabled";return;}
+    if(host?.toolProviderApiVersion!==1){this.mcpStatus="compatible Vault as MCP provider API required";return;}
+    try{
+      if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("Desktop filesystem vault required");
+      const projects=JSON.parse(this.settings.mcpProjectsJson) as RegisteredProject[];
+      if(!Array.isArray(projects)||projects.length>100||projects.some(p=>!p||typeof p.id!=="string"||typeof p.configPath!=="string"||!/^[a-f0-9]{64}$/.test(p.manifestHash)))throw Error("Invalid local project registry");
+      if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error("Duplicate registered projects");
+      const vaultPath=this.app.vault.adapter.getBasePath();
+      const vaultId=createHash("sha256").update(vaultPath).digest("hex").slice(0,24);
+      const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
+        nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
+        statePath:join(process.env.LOCALAPPDATA||join(homedir(),".local","share"),"SourceScraper",vaultId,"state.json"),
+        vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
+        checkRead:path=>host.checkToolReadAccess(path),
+        stage:value=>{this.setImported(value);void this.openView();},
+        readReference:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile))throw Error("Reference note missing");return this.app.vault.read(file);}
+      });
+      this.disposeProvider=host.registerToolProvider(provider);this.provider=provider;this.mcpStatus="connected; 15 tools registered; vault notes read-only";
+      void provider.restoreQueue().catch(()=>{this.mcpStatus="connected; prior queue needs explicit reload (missing or changed project)";});
+    }catch(error){this.mcpStatus=errorMessage(error);}
+  }
+  async showAgentAssessments(entity:EntityRecord,root:HTMLElement):Promise<void>{
+    if(!this.provider)return;
+    try{
+      const result=await this.provider.execute("source_scraper_list_assessments",{projectId:entity.projectId,key:entity.key,limit:10});
+      if(!root.isConnected)return;
+      root.createEl("h4",{text:"Agent recommendations — separate from human reviews"});
+      const pre=root.createEl("pre",{cls:"ss-preview"});pre.setText(JSON.stringify(result,null,2));
+    }catch{paragraph(root,"Agent recommendations unavailable for this project; no human review was changed.");}
+  }
   setImported(data:EntityExport):void{this.imported=data;this.selected.clear();this.refresh();}
   getSelected():EntityRecord[]{
     return (this.imported?.records??[]).filter(x=>this.selected.has(x.key));
