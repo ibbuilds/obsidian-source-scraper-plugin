@@ -68,6 +68,14 @@ describe("Source Scraper reviews without owning vault writes",()=>{
     expect(await browser.$("//button[normalize-space()='Create new project file']").isExisting()).toBe(false);
     expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
+  it("shows disabled X account setup without collecting or modifying vault files",async()=>{
+    await click("X feed setup");
+    const modal=browser.$(".modal-container");await modal.waitForDisplayed({timeout:15000});
+    expect(await modal.getText()).toContain("Local grant: disabled");
+    expect(await modal.getText()).toContain("Creating the project does not contact X or GetXAPI");
+    expect(await modal.getText()).toContain("Do not paste credentials");
+    expect(await snapshot()).toEqual(original);await browser.keys("Escape");
+  });
   it("rejects an incompatible import without altering user files",async()=>{
     await importFixture({...fixture,schemaVersion:2});
     expect(await snapshot()).toEqual(original);await browser.keys("Escape");

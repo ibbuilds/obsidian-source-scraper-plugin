@@ -1,0 +1,17 @@
+# Optional X For You setup
+
+No new repository, host or tunnel is involved. The engine owns the `x-for-you` GetXAPI adapter and `x-discovery` processor; this plugin supplies a local setup screen and reuses the existing collection, assessment and staging tools. **A real personalized feed has not yet been verified.**
+
+GetXAPI documents a For You endpoint that requires the X account session and a provider API key. It is independent of X; giving it a session gives it sensitive account access. Its documented charge is $0.001/request, approximately 20 posts. Source Scraper makes no automatic paid retries and does not extract a browser session. Review the [provider contract](https://docs.getxapi.com/docs/users/home-timeline) before activation. Do not put credentials in chat, MCP arguments, manifests, notes or Git.
+
+1. Build/install a matching engine advertising `x-for-you-getxapi-v1`; verify and register its CLI digest locally.
+2. After approving the provider/account disclosure and cost, arrange the private process environment before starting Obsidian: `SOURCE_SCRAPER_GETXAPI_API_KEY` and `SOURCE_SCRAPER_X_ACCOUNT_SESSION`. No credential text is entered or saved by this plugin.
+3. Open **Source Scraper → X feed setup**. Check the non-secret readiness indicators, enter the connected numeric X account ID, edit include/exclude terms and minimum relevance, and choose 1–10 provider pages per explicit run. The default is one request. Prepare the project in the configured workspace outside the vault; this makes no network request and creates no note.
+4. Enable **Allow GetXAPI account access and paid X requests** in local plugin settings only after approving that access. It does not start collection. MCP arguments and remotely created manifests cannot enable it. Disabling it strips inherited X credentials/approval from child processes while existing findings stay readable.
+5. Explicitly run the prepared project in the plugin or with `source_scraper_run_project`. Use page size 100–500. The adapter collects the configured window, retains the provider continuation for the next explicit run and resets after provider exhaustion. A successful window does not mean the entire changing feed was collected.
+6. List findings at the chosen minimum score, inspect their original posts and resource evidence, ask ChatGPT for separate accept/reject/uncertain recommendations, and stage its shortlist. Scores are relevance heuristics. Provider claims, popularity and a URL do not establish resource quality or licensing.
+7. ChatGPT may preview drafts for the folder you name. Only your separate Obsidian connector writes those notes, and only on your instruction. This project creates no notes and deletes no rejected evidence.
+
+External URLs expanded by the provider become resource candidates. t.co links alone do not establish a resource. Posts with no established external URL stay as inspiration candidates with their post text and available images; AI may reject them as irrelevant. Resource metadata enrichment uses public HTTP only and is separately bounded.
+
+Development verification uses synthetic provider responses, real engine SQLite and isolated vault fixtures. Live acceptance still requires one approved account request, confirmation of the actual account/For You behavior, provenance inspection and real AI curation. Do not label mock responses or public npm data as that acceptance.

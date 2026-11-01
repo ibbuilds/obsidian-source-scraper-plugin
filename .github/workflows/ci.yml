@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ibbuilds/source-scraper
-          ref: 100d2fa7f7d7484c40ee9c8139599f1c1e5935a9
+          ref: f2c80de1a12ca4a289649d6eab865b76bbf6b76b
           path: engine
       - uses: actions/setup-node@v4
         with:
