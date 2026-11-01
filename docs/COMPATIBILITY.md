@@ -1,5 +1,11 @@
 # Compatibility and independent release policy
 
+## Current integration branch
+
+This branch changes the active client to a review/draft-only vault boundary. It never creates or changes user notes; ChatGPT uses the separate existing Obsidian connector only on explicit user instruction. The historical published-release descriptions below do not authorize note writes in this branch.
+
+The extended MCP provider requires host provider API v1 and a CLI advertising agent-assessments-v1 and selected-entity-export-v1 alongside entity schema v1. Unsupported older engines/hosts fail explicitly; basic entity JSON import remains available without either extension. Local verification includes the real Obsidian Desktop 1.14.5 Windows harness with seven read-only acceptance cases. This does not establish the declared minimum version, every platform, or upstream host adoption.
+
 | Component | Compatibility |
 | --- | --- |
 | Source Scraper engine | Independent repository `ibbuilds/source-scraper`; plugin imports its public JSON/NDJSON v1 output |

@@ -1,85 +1,35 @@
 # Source Scraper for Obsidian
 
-**Independent, general-purpose Obsidian Desktop client for [Source Scraper](https://github.com/ibbuilds/source-scraper).** Import versioned JSON, examine entities and provenance, preview Markdown and explicitly create new notes without changing existing files.
+A general-purpose review client for [Source Scraper](https://github.com/ibbuilds/source-scraper). Collect or import versioned JSON, inspect entities and evidence, record separate agent recommendations, and prepare Markdown drafts for ChatGPT.
 
-Source Scraper remains a separate JSON-first engine. This repository does not duplicate source adapters, SQLite, research/evaluation rules or any specific X/React/design workflow.
+**This development integration never creates or changes user vault notes.** ChatGPT consumes its findings and uses the separate existing Obsidian connector to write only when the user explicitly orders it. A score, recommendation, run, import or staged candidate is not write permission.
 
-## Features in 1.0.0
+The repository retains its original plugin identity, `source-scraper`. This branch extends the published 1.0.0 baseline; it is not a newly published release.
 
-- Import `schemaVersion: 1`, `dataset: entities` JSON or NDJSON (paste or select a JSON file already inside your vault).
-- Search and inspect generic source entities, including original evidence, review decisions, history and attributes; entries without URLs are valid.
-- Select which records to export, inspect paths and generated Markdown before choosing **Create new notes only**.
-- Use a user-chosen vault-relative folder. Reimports and manually edited notes are **never overwritten or deleted**. File collisions are reported.
-- Optional explicit CLI integration: user configures the trusted local `source-scraper.mjs`, Node executable and project JSON, and clicks a confirmation to run. Import-only works without the separate Node CLI.
-- No background collection, auto-approval, webhooks, external analytics or automatic vault writes.
+## What works
 
-**MVP scope:** note import/export is for **entity exports**. Other Source Scraper datasets and automatic synchronization may be added in later releases. Imported session data lives in memory; created Markdown notes persist normally in Obsidian. Review decisions can be saved only by an explicit human action through the configured matching Source Scraper CLI; the plugin never edits SQLite tables directly.
+- Bounded entity JSON/NDJSON v1 import and generic evidence browsing, including records without URLs.
+- Optional explicit trusted CLI collection, export/import and human engine review; no automatic collection.
+- A locally enabled provider exposing 15 namespaced tools through the existing Vault as MCP server and existing tunnel.
+- Registered projects, bounded jobs/status/cancel, paginated findings, evidence fingerprints, separate agent assessments, persistent staged references and read-only Markdown previews.
+- Source-independent project JSON inspection and note mapping. Remote project creation is limited to the external registered workspace.
 
-## Installation
+There is no save-notes tool, write-permission toggle or create-notes button. Historical writer helpers are retained for compatibility tests but are not imported into the active plugin UI/provider bundle. The old embedded `x-feed-scraper` plugin and its data are not migrated or removed.
 
-**This repository is a plugin, not the Source Scraper CLI. It does not have to be installed unless you want an interface in Obsidian.**
+## Installation and configuration
 
-Download `main.js`, `manifest.json` and `styles.css` from the **published [1.0.0 release](https://github.com/ibbuilds/obsidian-source-scraper-plugin/releases/tag/1.0.0)** (all three from the same release). Place them in:
+Build this development checkout at `<vault>/.obsidian/plugins/source-scraper` with `npm ci`, `npm run check`, `npm test`, and `npm run build`, then enable Source Scraper in Obsidian. Preserve an existing engine checkout before reusing that directory. Import-only use needs neither the CLI nor MCP.
 
-```text
-<your-vault>/.obsidian/plugins/source-scraper/
-    main.js
-    manifest.json
-    styles.css
-```
+For MCP, use the reviewed provider-API build of the existing Vault as MCP host, locally enable provider ID `source-scraper`, and configure the trusted CLI digest, absolute Node executable, registered external workspace and project manifest digests in plugin settings. Do not place secrets in settings/manifests or commit local `data.json`.
 
-Enable **Source Scraper** under Settings → Community plugins (manually installed plugin). Obsidian Desktop 1.9.2+ required. This plugin has **not** been submitted to or approved for the official Community directory, so do not expect it to appear in directory search.
+See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, limits, state, restart behavior and compatibility. See [User guide](docs/USER-GUIDE.md) and [Safety](docs/SAFETY.md) for the note ownership boundary.
 
-The old optional `Discovery Engine` plugin with ID `x-feed-scraper` is not replaced or deleted. Its files and settings stay untouched.
+## Verification and boundaries
 
-## General project and note mapping editors
+Run `npm run check`, `npm test`, and `npm run build`. The real-engine provider harness is `node --experimental-strip-types scripts/verify-mcp-provider.mjs /absolute/path/source-scraper.mjs`. It uses synthetic data and simulated recommendations, and creates no candidate notes. The real public npm source and a running Obsidian instance require separate live acceptance evidence.
 
-Use **Project JSON editor** to compose or inspect **any** Source Scraper v1 project. It starts with a neutral, editable local JSON example: no React, X, design rules or personal filters. Validate first, then explicitly create a new manifest inside a folder you choose. Existing project files cannot be overwritten; alternatively use an already existing valid project without modifying it. The optional CLI is only invoked when you click Run.
+The current provider admits json-file, json-snapshot, rss, public-json and public-product. Executable/custom adapters are explicitly unavailable through this remote provider. Personalized X For You remains unsupported. Engine entity v1 import compatibility is preserved; the provider additionally requires the advertised agent-assessment and selected-export CLI capabilities.
 
-Use **Note mapping** to paste or edit a portable version-1 JSON template. Choose a heading field, add source-independent YAML properties (e.g. `attributes.license`) and select whether to include assessment, full attributes and provenance in future **newly created** notes. Changing the mapping never revises existing notes.
+The MCP endpoint can advertise new tools while an already open ChatGPT/Codex session retains an older inventory. Refresh/reconnect the existing connector to discover them. No new tunnel or second server is required.
 
-Valid exports with **a single NDJSON record** are supported. Import accepts up to 5,000 entities / 8 MB; the optional CLI exports no more than 5,000 in a single import. Large libraries can be imported as explicit pages.
-
-## First run
-
-1. Open **Source Scraper** from the ribbon icon or Command Palette → Open Source Scraper.
-2. Use **Import JSON / NDJSON**. Paste the output of `source-scraper export` or choose an existing JSON/NDJSON file in the vault. This only loads a local preview.
-3. Inspect the imported items and evidence. Select only records to convert to Markdown.
-4. Press **Preview and create selected notes**, choose a specific vault folder (for example `Source Scraper/Imported`) and check the exact paths/content.
-5. Press **Create new notes only**. Existing notes, including `References.md`, are not changed.
-
-To create an export with the engine:
-
-```sh
-node source-scraper.mjs init --dir ./demo
-node source-scraper.mjs run --config ./demo/project.json
-node source-scraper.mjs export --config ./demo/project.json --out ./entities.json
-```
-
-Copy `entities.json` into your vault or paste its content into the plugin. Alternatively, configure the trusted local CLI in plugin Settings and explicitly use **Run local CLI (optional)**; no engine, background server, scripts or extensions are executed on Obsidian startup.
-
-## Guarantees and limits
-
-- No existing user note is automatically deleted, renamed, modified or overwritten. A path collision is skipped and reported.
-- No `References.md` or `Sources.md` integration runs by default. Your original vault contents are not treated as plugin-owned.
-- A human review imported from JSON remains an *engine-supplied value*. With a trusted CLI configured, the Inspect dialog can explicitly save a reasoned review to the matching engine project; local UI changes only after the engine confirms it. The plugin never edits SQLite directly.
-- The plugin assumes Obsidian Desktop and Node built-ins available within Obsidian; the **external Source Scraper CLI** is entirely optional.
-- Local JSON may contain sensitive data: review the preview before creating notes. Plugin settings contain only filesystem paths, not browser credentials.
-- A real X For You personalized feed is **not** provided by this plugin. Source acquisition remains the responsibility of authorized Source Scraper adapters.
-
-More: [User guide](docs/USER-GUIDE.md) · [Safety model](docs/SAFETY.md) · [Compatibility](docs/COMPATIBILITY.md) · [Migration plan](docs/IMPLEMENTATION-PLAN.md).
-
-## Development and tests
-
-```sh
-npm ci
-npm run check
-npm test
-npm run build
-```
-
-Cross-platform CI runs strict TypeScript, safety/unit tests and the bundled `main.js` build. Real Obsidian Desktop acceptance tests run in a synthetic isolated vault, including import, create-only output, attempted re-import and unchanged pre-existing notes.
-
-## License
-
-MIT, with original contributor credit for reused ideas. See [LICENSE](LICENSE).
+MIT license. Historical release documentation describes historical behavior; this branch's read-only vault boundary is authoritative for this integration.

@@ -12,6 +12,7 @@ npm install --prefix tests/desktop --no-audit --no-fund
 npm --prefix tests/desktop test
 ```
 
-The test loads the genuine plugin, imports versioned JSON, explicitly selects one record,
-previews the note, creates it only once, then manually edits and repeats export.
-It verifies existing References.md and Projects/Important.md survive unchanged.
+The tests load the genuine plugin, import versioned JSON, select a record and preview
+Markdown drafts. They assert that no note/project-file creation control is exposed,
+reimport/evidence inspection/filtering create no files, and every existing fixture
+file stays byte-for-byte unchanged. There is no note-writing acceptance step.

@@ -1,0 +1,388 @@
+diff --git a/.gitignore b/.gitignore
+index 6f96f96..e94eadf 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,6 @@
+ # npm
+ node_modules
++.npm-cache/
+ 
+ # build
+ build
+diff --git a/README.md b/README.md
+index 43ad445..6b27e8c 100644
+--- a/README.md
++++ b/README.md
+@@ -200,6 +200,14 @@ names, types, and descriptions. The summary below is for orientation only.
+ 
+ ## Development
+ 
++### Trusted local tool providers
++
++This integration branch adds provider API version 1 to the existing server. A local plugin may call registerToolProvider with apiVersion, id, namespaced tool definitions and an async execute handler. The method returns a disposal function. The provider ID must already be in the host's locally configured enabledToolProviders list; remote MCP calls cannot enable or register providers. Duplicate IDs and tools outside the provider's normalized prefix are rejected. Class-instance handlers retain their binding.
++
++Definitions and dispatch use the same registry and recheck local enablement. Existing HTTP authentication and built-in note tools/ACLs remain in place. Providers enforce their own additional operation policies; registration is trust in local code, not an OS sandbox. The Source Scraper provider produces findings and read-only drafts and cannot write vault notes. Only the separate note connector may perform the user's explicitly requested note changes.
++
++Restart/reconnect a client with a cached tool inventory after installing or changing providers. Server discovery does not establish that an already open client has refreshed. This is a local integration build, not a claim of an upstream released provider API.
++
+ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, build commands, and architecture details. AI assistants should also review [CLAUDE.md](CLAUDE.md) for working guidelines.
+ 
+ ## License
+diff --git a/package.json b/package.json
+index 2cb4da5..61ee527 100644
+--- a/package.json
++++ b/package.json
+@@ -11,7 +11,7 @@
+     "lint": "npx @biomejs/biome lint ./src",
+     "prebuild": "npx @biomejs/biome check ./src",
+     "build": "node esbuild.config.mjs production",
+-    "postbuild": "cp -v manifest.json README.md build",
++    "postbuild": "node scripts/copy-build-assets.mjs",
+     "preversion": "npm run build",
+     "version": "auto-changelog -p",
+     "brat-notes": "run() { auto-changelog --stdout --hide-credit --hide-empty-releases --template .github/changelog.hbs -v $1 --starting-version $1  > release-notes.md; }; run",
+diff --git a/scripts/copy-build-assets.mjs b/scripts/copy-build-assets.mjs
+new file mode 100644
+index 0000000..5a6b195
+--- /dev/null
++++ b/scripts/copy-build-assets.mjs
+@@ -0,0 +1,8 @@
++import {copyFileSync} from "node:fs";
++import {fileURLToPath} from "node:url";
++import {join} from "node:path";
++
++const root=fileURLToPath(new URL("../",import.meta.url));
++for(const name of ["manifest.json","README.md"]){
++  copyFileSync(join(root,name),join(root,"build",name));
++}
+diff --git a/src/@types/settings.d.ts b/src/@types/settings.d.ts
+index 9107f2e..c4b4e3d 100644
+--- a/src/@types/settings.d.ts
++++ b/src/@types/settings.d.ts
+@@ -17,6 +17,8 @@ export interface CurrentSettings {
+ }
+ 
+ export interface VaultAsMCPSettings {
++    /** Trusted local provider IDs; not remotely writable. */
++    enabledToolProviders?: string[];
+     serverPort: number;
+     serverHost: string;
+     autoStart: boolean;
+diff --git a/src/vaultasmcp-MCPHandler.ts b/src/vaultasmcp-MCPHandler.ts
+index d7f58f5..0fad80e 100644
+--- a/src/vaultasmcp-MCPHandler.ts
++++ b/src/vaultasmcp-MCPHandler.ts
+@@ -6,6 +6,7 @@ import type {
+     MCPResponse,
+ } from "./@types/settings";
+ import { MCP_VERSION, SERVER_NAME } from "./vaultasmcp-Constants";
++import { ToolProviders } from "./vaultasmcp-ToolProviders";
+ import { MCPTools } from "./vaultasmcp-Tools";
+ 
+ export class MCPHandler {
+@@ -13,14 +14,19 @@ export class MCPHandler {
+     private logger: Logger;
+     private version: string;
+ 
+-    constructor(app: App, logger: Logger, current: CurrentSettings) {
++    constructor(
++        app: App,
++        logger: Logger,
++        current: CurrentSettings,
++        private providers = new ToolProviders(),
++    ) {
+         this.logger = logger;
+         this.tools = new MCPTools(app, logger, current);
+         this.version = current.serverVersion();
+     }
+ 
+     async handleRequest(request: MCPRequest): Promise<MCPResponse | null> {
+-        this.logger.debug("Received MCP request:", request);
++        this.logger.debug("Received MCP method:", request.method);
+ 
+         try {
+             switch (request.method) {
+@@ -79,7 +85,10 @@ export class MCPHandler {
+     }
+ 
+     private handleToolsList(request: MCPRequest): MCPResponse {
+-        const toolDefinitions = this.tools.getToolDefinitions();
++        const toolDefinitions = [
++            ...this.tools.getToolDefinitions(),
++            ...this.providers.definitions(),
++        ];
+         return this.createResponse(request.id, {
+             tools: toolDefinitions,
+         });
+@@ -90,7 +99,7 @@ export class MCPHandler {
+         const toolName = params.name as string;
+         const args = (params.arguments as Record<string, unknown>) ?? {};
+ 
+-        this.logger.debug("Calling tool:", toolName, args);
++        this.logger.debug("Calling tool:", toolName);
+ 
+         if (!toolName) {
+             return this.createError(
+@@ -101,8 +110,12 @@ export class MCPHandler {
+         }
+ 
+         try {
+-            const result = await this.tools.executeTool(toolName, args);
+-            this.logger.debug("Tool", toolName, "succeeded:", result);
++            const result = this.providers
++                .definitions()
++                .some((t) => t.name === toolName)
++                ? await this.providers.execute(toolName, args)
++                : await this.tools.executeTool(toolName, args);
++            this.logger.debug("Tool", toolName, "succeeded");
+             return this.createResponse(request.id, {
+                 content: [
+                     {
+@@ -114,7 +127,7 @@ export class MCPHandler {
+                 isError: false,
+             });
+         } catch (error) {
+-            this.logger.error(error, `Tool ${toolName} failed`, args);
++            this.logger.warn(`Tool ${toolName} failed`);
+             const message =
+                 error instanceof Error ? error.message : String(error);
+             // Return tool execution error in content, not as JSON-RPC error
+diff --git a/src/vaultasmcp-Plugin.ts b/src/vaultasmcp-Plugin.ts
+index 7bc9013..18ff4dd 100644
+--- a/src/vaultasmcp-Plugin.ts
++++ b/src/vaultasmcp-Plugin.ts
+@@ -11,17 +11,33 @@ import {
+     DEFAULT_SETTINGS,
+     TLS_PRIVATE_KEY_SECRET_ID,
+ } from "./vaultasmcp-Constants";
++import { PathACLChecker } from "./vaultasmcp-PathACL";
+ import {
+     validateServerExposure,
+     validateTlsConfiguration,
+ } from "./vaultasmcp-Security";
+ import { MCPServer } from "./vaultasmcp-Server";
+ import { VaultAsMCPSettingsTab } from "./vaultasmcp-SettingsTab";
++import { type ToolProvider, ToolProviders } from "./vaultasmcp-ToolProviders";
+ 
+ export class VaultAsMCPPlugin
+     extends Plugin
+     implements Logger, CurrentSettings
+ {
++    readonly toolProviderApiVersion = 1;
++    private toolProviders = new ToolProviders(
++        () => this.settings?.enabledToolProviders ?? [],
++    );
++    registerToolProvider(provider: ToolProvider): () => void {
++        return this.toolProviders.register(provider);
++    }
++    checkToolReadAccess(path: string): void {
++        new PathACLChecker(this, this).checkReadAccess(path);
++    }
++    checkToolWriteAccess(path: string): void {
++        new PathACLChecker(this, this).checkWriteAccess(path);
++    }
++
+     declare settings: VaultAsMCPSettings;
+     private server: MCPServer | null = null;
+     private statusBarItem: HTMLElement | null = null;
+@@ -150,6 +166,7 @@ export class VaultAsMCPPlugin
+                 this.app,
+                 this, // as Logger
+                 this, // as CurrentSettings
++                this.toolProviders,
+             );
+ 
+             await this.server.start();
+diff --git a/src/vaultasmcp-Server.ts b/src/vaultasmcp-Server.ts
+index beadf79..8d9ba46 100644
+--- a/src/vaultasmcp-Server.ts
++++ b/src/vaultasmcp-Server.ts
+@@ -4,6 +4,7 @@ import Fastify from "fastify";
+ import type { App } from "obsidian";
+ import type { CurrentSettings, Logger, MCPRequest } from "./@types/settings";
+ import { MCPHandler } from "./vaultasmcp-MCPHandler";
++import { ToolProviders } from "./vaultasmcp-ToolProviders";
+ 
+ export class MCPServer {
+     private server: FastifyInstance | null = null;
+@@ -14,8 +15,9 @@ export class MCPServer {
+         app: App,
+         private logger: Logger,
+         private current: CurrentSettings,
++        providers = new ToolProviders(),
+     ) {
+-        this.mcpHandler = new MCPHandler(app, logger, current);
++        this.mcpHandler = new MCPHandler(app, logger, current, providers);
+         this.port = current.serverPort();
+     }
+ 
+diff --git a/src/vaultasmcp-ToolProviders.ts b/src/vaultasmcp-ToolProviders.ts
+new file mode 100644
+index 0000000..04e64e8
+--- /dev/null
++++ b/src/vaultasmcp-ToolProviders.ts
+@@ -0,0 +1,86 @@
++import type { MCPTool } from "./@types/settings";
++
++export interface ToolProvider {
++    apiVersion: 1;
++    id: string;
++    tools: MCPTool[];
++    execute(name: string, args: Record<string, unknown>): Promise<unknown>;
++}
++
++/** Trusted local plugins only. Enablement is local configuration, never an MCP tool. */
++export class ToolProviders {
++    private providers = new Map<string, ToolProvider>();
++    constructor(private enabled: () => readonly string[] = () => []) {}
++
++    register(provider: ToolProvider): () => void {
++        if (
++            provider.apiVersion !== 1 ||
++            !/^[a-z][a-z0-9-]{1,63}$/.test(provider.id)
++        )
++            throw new Error("Unsupported tool provider");
++        if (!this.enabled().includes(provider.id))
++            throw new Error("Tool provider is not locally enabled");
++        if (this.providers.has(provider.id))
++            throw new Error("Tool provider already registered");
++        const prefix = `${provider.id.replaceAll("-", "_")}_`;
++        const tools = structuredClone(provider.tools);
++        if (
++            !tools.length ||
++            tools.length > 32 ||
++            new Set(tools.map((t) => t.name)).size !== tools.length
++        )
++            throw new Error("Invalid provider definitions");
++        for (const tool of tools) {
++            if (
++                !tool.name.startsWith(prefix) ||
++                !/^[a-z0-9_]{1,100}$/.test(tool.name) ||
++                tool.inputSchema.type !== "object" ||
++                !tool.inputSchema.properties
++            )
++                throw new Error("Invalid namespaced tool definition");
++        }
++        const registered = {
++            ...provider,
++            tools,
++            execute: provider.execute.bind(provider),
++        };
++        this.providers.set(provider.id, registered);
++        return () => {
++            if (this.providers.get(provider.id) === registered)
++                this.providers.delete(provider.id);
++        };
++    }
++
++    definitions(): MCPTool[] {
++        return structuredClone(
++            [...this.providers.values()]
++                .filter((p) => this.enabled().includes(p.id))
++                .flatMap((p) => p.tools),
++        );
++    }
++
++    async execute(
++        name: string,
++        args: Record<string, unknown>,
++    ): Promise<unknown> {
++        const provider = [...this.providers.values()].find(
++            (p) =>
++                this.enabled().includes(p.id) &&
++                p.tools.some((t) => t.name === name),
++        );
++        const tool = provider?.tools.find((t) => t.name === name);
++        if (!provider || !tool)
++            throw new Error("Unknown or disabled provider tool");
++        if (
++            !args ||
++            typeof args !== "object" ||
++            Array.isArray(args) ||
++            Object.keys(args).some(
++                (key) => !Object.hasOwn(tool.inputSchema.properties, key),
++            ) ||
++            tool.inputSchema.required?.some((key) => !Object.hasOwn(args, key))
++        )
++            throw new Error("Invalid provider arguments");
++        return provider.execute(name, args);
++    }
++}
+diff --git a/test/vaultasmcp-ProviderHttp.test.ts b/test/vaultasmcp-ProviderHttp.test.ts
+new file mode 100644
+index 0000000..b56116b
+--- /dev/null
++++ b/test/vaultasmcp-ProviderHttp.test.ts
+@@ -0,0 +1,34 @@
++import {App} from "obsidian";
++import {it,expect,vi} from "vitest";
++import {MCPServer} from "../src/vaultasmcp-Server";
++import {ToolProviders} from "../src/vaultasmcp-ToolProviders";
++import type {CurrentSettings,Logger} from "../src/@types/settings";
++vi.mock("obsidian-daily-notes-interface",()=>({}));
++
++it("discovers and invokes a locally registered provider through the existing authenticated HTTP endpoint",async()=>{
++  const logger={debug:vi.fn(),warn:vi.fn(),warnAcl:vi.fn(),error:vi.fn()} as unknown as Logger;
++  const current={pathACL:()=>({forbidden:[],readOnly:[],writable:[]}),bearerToken:()=>"synthetic-test-token",
++    serverPort:()=>0,serverHost:()=>"127.0.0.1",serverVersion:()=>"1.2.0",normalizeQuotes:()=>true,
++    tlsEnabled:()=>false,tlsCertificatePem:()=>undefined,getTlsPrivateKeyPem:()=>undefined} as CurrentSettings;
++  const registry=new ToolProviders(()=>["source-scraper"]);
++  const dispose=registry.register({apiVersion:1,id:"source-scraper",tools:[{name:"source_scraper_capabilities",description:"test",
++    inputSchema:{type:"object",properties:{},required:[]}}],execute:async()=>({apiVersion:1,notesCreated:0})});
++  const app=App.createConfigured__({files:{"References.md":"sentinel"}});
++  const server=new MCPServer(app.asOriginalType__(),logger,current,registry);
++  await server.start();
++  try{
++    const port=(server as any).server.server.address().port;
++    const endpoint="http://127.0.0.1:"+port+"/mcp";
++    const rpc=async(method:string,params={},authorized=true)=>{
++      const response=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json",...(authorized?{Authorization:"Bearer synthetic-test-token"}:{})},
++        body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});return {status:response.status,body:await response.json() as any};
++    };
++    expect((await rpc("tools/list",{},false)).status).toBe(401);
++    const listed=await rpc("tools/list");
++    expect(listed.body.result.tools.some((t:any)=>t.name==="read_note")).toBe(true);
++    expect(listed.body.result.tools.some((t:any)=>t.name==="source_scraper_capabilities")).toBe(true);
++    expect((await rpc("tools/call",{name:"source_scraper_capabilities",arguments:{}})).body.result.structuredContent).toEqual({apiVersion:1,notesCreated:0});
++    expect((await rpc("tools/call",{name:"source_scraper_capabilities",arguments:{shell:"forbidden"}})).body.result.isError).toBe(true);
++    dispose();expect((await rpc("tools/list")).body.result.tools.some((t:any)=>t.name==="source_scraper_capabilities")).toBe(false);
++  }finally{await server.stop();}
++});
+diff --git a/test/vaultasmcp-ToolProviders.test.ts b/test/vaultasmcp-ToolProviders.test.ts
+new file mode 100644
+index 0000000..84630d5
+--- /dev/null
++++ b/test/vaultasmcp-ToolProviders.test.ts
+@@ -0,0 +1,32 @@
++import {describe,it,expect} from "vitest";
++import {ToolProviders} from "../src/vaultasmcp-ToolProviders";
++
++describe("trusted local tool providers",()=>{
++  const provider=()=>({apiVersion:1 as const,id:"source-scraper",tools:[{
++    name:"source_scraper_capabilities",description:"read",inputSchema:{type:"object" as const,properties:{},required:[]}
++  }],execute:async()=>({ready:true})});
++  it("retains class prototype handlers and their instance binding",async()=>{
++    class PluginProvider {
++      apiVersion=1 as const;id="source-scraper";tools=provider().tools;
++      async execute(){return {provider:this.id};}
++    }
++    const registry=new ToolProviders(()=>["source-scraper"]);registry.register(new PluginProvider());
++    await expect(registry.execute("source_scraper_capabilities",{})).resolves.toEqual({provider:"source-scraper"});
++  });
++  it("requires local enablement and cannot replace built-in names",()=>{
++    expect(()=>new ToolProviders().register(provider())).toThrow(/locally enabled/);
++    const registry=new ToolProviders(()=>["source-scraper"]),bad=provider();bad.tools[0].name="create_note";
++    expect(()=>registry.register(bad)).toThrow(/namespaced/);
++  });
++  it("supports dispatch, revocation, argument checks and disposal",async()=>{
++    let enabled=["source-scraper"];const registry=new ToolProviders(()=>enabled),p=provider();
++    const dispose=registry.register(p);p.tools[0].name="tampered";
++    expect(registry.definitions()[0].name).toBe("source_scraper_capabilities");
++    expect(()=>registry.register(provider())).toThrow(/already registered/);
++    await expect(registry.execute("source_scraper_capabilities",{})).resolves.toEqual({ready:true});
++    await expect(registry.execute("source_scraper_capabilities",{shell:"arbitrary"})).rejects.toThrow(/arguments/);
++    enabled=[];expect(registry.definitions()).toEqual([]);
++    await expect(registry.execute("source_scraper_capabilities",{})).rejects.toThrow(/disabled/);
++    enabled=["source-scraper"];dispose();expect(registry.definitions()).toEqual([]);
++  });
++});

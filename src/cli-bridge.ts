@@ -11,13 +11,18 @@ function safe(s:string):string{
     .slice(0,400);
 }
 export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string}
+export class CliCommandError extends Error {
+  readonly output:unknown;
+  readonly exitCode:number|null;
+  constructor(message:string,output:unknown,exitCode:number|null){super(message);this.output=output;this.exitCode=exitCode;}
+}
 export class CliBridge {
   private controller?:AbortController;
   get running():boolean{return Boolean(this.controller);}
   cancel():void{this.controller?.abort();}
   private async command(config:CliConfig,command:string,args:string[],timeout=90000):Promise<unknown>{
     if(this.running)throw new Error("Another Source Scraper command is running");
-    const cmd=new Set(["version","validate","run","query","export","review","reprocess"]);
+    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list"]);
     if(!cmd.has(command))throw new Error("Command not allowed");
     const script=realpathSync(config.cliPath);
     const node=config.nodeExecutable.trim()||"node";
@@ -85,7 +90,11 @@ export class CliBridge {
           // The close event also follows failed spawn, so it is the common
           // point at which the lock and all timers can safely be released.
           if(pendingError)reject(pendingError);
-          else if(code!==0)reject(new Error("Source Scraper command failed: "+safe(stderr)));
+          else if(code!==0){
+            let partial:unknown;
+            try{partial=JSON.parse(stdout+decoder.end());}catch{/* Invalid/empty partial output has no data contract. */}
+            reject(new CliCommandError("Source Scraper command failed: "+safe(stderr),partial,code));
+          }
           else{
             try{resolve(JSON.parse(stdout+decoder.end()));}
             catch{reject(new Error("CLI did not produce valid JSON"));}
@@ -99,6 +108,10 @@ export class CliBridge {
         abort.signal.addEventListener("abort",stop,{once:true});
       });
     }finally{this.controller=undefined;}
+  }
+  /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
+  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list",args:string[]=[]):Promise<unknown>{
+    return this.command(config,command,args,120000);
   }
   async checkVersion(config:CliConfig):Promise<string>{
     const v=await this.command(config,"version",[],15000) as Record<string,unknown>;

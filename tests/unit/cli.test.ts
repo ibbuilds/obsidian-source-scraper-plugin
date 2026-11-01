@@ -4,7 +4,7 @@ import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync} from "node:fs"
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {setTimeout as delay} from "node:timers/promises";
-import {CliBridge} from "../../src/cli-bridge.ts";
+import {CliBridge,CliCommandError} from "../../src/cli-bridge.ts";
 import {envelope} from "./fixtures.ts";
 test("optional bridge checks public version then invokes fixed CLI commands without a shell",async()=>{
   const root=mkdtempSync(join(tmpdir(),"ss-cli-bridge-"));
@@ -34,6 +34,21 @@ else process.exit(19);`);
     );
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+test("a nonzero engine exit preserves structured partial results and redacts stderr",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"ss-cli-partial-"));
+  try{
+    const cliPath=join(root,"partial.mjs"),configPath=join(root,"project.json");writeFileSync(configPath,"{}");
+    writeFileSync(cliPath,'console.log(JSON.stringify({result:{success:false,observations:2}}));console.error("token=private-value");process.exitCode=1;');
+    const bridge=new CliBridge();
+    await assert.rejects(bridge.invoke({cliPath,configPath,nodeExecutable:process.execPath},"run"),error=>{
+      assert.ok(error instanceof CliCommandError);assert.equal(error.exitCode,1);
+      assert.deepEqual(error.output,{result:{success:false,observations:2}});
+      assert.doesNotMatch(error.message,/private-value/);return true;
+    });
+    assert.equal(bridge.running,false);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
 test("unsupported CLI version cannot trigger project collection",async()=>{
   const root=mkdtempSync(join(tmpdir(),"ss-cli-untrusted-"));
   try{
