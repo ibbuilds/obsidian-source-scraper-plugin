@@ -28,7 +28,7 @@ See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, li
 
 Run `npm run check`, `npm test`, and `npm run build`. The real-engine provider harness is `node --experimental-strip-types scripts/verify-mcp-provider.mjs /absolute/path/source-scraper.mjs`. It uses synthetic data and simulated recommendations, and creates no candidate notes. The real public npm source and a running Obsidian instance require separate live acceptance evidence.
 
-The current provider admits json-file, json-snapshot, rss, public-json and public-product. Executable/custom adapters are explicitly unavailable through this remote provider. Personalized X For You remains unsupported. Engine entity v1 import compatibility is preserved; the provider additionally requires the advertised agent-assessment and selected-export CLI capabilities.
+The current provider admits json-file, json-snapshot, rss, public-json, public-product and locally registered x-for-you projects. The optional [X feed setup](docs/X-FEED.md) requires a separate local grant and an engine advertising `x-for-you-getxapi-v1`; actual personalized feed access is unverified. Executable/custom adapters remain unavailable through this remote provider. Entity-v1 import compatibility is preserved; the provider also requires the agent-assessment and selected-export CLI capabilities.
 
 The MCP endpoint can advertise new tools while an already open ChatGPT/Codex session retains an older inventory. Refresh/reconnect the existing connector to discover them. No new tunnel or second server is required.
 

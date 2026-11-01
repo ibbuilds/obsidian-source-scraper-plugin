@@ -10,7 +10,7 @@ function safe(s:string):string{
     .replace(/(?:token|password|secret|cookie|session|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi,"[redacted]")
     .slice(0,400);
 }
-export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string}
+export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string;allowXProvider?:boolean}
 export class CliCommandError extends Error {
   readonly output:unknown;
   readonly exitCode:number|null;
@@ -35,7 +35,7 @@ export class CliBridge {
         let closed=false;
         const child=spawn(node,[script,command,...args],{
           shell:false,windowsHide:true,stdio:["ignore","pipe","pipe"],
-          signal:abort.signal
+          signal:abort.signal,env:cliEnvironment(config.allowXProvider===true)
         });
         const timer=setTimeout(()=>abort.abort(),timeout);
         let forceTimer:ReturnType<typeof setTimeout>|undefined;
@@ -154,4 +154,15 @@ export class CliBridge {
       throw new Error("Exported data did not match the selected project");
     return imported;
   }
+}
+/** Only a local UI grant may authorize session disclosure/paid X requests. */
+export function cliEnvironment(allowXProvider:boolean):NodeJS.ProcessEnv{
+  const env={...process.env};
+  delete env.SOURCE_SCRAPER_X_PROVIDER_APPROVED;
+  if(allowXProvider)env.SOURCE_SCRAPER_X_PROVIDER_APPROVED="getxapi-session-disclosure-and-paid-requests";
+  else{
+    delete env.SOURCE_SCRAPER_GETXAPI_API_KEY;
+    delete env.SOURCE_SCRAPER_X_ACCOUNT_SESSION;
+  }
+  return env;
 }
