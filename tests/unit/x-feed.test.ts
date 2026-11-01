@@ -11,7 +11,7 @@ import {DEFAULT_NOTE_MAPPING_JSON} from "../../src/note-mapping.ts";
 
 test("X setup produces a bounded credential-free discovery project with editable quality filters",()=>{
   const project=buildXFeedProject("1234567890","react, motion","giveaway",50,1);
-  assert.equal(project.sources[0].adapter,"x-for-you");
+  assert.equal(project.sources[0].adapter,"x-for-you-local");
   assert.deepEqual(project.sources[0].config,{accountId:"1234567890",pagesPerRun:1});
   assert.deepEqual(project.policy,{includeKeywords:["react","motion"],excludeKeywords:["giveaway"],minimumScore:50});
   assert.deepEqual(project.outputs,[]);assert.equal(project.pipeline[0],"x-discovery");
@@ -34,13 +34,13 @@ test("local setup writes only outside the vault, is create-only and never create
 });
 
 test("a disabled local grant strips inherited X credentials and approval, while an enabled grant never changes the parent environment",()=>{
-  const names=["SOURCE_SCRAPER_X_PROVIDER_APPROVED","SOURCE_SCRAPER_GETXAPI_API_KEY","SOURCE_SCRAPER_X_ACCOUNT_SESSION"];
+  const names=["SOURCE_SCRAPER_X_PROVIDER_APPROVED","SOURCE_SCRAPER_GETXAPI_API_KEY","SOURCE_SCRAPER_X_ACCOUNT_SESSION","SOURCE_SCRAPER_X_CSRF","SOURCE_SCRAPER_X_LOCAL_APPROVED"];
   const prior=names.map(k=>process.env[k]);
   try{
     process.env[names[0]]="inherited-untrusted-grant";process.env[names[1]]="fixture-key";process.env[names[2]]="fixture-session";
     const disabled=cliEnvironment(false);assert.ok(names.every(k=>disabled[k]===undefined));
-    const enabled=cliEnvironment(true);assert.equal(enabled.SOURCE_SCRAPER_X_PROVIDER_APPROVED,"getxapi-session-disclosure-and-paid-requests");
-    assert.equal(enabled.SOURCE_SCRAPER_GETXAPI_API_KEY,"fixture-key");
+    const enabled=cliEnvironment(true);assert.equal(enabled.SOURCE_SCRAPER_X_LOCAL_APPROVED,"local-read-only");
+    assert.equal(enabled.SOURCE_SCRAPER_GETXAPI_API_KEY,undefined);assert.equal(enabled.SOURCE_SCRAPER_X_PROVIDER_APPROVED,undefined);
     assert.equal(process.env[names[0]],"inherited-untrusted-grant");
   }finally{names.forEach((k,i)=>{if(prior[i]===undefined)delete process.env[k];else process.env[k]=prior[i];});}
 });

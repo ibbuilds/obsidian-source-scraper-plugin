@@ -11,6 +11,7 @@ const hash=(value:unknown)=>createHash("sha256").update(typeof value==="string"?
 export interface RegisteredProject {id:string;configPath:string;manifestHash:string}
 export interface ProviderOptions {
   allowXProvider?:boolean;
+  xPythonPath?:string;
   cliPath:string;cliHash:string;nodeExecutable:string;projects:RegisteredProject[];
   workspacePath:string;statePath:string;vaultPath:string;
   mapping:()=>string;pathExists:(path:string)=>boolean;stage:(value:EntityExport)=>void;
@@ -129,7 +130,7 @@ export class SourceScraperProvider {
     const parsed=parseProjectManifest(manifest);
     if(parsed.id!==project.id)throw Error("PROJECT_MISMATCH");
     for(const source of parsed.sources){
-      if(!["json-file","json-snapshot","rss","public-json","public-product","x-for-you"].includes(source.adapter))
+      if(!["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"].includes(source.adapter))
         throw Error("SOURCE_NOT_TRUSTED: executable/custom source requires a separate locally reviewed capability");
       if(["json-file","json-snapshot"].includes(source.adapter)){
         const path=text(source.config.path,"source path");safePath(this.options.workspacePath,resolve(dirname(project.configPath),path));
@@ -137,7 +138,7 @@ export class SourceScraperProvider {
     }
     if(!isAbsolute(this.options.nodeExecutable)||hash(readFileSync(this.options.cliPath,"utf8"))!==this.options.cliHash)
       throw Error("CLI_NOT_TRUSTED: verify and register the CLI locally");
-    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true}};
+    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,xPythonPath:this.options.xPythonPath}};
   }
   private async invoke(id:unknown,command:Parameters<CliBridge["invoke"]>[1],args:string[]=[]):Promise<any>{
     const {config}=this.project(id);
@@ -149,8 +150,8 @@ export class SourceScraperProvider {
       this.engineChecked=true;
       this.engineCapabilities=version.capabilities??[];
     }
-    if(command==="run"&&parseProjectManifest(readFileSync(config.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you")&&
-      !this.engineCapabilities.includes("x-for-you-getxapi-v1"))throw Error("SCHEMA_UNSUPPORTED: X feed collection requires x-for-you-getxapi-v1");
+    if(command==="run"&&parseProjectManifest(readFileSync(config.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local")&&
+      !this.engineCapabilities.includes("x-for-you-local-v1"))throw Error("SCHEMA_UNSUPPORTED: X feed collection requires x-for-you-local-v1");
     return this.bridge.invoke(config,command,["--config",config.configPath,...args]);
   }
   private async entities(projectId:unknown,selected:string[]):Promise<EntityExport>{
@@ -161,8 +162,8 @@ export class SourceScraperProvider {
   }
   private async start(args:Record<string,unknown>,command:"run"|"reprocess"):Promise<Job>{
     const {project}=this.project(args.projectId);
-    const usesX=parseProjectManifest(readFileSync(project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you");
-    if(command==="run"&&usesX&&!this.options.allowXProvider)throw Error("X_PROVIDER_APPROVAL_REQUIRED: enable the local GetXAPI grant only after approving session disclosure and paid requests");
+    const usesX=parseProjectManifest(readFileSync(project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local");
+    if(command==="run"&&usesX&&!this.options.allowXProvider)throw Error("X_LOCAL_APPROVAL_REQUIRED: enable local read-only X access");
     if(command==="run"&&usesX&&args.pageSize!==undefined&&Number(args.pageSize)<100)throw Error("X_FEED_PAGE_SIZE: use at least 100");
     const requestId=text(args.requestId,"requestId",200),projectId=text(args.projectId,"projectId");
     const limits=command==="run"?["--page-size",String(integer(args.pageSize,100,1,500)),"--max-pages",String(integer(args.maxPages,100,1,1000))]:[];
@@ -196,10 +197,11 @@ export class SourceScraperProvider {
       case "capabilities":return {apiVersion:1,entitySchemaVersion:1,projects:this.projects().length,noteWritesSupported:false,
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
-        sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you"],executableSources:false,
-        xFeed:{provider:"getxapi",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
-          apiKeyConfigured:Boolean(process.env.SOURCE_SCRAPER_GETXAPI_API_KEY),accountSessionConfigured:Boolean(process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
-          credentialDestination:"api.getxapi.com",documentedUsdPerRequest:0.001,maxPagesPerRun:10}};
+        sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
+        xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
+          csrfConfigured:Boolean(process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
+          pythonConfigured:Boolean(this.options.xPythonPath||process.env.SOURCE_SCRAPER_X_PYTHON),
+          credentialDestination:"x.com",apiKeyRequired:false,paidFallback:false,maxPagesPerRun:10}};
       case "list_projects":return {projects:this.projects().map(p=>({id:p.id,configured:true}))};
       case "validate_project":return this.invoke(args.projectId,"validate");
       case "create_project":{

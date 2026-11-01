@@ -16,6 +16,7 @@ import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
   xProviderEnabled:string;
+  xPythonPath:string;
   mcpEnabled:string;
   mcpProjectsJson:string;
   mcpCliHash:string;
@@ -27,7 +28,7 @@ interface Preferences {
   projectFolder:string;
   noteMappingJson:string;
 }
-const defaults:Preferences={xProviderEnabled:"false",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+const defaults:Preferences={xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
   projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -289,7 +290,7 @@ class RunModal extends Modal {
           const s=this.plugin.settings;
           if(!s.cliPath||!s.configPath)throw new Error("Select the CLI and a project in plugin settings first");
           const imported=await this.plugin.cli.runAndImport({
-            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable,allowXProvider:s.xProviderEnabled==="true"
+            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable,allowXProvider:s.xProviderEnabled==="true",xPythonPath:s.xPythonPath
           });
           this.plugin.setImported(imported);
           this.close();
@@ -305,18 +306,18 @@ class XFeedSetupModal extends Modal {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
     const root=this.contentEl;root.empty();root.createEl("h3",{text:"X For You source setup"});
-    paragraph(root,"This optional source uses GetXAPI, an independent provider that receives your X account session and charges per request. Its documented price is $0.001 per request (approximately 20 posts). Live feed access has not been verified in this build.");
-    paragraph(root,"Do not paste credentials here or into ChatGPT. Supply SOURCE_SCRAPER_GETXAPI_API_KEY and SOURCE_SCRAPER_X_ACCOUNT_SESSION through the local process environment before starting Obsidian. This plugin never extracts a browser session.");
+    paragraph(root,"This free local source uses the open-source Twifork client. No commercial API key, subscription, credit or paid fallback is used. It reads your account's For You timeline directly from X. Live account access has not yet been verified in this build.");
+    paragraph(root,"Do not paste credentials here or into ChatGPT. Supply SOURCE_SCRAPER_X_ACCOUNT_SESSION and SOURCE_SCRAPER_X_CSRF locally before starting Obsidian. Configure the isolated Python/Twifork interpreter in settings. This plugin never extracts your browser session.");
     const readiness=xFeedReadiness();
     paragraph(root,"Local grant: "+(this.plugin.settings.xProviderEnabled==="true"?"enabled":"disabled")+
-      ". Provider key: "+(readiness.apiKeyConfigured?"configured":"missing")+". Account session: "+(readiness.accountSessionConfigured?"configured":"missing")+".");
-    paragraph(root,"Creating the project does not contact X or GetXAPI. Enable the separate local provider grant in settings only after approving the provider, account access and cost.");
+      ". Local CSRF value: "+(readiness.csrfConfigured?"configured":"missing")+". Account session: "+(readiness.accountSessionConfigured?"configured":"missing")+".");
+    paragraph(root,"Creating the project does not contact X. Enable local read-only X access in settings when the session is ready. This unofficial client stops on authentication errors or rate limits; it does not automate login or solve challenges.");
     let accountId="",include="react, frontend, css, gsap, motion, typography, design system, open source",exclude="sponsored, giveaway",minimum=50,pages=1;
     new Setting(root).setName("Numeric X account ID").addText(t=>t.setPlaceholder("Connected account's numeric ID").onChange(v=>{accountId=v.trim();}));
     new Setting(root).setName("Include terms (editable suggestions)").addTextArea(t=>t.setValue(include).onChange(v=>{include=v;}));
     new Setting(root).setName("Exclude terms").addTextArea(t=>t.setValue(exclude).onChange(v=>{exclude=v;}));
     new Setting(root).setName("Suggested minimum relevance score (0–100)").addText(t=>t.setValue(String(minimum)).onChange(v=>{minimum=Number(v);}));
-    new Setting(root).setName("Provider pages per explicit run (1–10)").addText(t=>t.setValue(String(pages)).onChange(v=>{pages=Number(v);}));
+    new Setting(root).setName("X pages per explicit run (1–10)").addText(t=>t.setValue(String(pages)).onChange(v=>{pages=Number(v);}));
     const status=root.createEl("p");
     new Setting(root).addButton(b=>b.setButtonText("Prepare project outside vault (no collection)").setCta().onClick(async()=>{
       try{
@@ -429,11 +430,14 @@ class ScraperSettings extends PluginSettingTab {
     const root=this.containerEl;root.empty();
     root.createEl("h2",{text:"Source Scraper"});
     paragraph(root,"MCP: "+this.plugin.mcpStatus);
-    new Setting(root).setName("Allow GetXAPI account access and paid X requests")
-      .setDesc("Off by default. Enabling allows GetXAPI to receive the locally supplied X account session; documented price $0.001/request, at most 10 pages per source window. No credentials are extracted from your browser. This does not start collection.")
+    new Setting(root).setName("Allow local read-only X feed access")
+      .setDesc("Off by default. Uses the locally supplied session directly with X through Twifork. No paid API or third-party session service. This does not start collection.")
       .addToggle(t=>t.setValue(this.plugin.settings.xProviderEnabled==="true").onChange(async v=>{
         this.plugin.settings.xProviderEnabled=String(v);await this.plugin.savePrefs();
       }));
+    new Setting(root).setName("Isolated Python for Twifork")
+      .setDesc("Absolute interpreter path for the project-local Twifork 2.4.0 environment; not accepted through remote tool arguments.")
+      .addText(t=>t.setValue(this.plugin.settings.xPythonPath).onChange(async v=>{this.plugin.settings.xPythonPath=v.trim();await this.plugin.savePrefs();}));
     new Setting(root).setName("Expose tools through Vault as MCP")
       .setDesc("Requires the locally enabled provider API. Collection never creates final notes.")
       .addToggle(t=>t.setValue(this.plugin.settings.mcpEnabled==="true").onChange(async v=>{
@@ -515,6 +519,7 @@ export default class ScraperPlugin extends Plugin {
       const vaultId=createHash("sha256").update(vaultPath).digest("hex").slice(0,24);
       const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
         allowXProvider:this.settings.xProviderEnabled==="true",
+        xPythonPath:this.settings.xPythonPath,
         nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
         statePath:join(process.env.LOCALAPPDATA||join(homedir(),".local","share"),"SourceScraper",vaultId,"state.json"),
         vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
