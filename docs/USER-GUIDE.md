@@ -16,7 +16,7 @@ Ask ChatGPT to validate a registered project, start a bounded collection, inspec
 
 Ask ChatGPT to stage selected findings. They appear in the review panel with their evidence. Staged references survive plugin restart; sources are not collected again automatically. If a manifest or binary changes, reverify and update its local trusted digest before running it.
 
-For the optional account-personalized X source, see [X feed setup](X-FEED.md). The setup screen prepares a project outside the vault and does not collect. GetXAPI access remains disabled until the separate local provider/account-cost grant and private credential setup are complete. Live personalized access must still be verified.
+For the optional account-personalized X source, see [X feed setup](X-FEED.md). The setup screen prepares a project outside the vault and does not collect. Local X reads remain disabled until the local read grant, Python runtime and private session setup are complete. Live personalized access must still be verified.
 
 For selected entries, Preview selected drafts shows proposed paths and Markdown. It writes nothing, creates no save authorization token, and performs no note creation. The MCP preview tool likewise returns drafts and existing-path indicators only.
 

@@ -72,7 +72,8 @@ describe("Source Scraper reviews without owning vault writes",()=>{
     await click("X feed setup");
     const modal=browser.$(".modal-container");await modal.waitForDisplayed({timeout:15000});
     expect(await modal.getText()).toContain("Local grant: disabled");
-    expect(await modal.getText()).toContain("Creating the project does not contact X or GetXAPI");
+    expect(await modal.getText()).toContain("Creating the project does not contact X");
+    expect(await modal.getText()).toContain("No commercial API key");
     expect(await modal.getText()).toContain("Do not paste credentials");
     expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
