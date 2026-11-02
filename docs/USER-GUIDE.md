@@ -4,9 +4,9 @@ Source Scraper collects evidence and presents candidates. ChatGPT decides how to
 
 ## Import or collect
 
-Click **SS** in the status bar immediately after ChatGPT, or use the command palette. Its anchored popover opens without a workspace pane. Import a version-1 entities JSON/NDJSON export, or configure a trusted local CLI and explicitly collect a registered project. Collection persists engine data and stages candidates for review; arriving data never opens the popover automatically. It does not write notes or invoke external output adapters.
+Click **Source Scraper** in the status bar immediately after ChatGPT, or use the command palette. Its anchored popover opens without a workspace pane. Import a version-1 entities JSON/NDJSON export, or configure a trusted local CLI and explicitly collect a registered project. Collection persists engine data and stages candidates for review; arriving data never opens the popover automatically. It does not write notes or invoke external output adapters.
 
-Inspect an entity's original mentions, attributes, heuristic scores, human review and evaluator history. Agent recommendations are displayed separately in the evidence dialog when the matching provider/project is connected. Missing evidence remains missing; source license claims are not independent verification.
+Choose **Review candidates** to browse source cards, search and select entries. **View evidence** opens original mentions, attributes, heuristic scores, human review and evaluator history. Connection checks and local X setup live under the overview's **Connection** disclosure. Agent recommendations are displayed separately in the evidence dialog when the matching provider/project is connected. Missing evidence remains missing; source license claims are not independent verification.
 
 Use Project JSON editor to inspect, edit in memory and validate generic manifests. Existing vault project files can be read without alteration. New remotely requested manifests are created only in the registered external project workspace, never in user-content folders. Note mapping controls draft rendering, not automatic note creation.
 

@@ -85,44 +85,65 @@ export class ScraperPopover {
     this.iconButton(header,"x","Close Source Scraper",()=>this.close(true));
     this.body=this.el(root,"div","ss-popover-body");
     if(this.screen==="review")this.host.renderReview(this.body);else this.renderHome(this.body,snapshot);
+    const footer=this.el(root,"footer","ss-panel-footer");this.host.icon(this.el(footer,"span",""),"shield-check");
+    this.el(footer,"span","","Only ChatGPT writes notes, when you ask.");
     if(root.style.visibility!=="hidden")root.focus({preventScroll:true});
     this.position();
   }
   private renderHome(body:HTMLElement,snapshot:PanelSnapshot):void{
-    const heading=this.el(body,"div","ss-status-heading"),icon=this.el(heading,"span","ss-state-icon");
-    const title=this.el(heading,"h3","ss-title"),description=this.el(body,"p","ss-description");
-    const checks=this.el(body,"div","ss-checks");
-    const row=(label:string)=>{const node=this.el(checks,"div","ss-check-row"),mark=this.el(node,"span","ss-check");this.el(node,"span","ss-check-label",label);const value=this.el(node,"span","ss-check-value");return {mark,value};};
-    const engine=row("Local engine"),mcp=row("ChatGPT tools"),session=row("X session"),queue=row("Candidate queue");
-    const project=this.el(body,"label","ss-project-label","Research project");
+    body.classList.add("ss-overview");
+    const hero=this.el(body,"section","ss-hero");
+    const heading=this.el(hero,"div","ss-status-heading"),icon=this.el(heading,"span","ss-state-icon");
+    const title=this.el(heading,"h3","ss-title"),description=this.el(hero,"p","ss-description");
+    const context=this.el(hero,"p","ss-queue-context");
+    const project=this.el(body,"label","ss-project-label","Project");
     const select=this.el(project,"select","ss-project-select");select.setAttribute("aria-label","Research project");
     for(const p of snapshot.projects){const option=this.doc.createElement("option");option.value=p.id;option.textContent=p.name;select.appendChild(option);}
-    if(!select.options.length){const option=this.doc.createElement("option");option.textContent="No registered project";option.value="";select.appendChild(option);}
     select.addEventListener("change",()=>this.host.selectProject(select.value));
     const actions=this.el(body,"div","ss-popover-actions");
-    const review=this.button(actions,"Review candidates",()=>{
-      if(this.host.snapshot().findings)this.showReview();else{this.close(false);this.host.setup();}
+    const primary=this.button(actions,"Review candidates",()=>{
+      const s=this.host.snapshot(),selected=s.projects.find(p=>p.id===s.projectId);
+      if(s.findings)this.showReview();
+      else if(s.running)this.host.cancel();
+      else if(!s.engine||!s.mcp){this.close(false);this.host.settings();}
+      else if(!selected||Boolean(selected.isX&&(!s.session||!s.xAllowed||!s.python))){this.close(false);this.host.setup();}
+      else this.host.collect();
     },"ss-button ss-primary");
-    const collect=this.button(actions,"Collect sources",()=>this.host.snapshot().running?this.host.cancel():this.host.collect());
-    const setup=this.button(actions,"Connect X locally",()=>{this.close(false);this.host.setup();},"ss-button ss-quiet");
-    this.button(actions,"Import findings",()=>{this.close(false);this.host.importFindings();},"ss-button ss-quiet");
-    const disconnect=this.button(actions,"Disconnect local X",()=>this.host.disconnect?.(),"ss-button ss-quiet");
+    const secondary=this.el(actions,"div","ss-secondary-actions");
+    const collect=this.button(secondary,"Collect sources",()=>this.host.snapshot().running?this.host.cancel():this.host.collect());
+    this.button(secondary,"Import findings",()=>{this.close(false);this.host.importFindings();});
     const feedback=this.el(body,"p","ss-feedback");feedback.setAttribute("role","status");feedback.setAttribute("aria-live","polite");
-    this.el(body,"p","ss-boundary","Only ChatGPT writes notes, when you ask.");
+    const connection=this.el(body,"details","ss-connection"),summary=this.el(connection,"summary","ss-connection-summary");
+    const connectionIcon=this.el(summary,"span","ss-connection-icon");this.host.icon(connectionIcon,"plug");
+    this.el(summary,"span","ss-connection-label","Connection");
+    const connectionState=this.el(summary,"span","ss-connection-state");
+    const chevron=this.el(summary,"span","ss-chevron");this.host.icon(chevron,"chevron-down");
+    const checks=this.el(connection,"div","ss-checks");
+    const row=(label:string)=>{const node=this.el(checks,"div","ss-check-row"),mark=this.el(node,"span","ss-check");this.el(node,"span","ss-check-label",label);const value=this.el(node,"span","ss-check-value");return {node,mark,value};};
+    const engine=row("Local engine"),mcp=row("ChatGPT tools"),session=row("X session"),python=row("X runtime");
+    const connectionActions=this.el(connection,"div","ss-connection-actions");
+    this.button(connectionActions,"Connect X locally",()=>{this.close(false);this.host.setup();},"ss-button ss-quiet");
+    const disconnect=this.button(connectionActions,"Disconnect local X",()=>this.host.disconnect?.(),"ss-button ss-quiet");
     const setRow=(target:ReturnType<typeof row>,ok:boolean,text:string)=>{target.value.textContent=text;target.mark.dataset.ready=String(ok);this.host.icon(target.mark,ok?"check":"minus");};
     this.homeUpdate=s=>{
-      const state=panelState(s);body.dataset.state=state.state;
+      const state=panelState(s),selected=s.projects.find(p=>p.id===s.projectId);
+      const canCollect=Boolean(s.engine&&s.mcp&&selected&&(!selected.isX||(s.session&&s.xAllowed&&s.python)));
+      body.dataset.state=state.state;
       title.textContent=state.title;description.textContent=state.description;this.host.icon(icon,state.icon);
+      context.textContent=s.findings&&s.findingProject?"Review queue · "+s.findingProject.replace(/[-_]/g," "):"";context.hidden=!context.textContent;
+      project.hidden=!s.projects.length;select.value=s.projectId;select.disabled=s.running;
+      primary.textContent=s.findings?"Review candidates":s.running?"Stop collection":!s.engine||!s.mcp?"Open settings":canCollect?"Collect sources":"Connect X locally";
+      collect.hidden=!s.findings;collect.textContent=s.running?"Stop collection":"Collect sources";collect.disabled=!s.running&&!canCollect;
+      collect.title=collect.disabled?"Configure the local connection and select a project to collect.":"";
+      secondary.classList.toggle("ss-single-action",collect.hidden);
+      feedback.textContent=s.message||"";feedback.hidden=!feedback.textContent;
+      const localReady=s.engine&&s.mcp, xReady=s.session&&s.xAllowed&&s.python;
+      connectionState.textContent=!localReady?"Setup needed":selected?.isX&&!xReady?"X not connected":"Local tools ready";
+      connectionState.dataset.ready=String(localReady&&(!selected?.isX||xReady));
       setRow(engine,s.engine,s.engine?"Detected":"Not configured");setRow(mcp,s.mcp,s.mcp?"15 available":"Not connected");
-      setRow(session,s.session&&s.xAllowed,s.session&&s.xAllowed?"Loaded locally":"Not connected");
-      setRow(queue,s.findings>0,s.findings?s.findings+" to review":"No candidates yet");
-      select.value=s.projectId;select.disabled=s.running||!s.projects.length;
-      review.textContent=s.findings?"Review candidates":"Connect X locally";review.disabled=s.running&&!s.findings;setup.hidden=!s.findings;
-      collect.textContent=s.running?"Stop collection":"Collect sources";
-      const selected=s.projects.find(p=>p.id===s.projectId);
-      collect.disabled=!s.running&&(!s.mcp||!s.projectId||Boolean(selected?.isX&&(!s.session||!s.xAllowed||!s.python)));
+      setRow(session,s.session&&s.xAllowed,s.session&&s.xAllowed?"Loaded locally":"Not connected");setRow(python,s.python,s.python?"Detected":"Not configured");
+      python.node.hidden=Boolean(selected&&!selected.isX);session.node.hidden=Boolean(selected&&!selected.isX);
       disconnect.hidden=!s.session||!s.xAllowed;disconnect.disabled=s.running;
-      feedback.textContent=s.message||(s.findings&&s.findingProject?"Reviewing: "+s.findingProject:"");feedback.hidden=!feedback.textContent;
       rootBusy(body,s.running);
     };
     this.homeUpdate(snapshot);

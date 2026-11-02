@@ -16,7 +16,7 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
   it("starts with an accessible status indicator and no automatic pane or collection",async()=>{
     original=await snapshot();await browser.$(".ss-status").waitForDisplayed();expect(await browser.$(".ss-popover").isExisting()).toBe(false);
     expect(await browser.executeObsidian(({app})=>app.workspace.getLeavesOfType("source-scraper-view").length)).toBe(0);
-    await expect(browser.$(".ss-status")).toHaveAttribute("role","button");await expect(browser.$(".ss-status")).toHaveText("SS");
+    await expect(browser.$(".ss-status")).toHaveAttribute("role","button");await expect(browser.$(".ss-status")).toHaveText("Source Scraper");
     await expect(browser.$(".ss-status")).toHaveAttribute("aria-label",expect.stringContaining("Source Scraper"));expect(await snapshot()).toEqual(original);
   });
   it("follows ChatGPT when its high-order status item loads later",async()=>{
@@ -41,49 +41,57 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
   });
   it("imports without reopening the panel or offering note writes",async()=>{
     await importFixture();await browser.waitUntil(async()=>!(await browser.$(".modal-container").isExisting()));expect(await browser.$(".ss-popover").isExisting()).toBe(false);
-    await expect(browser.$(".ss-status")).toHaveText("SS");await review();expect((await browser.$$(".ss-record")).length).toBe(2);
-    expect(await browser.$(".source-scraper-view").getText()).toContain("Only ChatGPT may write");expect(await browser.$("//button[normalize-space()='Create new notes only']").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);
+    await expect(browser.$(".ss-status")).toHaveText("Source Scraper");await review();expect((await browser.$$(".ss-record")).length).toBe(2);
+    expect(await browser.$(".ss-panel-footer").getText()).toContain("Only ChatGPT writes notes");expect(await browser.$("//button[normalize-space()='Create new notes only']").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);
   });
-  it("keeps SS at the same compact width as the queue grows, with counts inside the panel",async()=>{
+  it("keeps technical checks folded while source review leads the overview",async()=>{
+    await overview();expect(await browser.$(".ss-connection").getAttribute("open")).toBeNull();
+    expect(await browser.$(".ss-checks").isDisplayed()).toBe(false);
+    await expect(browser.$(".ss-title")).toHaveText("2 candidates to review");
+    expect(await browser.$(".ss-panel-footer").getText()).toContain("Only ChatGPT writes notes");
+    await browser.$(".ss-connection summary").click();await expect(browser.$(".ss-checks")).toBeDisplayed();
+    expect(await browser.$(".ss-checks").getText()).toContain("Local engine");await browser.keys("Escape");await review();
+  });
+  it("keeps Source Scraper at the same fixed width as the queue grows, with counts inside the panel",async()=>{
     await browser.keys("Escape");const width=await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width);
     await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported({...data,records:Array.from({length:256},(_,i)=>({...data.records[0],key:"compact-test-"+i}))});},fixture);
-    await expect(browser.$(".ss-status")).toHaveText("SS");
-    expect(await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width)).toBe(width);expect(width).toBeLessThanOrEqual(40);
+    await expect(browser.$(".ss-status")).toHaveText("Source Scraper");
+    expect(await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width)).toBe(width);expect(width).toBeLessThanOrEqual(120);
     await overview();await expect(browser.$(".ss-title")).toHaveText("256 candidates to review");
     await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported(data);},fixture);
     await expect(browser.$(".ss-title")).toHaveText("2 candidates to review");
     await click("Review candidates");expect(await snapshot()).toEqual(original);
   });
   it("previews selected Markdown without saving or creating files",async()=>{
-    await browser.$(".ss-record .checkbox-container").click();await click("Preview selected drafts");const folder=browser.$(".modal-container input[type=text]");await folder.waitForDisplayed();await folder.setValue("Draft Only");
+    await browser.$(".ss-record input[type=checkbox]").click();expect(await browser.$(".ss-record input[type=checkbox]").isFocused()).toBe(true);await click("Preview selected drafts");const folder=browser.$(".modal-container input[type=text]");await folder.waitForDisplayed();await folder.setValue("Draft Only");
     await expect(browser.$(".modal-container .ss-preview")).toHaveText(expect.stringContaining("desktop-generic"));expect(await browser.$(".modal-container").getText()).toContain("this plugin cannot create or change notes");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("reimports and inspects evidence without touching notes",async()=>{
-    await importFixture();await review();expect(await browser.$(".ss-count").getText()).toContain("Selected: 0");await click("Inspect data and evidence");expect(await browser.$(".modal-container").getText()).toContain("No user rules configured");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
+    await importFixture();await review();expect(await browser.$(".ss-count").getText()).toContain("Selected: 0");await click("View evidence");expect(await browser.$(".modal-container").getText()).toContain("No user rules configured");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("keeps advanced project configuration behind a disclosure",async()=>{
     await tools();await click("Project JSON editor");await click("Validate project JSON");expect(await browser.$(".modal-container").getText()).toContain("Valid basic project structure");expect(await browser.$("//button[normalize-space()='Create new project file']").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("masks local session fields and clears them on close without contacting X",async()=>{
-    await overview();await click("Connect X locally");const modal=browser.$(".modal-container");await modal.waitForDisplayed();expect(await modal.getText()).toContain("Local grant: disabled");expect(await modal.getText()).toContain("No commercial API key");expect(await modal.getText()).toContain("not saved in settings or notes");
-    const passwords=await browser.$$(".ss-x-setup input[type=password]");expect(passwords.length).toBe(2);await passwords[0].setValue("synthetic-not-real-session");await browser.keys("Escape");await overview();await click("Connect X locally");expect(await browser.$(".ss-x-setup input[type=password]").getValue()).toBe("");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
+    await overview();await browser.$(".ss-connection summary").click();await click("Connect X locally");const modal=browser.$(".modal-container");await modal.waitForDisplayed();expect(await modal.getText()).toContain("Local grant: disabled");expect(await modal.getText()).toContain("No commercial API key");expect(await modal.getText()).toContain("not saved in settings or notes");
+    const passwords=await browser.$$(".ss-x-setup input[type=password]");expect(passwords.length).toBe(2);await passwords[0].setValue("synthetic-not-real-session");await browser.keys("Escape");await overview();await browser.$(".ss-connection summary").click();await click("Connect X locally");expect(await browser.$(".ss-x-setup input[type=password]").getValue()).toBe("");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("never persists an in-memory session into preferences",async()=>{
     const result=await browser.executeObsidian(async({plugins})=>{const plugin=(plugins as any).sourceScraper;await plugin.useLocalSession({accountSession:"fixture-memory-auth",csrf:"fixture-memory-csrf"});const data=JSON.stringify(await plugin.loadData()),loaded=plugin.localSession()?.accountSession==="fixture-memory-auth";await plugin.forgetLocalSession();return {data,loaded,cleared:plugin.localSession()===undefined};});
     expect(result.loaded&&result.cleared).toBe(true);expect(result.data).not.toContain("fixture-memory");expect(await snapshot()).toEqual(original);
   });
   it("rejects incompatible imports and retains the old candidate queue",async()=>{
-    await importFixture({...fixture,schemaVersion:2});expect(await snapshot()).toEqual(original);await browser.keys("Escape");await expect(browser.$(".ss-status")).toHaveText("SS");
+    await importFixture({...fixture,schemaVersion:2});expect(await snapshot()).toEqual(original);await browser.keys("Escape");await expect(browser.$(".ss-status")).toHaveText("Source Scraper");
   });
   it("retains keyboard focus when filtering multiple characters",async()=>{
-    await review();await browser.$("input[placeholder='Any title, key or type']").setValue("Independent");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===1);expect(await browser.$(".ss-record").getText()).toContain("Independent research sample");expect(await browser.$("input[placeholder='Any title, key or type']").isFocused()).toBe(true);expect(await snapshot()).toEqual(original);await browser.keys("Escape");
+    await review();await browser.$("input[placeholder='Search sources']").setValue("Independent");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===1);expect(await browser.$(".ss-record").getText()).toContain("Independent research sample");expect(await browser.$("input[placeholder='Search sources']").isFocused()).toBe(true);await browser.keys(["Control","a"]);await browser.keys("Backspace");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===2);expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("runs and cancels explicitly, prevents duplicate submission and stages completed results while closed (simulated provider)",async()=>{
-    await browser.executeObsidian(({plugins},data)=>{
+    await browser.executeObsidian(({plugins,require},data)=>{
       const p=(plugins as any).sourceScraper;
       const previous={provider:p.provider,connect:p.connectMcp,projects:p.projectsForPanel,settings:p.settings};
       let state="cancelled",runs=0;
-      p.settings={...p.settings,configPath:"isolated-ui-project"};
+      p.settings={...p.settings,cliPath:require("node:process").execPath,configPath:"isolated-ui-project"};
       p.projectsForPanel=()=>[{id:"desktop-generic",name:"Desktop test project",isX:false,minimumScore:0}];
       p.connectMcp=()=>{};
       p.provider={localProjects:()=>[{id:"desktop-generic",configPath:"isolated-ui-project"}],activity:()=>({running:state==="running",jobId:"ui-job"}),execute:async(name:string)=>{
@@ -111,7 +119,10 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
     expect(await snapshot()).toEqual(original);
   });
   it("captures native light/dark views and bounds a narrow review inside the viewport",async()=>{
-    mkdirSync(screenshots,{recursive:true});await browser.waitUntil(async()=>!(await browser.$(".notice").isExisting()),{timeout:15000});await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1100,height:900,deviceScaleFactor:1,mobile:false});await overview();await browser.execute(()=>{document.body.classList.remove("theme-light");document.body.classList.add("theme-dark");});await browser.saveScreenshot(resolve(screenshots,"overview-dark.png"));
+    mkdirSync(screenshots,{recursive:true});await browser.waitUntil(async()=>!(await browser.$(".notice").isExisting()),{timeout:15000});await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1100,height:900,deviceScaleFactor:1,mobile:false});await overview();await browser.execute(()=>{document.body.classList.remove("theme-light");document.body.classList.add("theme-dark");});
+    expect(await browser.execute(()=>document.querySelector(".ss-popover")!.getBoundingClientRect().height)).toBeLessThan(600);
+    await browser.saveScreenshot(resolve(screenshots,"overview-dark.png"));
+    await review();expect((await browser.$$(".ss-record")).length).toBe(2);await browser.execute(()=>{(document.querySelector(".ss-popover") as HTMLElement).focus();});await browser.saveScreenshot(resolve(screenshots,"review-dark.png"));await overview();
     await browser.execute(()=>{document.body.classList.remove("theme-dark");document.body.classList.add("theme-light");});await browser.saveScreenshot(resolve(screenshots,"overview-light.png"));await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:540,height:640,deviceScaleFactor:1,mobile:false});await review();
     const b=await browser.execute(()=>{const root=document.querySelector(".ss-popover")!,r=root.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight,overflow:root.scrollWidth>root.clientWidth};});expect(b.left).toBeGreaterThanOrEqual(11);expect(b.top).toBeGreaterThanOrEqual(11);expect(b.right).toBeLessThanOrEqual(b.width-11);expect(b.bottom).toBeLessThanOrEqual(b.height-11);expect(b.overflow).toBe(false);await browser.saveScreenshot(resolve(screenshots,"review-narrow.png"));
     await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;p.imported.records[0].title="Independent source with an extremely long resource title ".repeat(12);p.refresh();});
