@@ -553,7 +553,7 @@ export default class ScraperPlugin extends Plugin {
     this.registerView(VIEW_TYPE,leaf=>new LegacyScraperView(leaf));
     this.statusItem=this.addStatusBarItem();this.statusItem.addClass("mod-clickable","ss-status");
     this.statusItem.setAttribute("role","button");this.statusItem.setAttribute("aria-haspopup","dialog");this.statusItem.setAttribute("aria-expanded","false");this.statusItem.tabIndex=0;
-    this.statusItem.createSpan({text:"SS"});
+    this.statusItem.createSpan({text:"Source Scraper"});
     this.registerDomEvent(this.statusItem,"click",()=>{if(this.popover?.isOpen)this.closePopover(true);else void this.openView();});
     this.registerDomEvent(this.statusItem,"keydown",event=>{
       if((event.key==="Enter"||event.key===" ")&&!event.repeat){event.preventDefault();if(this.popover?.isOpen)this.closePopover(true);else void this.openView();}
