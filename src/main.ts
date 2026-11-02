@@ -8,7 +8,7 @@ import {CliBridge,type XLocalSession} from "./cli-bridge.ts";
 import {SourceScraperProvider,writeWorkspaceProject,type RegisteredProject} from "./mcp-provider.ts";
 import {buildXFeedProject,xFeedReadiness,validateLocalSession,normalizeXAccountId,xFeedVariant} from "./x-feed.ts";
 import {ScraperPopover} from "./status-popover.ts";
-import {panelState,type PanelSnapshot,type PanelProject} from "./panel-model.ts";
+import {discoveryState,type PanelSnapshot,type PanelProject} from "./panel-model.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {homedir} from "node:os";
 import {join} from "node:path";
@@ -320,6 +320,7 @@ class XFeedSetupModal extends Modal {
     const instructions=root.createEl("details",{cls:"ss-session-help"});instructions.createEl("summary",{text:"¿Dónde encuentro estos datos?"});
     const steps=instructions.createEl("ol");
     for(const text of ["Abre x.com e inicia sesión en tu navegador.","Pulsa F12. En Chrome o Edge, abre Application → Cookies → https://x.com.","Copia los valores de twid, auth_token y ct0 en los campos de abajo. No los envíes al chat."])steps.createEl("li",{text});
+    instructions.createEl("a",{text:"Abrir X ↗",href:"https://x.com/home",attr:{target:"_blank",rel:"noopener noreferrer"}});
     let accountId="",include="react, frontend, css, gsap, motion, typography, design system, open source",exclude="sponsored, giveaway",minimum=50,pages=1,existingId="";
     let accountSession="",csrf="",busy=false;
     const existingSession=this.plugin.localSession();
@@ -600,7 +601,7 @@ export default class ScraperPlugin extends Plugin {
   }
   private updateStatus(dataChanged=false):void{
     if(this.unloaded||!this.statusItem)return;
-    const state=panelState(this.panelSnapshot()),label="Source Scraper. "+state.title+". Open Source Scraper.";
+    const state=discoveryState(this.panelSnapshot()),label="Source Scraper. "+state.status+". Abrir Source Scraper.";
     if(this.statusItem.dataset.state!==state.state)this.statusItem.dataset.state=state.state;
     if(this.statusItem.title!==label)this.statusItem.title=label;
     if(this.statusItem.getAttribute("aria-label")!==label)this.statusItem.setAttribute("aria-label",label);

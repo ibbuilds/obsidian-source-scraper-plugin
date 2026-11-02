@@ -62,7 +62,7 @@ export class ScraperPopover {
     const s=this.host.snapshot(),key=JSON.stringify(s);
     if(!dataChanged&&key===this.snapshotKey)return;
     this.snapshotKey=key;
-    if(this.resultsCount&&this.resultsCount.textContent!==String(s.findings))this.resultsCount.textContent=String(s.findings);
+    if(this.resultsCount){if(this.resultsCount.textContent!==String(s.findings))this.resultsCount.textContent=String(s.findings);this.resultsCount.hidden=!s.findings;}
     this.updateResultNotice(s);
     if(JSON.stringify(s.projects)!==this.signature||(dataChanged&&this.screen==="review"))this.render();else this.homeUpdate?.(s);
     this.position();
@@ -89,7 +89,7 @@ export class ScraperPopover {
     for(const [screen,label] of [["home","Buscar"],["review","Resultados"]] as const){
       const tab=this.button(tabs,label,()=>this.setScreen(screen),"ss-tab");tab.dataset.screen=screen;tab.id=root.id+"-"+screen;
       tab.setAttribute("role","tab");tab.setAttribute("aria-selected",String(this.screen===screen));tab.setAttribute("aria-controls",root.id+"-content");tab.tabIndex=this.screen===screen?0:-1;
-      if(screen==="review"){this.resultsCount=this.el(tab,"span","ss-result-count",String(snapshot.findings));}
+      if(screen==="review"){this.resultsCount=this.el(tab,"span","ss-result-count",String(snapshot.findings));this.resultsCount.hidden=!snapshot.findings;}
       tab.addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();this.setScreen(event.key==="Home"?"home":event.key==="End"?"review":this.screen==="home"?"review":"home");}});
     }
     this.body=this.el(root,"div","ss-popover-body");this.body.id=root.id+"-content";this.body.setAttribute("role","tabpanel");this.body.setAttribute("aria-labelledby",root.id+"-"+this.screen);
