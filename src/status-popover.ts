@@ -105,7 +105,7 @@ export class ScraperPopover {
     this.button(actions,"Import findings",()=>{this.close(false);this.host.importFindings();},"ss-button ss-quiet");
     const disconnect=this.button(actions,"Disconnect local X",()=>this.host.disconnect?.(),"ss-button ss-quiet");
     const feedback=this.el(body,"p","ss-feedback");feedback.setAttribute("role","status");feedback.setAttribute("aria-live","polite");
-    this.el(body,"p","ss-boundary","Findings stay in review. Only ChatGPT writes notes when you ask.");
+    this.el(body,"p","ss-boundary","Only ChatGPT writes notes, when you ask.");
     const setRow=(target:ReturnType<typeof row>,ok:boolean,text:string)=>{target.value.textContent=text;target.mark.dataset.ready=String(ok);this.host.icon(target.mark,ok?"check":"minus");};
     this.homeUpdate=()=>{
       const s=this.host.snapshot(),state=panelState(s);body.dataset.state=state.state;
