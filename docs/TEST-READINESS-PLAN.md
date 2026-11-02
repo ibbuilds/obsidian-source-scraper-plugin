@@ -2,6 +2,8 @@
 
 The supplied ChatGPT connection screenshots define the interaction: Source Scraper sits immediately after ChatGPT in the status bar and opens an anchored, non-modal popover on click. No automatic side pane, collection or note writing.
 
+Compact maintenance pass: the status bar shows only **SS**, without an icon or count, at a fixed content width. The full name/state remain in the tooltip and accessible label; candidate counts live inside the popover. Unchanged heartbeats skip DOM updates, and explicit data refreshes use one update path. Desktop acceptance checks stable width with 256 candidates and zero idle popover mutations across two heartbeat intervals.
+
 Design brief: domain = provenance, candidate queue, local collection, X session, quality review, explicit selection. Colors come from Obsidian's editor surface, raised surface, soft separators, muted labels, violet action accent, green verified checks and warning/error states. The signature is the status indicator → source readiness → candidate review loop beside the existing MCP indicators. Avoid a sidebar, a full dashboard and raw configuration as the first screen.
 
 Intent: inspect source readiness and review resources without losing the current note. Hierarchy: one current-state heading, four diagnostic rows, project choice, then collection/review actions. Palette/type: native Obsidian semantic tokens and interface font. Depth: one raised surface with a quiet border/shadow. Density: 4px rhythm, 16px panel padding, readable labels and explicit keyboard focus.
