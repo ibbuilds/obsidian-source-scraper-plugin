@@ -1,9 +1,11 @@
+import {parseCollectionFilters,type CollectionFilters} from "./collection-filters.ts";
 import {checkedUrl,isCredentialKey} from "./contracts.ts";
 import {folderPath} from "./render.ts";
 import {createOnlyDocument,type VaultLike} from "./vault-writer.ts";
 
 /** A generic project manifest; actual adapters and processors are validated by the engine. */
 export interface ProjectManifest {
+  filters?:CollectionFilters;
   id:string;
   name:string;
   sources:Array<{id:string;adapter:string;config:Record<string,unknown>}>;
@@ -114,7 +116,8 @@ export function parseProjectManifest(raw:string):ProjectManifest{
   return {...v,id,name:v.name.trim(),sources:checkedSources,pipeline,evaluator,
     policy:{...p,includeKeywords:keywords(p.includeKeywords??[],"includeKeywords"),
       excludeKeywords:keywords(p.excludeKeywords??[],"excludeKeywords"),minimumScore:minimum},
-    outputs:checkedOutputs} as ProjectManifest;
+    outputs:checkedOutputs,
+    ...(v.filters===undefined?{}:{filters:parseCollectionFilters(v.filters,checkedSources.map(s=>s.id))})} as ProjectManifest;
 }
 export async function createNewProjectFile(vault:VaultLike,folder:string,raw:string,
   rootPath?:string):Promise<{path:string;created:boolean}>{

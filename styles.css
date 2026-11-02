@@ -1,5 +1,7 @@
 /* Native Obsidian controls and theme tokens. Only component layout belongs here. */
-.ss-status { display:inline-flex; align-items:center; flex:0 0 auto; white-space:nowrap; order:1001; cursor:var(--cursor-link); }
+.ss-status { display:inline-flex; align-items:center; gap:var(--size-2-2); flex:0 0 auto; white-space:nowrap; order:1001; cursor:var(--cursor-link); }
+.ss-status-icon { display:inline-flex; width:var(--icon-xs); height:var(--icon-xs); color:var(--text-muted); }
+.ss-status-icon svg { width:100%; height:100%; }
 .ss-status:focus-visible { outline:2px solid var(--interactive-accent); outline-offset:2px; border-radius:var(--radius-s); }
 .ss-popover { position:fixed; inset:auto; margin:0; padding:0; width:min(360px,calc(100vw - 24px)); max-height:min(560px,calc(100vh - 24px)); display:flex; flex-direction:column; overflow:hidden; box-sizing:border-box; background:var(--background-primary); color:var(--text-normal); border:var(--border-width,1px) solid var(--background-modifier-border); border-radius:var(--radius-l); box-shadow:var(--shadow-l); z-index:var(--layer-popover); font-family:var(--font-interface); font-size:var(--font-ui-small); line-height:var(--line-height-normal); }
 .ss-popover::backdrop { background:none; pointer-events:none; }
