@@ -95,7 +95,12 @@ export class ScraperPopover {
     this.body=this.el(root,"div","ss-popover-body");this.body.id=root.id+"-content";this.body.setAttribute("role","tabpanel");this.body.setAttribute("aria-labelledby",root.id+"-"+this.screen);
     if(this.screen==="review"){
       if(snapshot.findings){this.host.renderReview(this.body);this.resultNotice=this.el(this.body,"p","ss-result-notice");this.updateResultNotice(snapshot);}
-      else{this.el(this.body,"p","ss-empty-title","Aún no hay resultados");this.el(this.body,"p","ss-hint","Conecta X y haz tu primera búsqueda.");this.button(this.body,"Ir a Buscar",()=>this.setScreen("home"),"ss-button ss-primary");}
+      else{
+        this.el(this.body,"p","ss-empty-title","Aún no hay resultados");const hint=this.el(this.body,"p","ss-hint");
+        this.button(this.body,"Ir a Buscar",()=>this.setScreen("home"),"ss-button ss-primary");
+        this.homeUpdate=s=>{hint.textContent=s.running?"La búsqueda está en curso.":s.message==="Búsqueda terminada."?"No se encontraron recursos con estos filtros. Ajusta la búsqueda e inténtalo de nuevo.":"Los recursos que busques o importes aparecerán aquí.";};
+        this.homeUpdate(snapshot);
+      }
     }else this.renderHome(this.body,snapshot);
     this.position();
   }
