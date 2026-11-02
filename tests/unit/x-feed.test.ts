@@ -4,10 +4,23 @@ import {mkdtempSync,mkdirSync,rmSync,readFileSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createHash} from "node:crypto";
-import {buildXFeedProject} from "../../src/x-feed.ts";
+import {buildXFeedProject,validateLocalSession,xFeedReadiness} from "../../src/x-feed.ts";
 import {cliEnvironment} from "../../src/cli-bridge.ts";
 import {SourceScraperProvider,writeWorkspaceProject} from "../../src/mcp-provider.ts";
 import {DEFAULT_NOTE_MAPPING_JSON} from "../../src/note-mapping.ts";
+
+test("masked local session values are bounded, never saved and only forwarded under a local grant",()=>{
+  const session=validateLocalSession("synthetic-auth-value","synthetic-csrf-value");
+  for(const value of ["","has space","newline\n","x".repeat(8193)])assert.throws(()=>validateLocalSession(value,"valid"),/Enter both/);
+  assert.deepEqual(xFeedReadiness(session),{csrfConfigured:true,accountSessionConfigured:true});
+  const disabled=cliEnvironment(false,undefined,session);
+  assert.equal(disabled.SOURCE_SCRAPER_X_ACCOUNT_SESSION,undefined);
+  const allowed=cliEnvironment(true,"/isolated/python",session);
+  assert.equal(allowed.SOURCE_SCRAPER_X_ACCOUNT_SESSION,session.accountSession);
+  assert.equal(allowed.SOURCE_SCRAPER_X_CSRF,session.csrf);
+  assert.equal(allowed.SOURCE_SCRAPER_X_PYTHON,"/isolated/python");
+  assert.notEqual(process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION,session.accountSession);
+});
 
 test("X setup produces a bounded credential-free discovery project with editable quality filters",()=>{
   const project=buildXFeedProject("1234567890","react, motion","giveaway",50,1);

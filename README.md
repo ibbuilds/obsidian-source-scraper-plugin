@@ -8,6 +8,7 @@ The repository retains its original plugin identity, `source-scraper`. This bran
 
 ## What works
 
+- A status-bar indicator immediately after ChatGPT, opening an anchored floating panel. No automatic sidebar or workspace tab.
 - Bounded entity JSON/NDJSON v1 import and generic evidence browsing, including records without URLs.
 - Optional explicit trusted CLI collection, export/import and human engine review; no automatic collection.
 - A locally enabled provider exposing 15 namespaced tools through the existing Vault as MCP server and existing tunnel.
@@ -23,6 +24,10 @@ Build this development checkout at `<vault>/.obsidian/plugins/source-scraper` wi
 For MCP, use the reviewed provider-API build of the existing Vault as MCP host, locally enable provider ID `source-scraper`, and configure the trusted CLI digest, absolute Node executable, registered external workspace and project manifest digests in plugin settings. Do not place secrets in settings/manifests or commit local `data.json`.
 
 See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, limits, state, restart behavior and compatibility. See [User guide](docs/USER-GUIDE.md) and [Safety](docs/SAFETY.md) for the note ownership boundary.
+
+Click **Source Scraper** in the status bar to inspect readiness, choose a registered project, explicitly collect/stop, or review candidates. **Import findings** also works offline. Candidate details and Markdown previews remain read-only. Escape, the close button or an outside click closes the floating panel; incoming MCP findings update the indicator without opening it. Existing saved Source Scraper sidebar leaves are removed on the next plugin load.
+
+**Connect X locally** accepts masked `auth_token` and `ct0` values only in Obsidian. They stay in memory until disconnect/unload and never enter plugin preferences or MCP responses. Loading them prepares access but makes no X request. See the [test readiness plan](docs/TEST-READINESS-PLAN.md) for acceptance gates and the outstanding real-feed test.
 
 ## Verification and boundaries
 

@@ -1,15 +1,18 @@
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
-  Setting,WorkspaceLeaf,TFile
+  Setting,WorkspaceLeaf,TFile,setIcon
 } from "obsidian";
 import {parseExport,type EntityExport,type EntityRecord} from "./contracts.ts";
 import {selectedPlans} from "./vault-writer.ts";
-import {CliBridge} from "./cli-bridge.ts";
+import {CliBridge,type XLocalSession} from "./cli-bridge.ts";
 import {SourceScraperProvider,writeWorkspaceProject,type RegisteredProject} from "./mcp-provider.ts";
-import {buildXFeedProject,xFeedReadiness} from "./x-feed.ts";
-import {createHash} from "node:crypto";
+import {buildXFeedProject,xFeedReadiness,validateLocalSession} from "./x-feed.ts";
+import {ScraperPopover} from "./status-popover.ts";
+import {panelState,type PanelSnapshot,type PanelProject} from "./panel-model.ts";
+import {createHash,randomUUID} from "node:crypto";
 import {homedir} from "node:os";
 import {join} from "node:path";
+import {existsSync,readFileSync,statSync} from "node:fs";
 import {GENERIC_TEMPLATE,parseProjectManifest} from "./project-manifest.ts";
 import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
 
@@ -290,7 +293,7 @@ class RunModal extends Modal {
           const s=this.plugin.settings;
           if(!s.cliPath||!s.configPath)throw new Error("Select the CLI and a project in plugin settings first");
           const imported=await this.plugin.cli.runAndImport({
-            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable,allowXProvider:s.xProviderEnabled==="true",xPythonPath:s.xPythonPath
+            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable,allowXProvider:s.xProviderEnabled==="true",xPythonPath:s.xPythonPath,xSession:this.plugin.localSession()
           });
           this.plugin.setImported(imported);
           this.close();
@@ -303,54 +306,96 @@ class RunModal extends Modal {
   }
 }
 class XFeedSetupModal extends Modal {
+  private clearSecrets?:()=>void;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
-    const root=this.contentEl;root.empty();root.createEl("h3",{text:"X For You source setup"});
-    paragraph(root,"This free local source uses the open-source Twifork client. No commercial API key, subscription, credit or paid fallback is used. It reads your account's For You timeline directly from X. Live account access has not yet been verified in this build.");
-    paragraph(root,"Do not paste credentials here or into ChatGPT. Supply SOURCE_SCRAPER_X_ACCOUNT_SESSION and SOURCE_SCRAPER_X_CSRF locally before starting Obsidian. Configure the isolated Python/Twifork interpreter in settings. This plugin never extracts your browser session.");
-    const readiness=xFeedReadiness();
+    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal","ss-x-setup");root.createEl("h3",{text:"Connect X locally"});
+    paragraph(root,"No commercial API key, subscription or paid fallback. The free local collector uses your X session directly with X. Live For You access still needs a test collection.");
+    paragraph(root,"Enter session values only in these masked local fields, never in ChatGPT. They stay in memory until you disconnect or close Obsidian; they are not saved in settings or notes. This plugin does not extract browser cookies or automate login.");
+    const readiness=xFeedReadiness(this.plugin.localSession());
     paragraph(root,"Local grant: "+(this.plugin.settings.xProviderEnabled==="true"?"enabled":"disabled")+
       ". Local CSRF value: "+(readiness.csrfConfigured?"configured":"missing")+". Account session: "+(readiness.accountSessionConfigured?"configured":"missing")+".");
     paragraph(root,"Creating the project does not contact X. Enable local read-only X access in settings when the session is ready. This unofficial client stops on authentication errors or rate limits; it does not automate login or solve challenges.");
     let accountId="",include="react, frontend, css, gsap, motion, typography, design system, open source",exclude="sponsored, giveaway",minimum=50,pages=1;
-    new Setting(root).setName("Numeric X account ID").addText(t=>t.setPlaceholder("Connected account's numeric ID").onChange(v=>{accountId=v.trim();}));
+    let accountSession="",csrf="",busy=false;
+    const secretInputs:HTMLInputElement[]=[];
+    this.clearSecrets=()=>{accountSession="";csrf="";for(const input of secretInputs)input.value="";};
+    try{
+      const existing=this.plugin.registeredProjects().find(p=>p.id==="x-for-you-resources");
+      if(existing){const manifest=parseProjectManifest(readFileSync(existing.configPath,"utf8"));
+        accountId=String(manifest.sources[0].config.accountId||"");include=manifest.policy.includeKeywords.join(", ");exclude=manifest.policy.excludeKeywords.join(", ");minimum=manifest.policy.minimumScore;pages=Number(manifest.sources[0].config.pagesPerRun)||1;}
+    }catch{/* The normal validation path reports stale or unavailable registered files. */}
+    new Setting(root).setName("Numeric X account ID").addText(t=>t.setValue(accountId).setPlaceholder("Connected account's numeric ID").onChange(v=>{accountId=v.trim();}));
+    for(const [label,key] of [["Account session (auth_token)","session"],["CSRF value (ct0)","csrf"]] as const){
+      new Setting(root).setName(label).setDesc("Used locally with X; kept in memory only.").addText(t=>{
+        t.inputEl.type="password";t.inputEl.autocomplete="off";t.inputEl.spellcheck=false;t.inputEl.setAttribute("aria-label",label);secretInputs.push(t.inputEl);
+        t.onChange(value=>{if(key==="session")accountSession=value;else csrf=value;});
+      });
+    }
     new Setting(root).setName("Include terms (editable suggestions)").addTextArea(t=>t.setValue(include).onChange(v=>{include=v;}));
     new Setting(root).setName("Exclude terms").addTextArea(t=>t.setValue(exclude).onChange(v=>{exclude=v;}));
     new Setting(root).setName("Suggested minimum relevance score (0–100)").addText(t=>t.setValue(String(minimum)).onChange(v=>{minimum=Number(v);}));
     new Setting(root).setName("X pages per explicit run (1–10)").addText(t=>t.setValue(String(pages)).onChange(v=>{pages=Number(v);}));
     const status=root.createEl("p");
-    new Setting(root).addButton(b=>b.setButtonText("Prepare project outside vault (no collection)").setCta().onClick(async()=>{
+    const prepare=async():Promise<void>=>{
+      if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("A desktop filesystem vault is required");
+      const s=this.plugin.settings,manifest=buildXFeedProject(accountId,include,exclude,minimum,pages);
+      const projects=JSON.parse(s.mcpProjectsJson) as RegisteredProject[];
+      if(!Array.isArray(projects))throw Error("Invalid local project registry");
+      let project=projects.find(p=>p.id===manifest.id);
+      if(project){
+        const raw=readFileSync(project.configPath,"utf8");
+        if(createHash("sha256").update(raw).digest("hex")!==project.manifestHash)throw Error("Existing project changed; verify its registered digest first");
+        if(JSON.stringify(parseProjectManifest(raw))!==JSON.stringify(manifest))throw Error("Existing project retained. Reconnect with its current filters; edit and reverify project JSON separately.");
+      }else{
+        if(projects.length>=100)throw Error("Project registry is full");
+        project=writeWorkspaceProject(s.mcpWorkspacePath,this.app.vault.adapter.getBasePath(),manifest);
+        s.mcpProjectsJson=JSON.stringify([...projects,project]);
+      }
+      s.configPath=project.configPath;await this.plugin.savePrefs();
+    };
+    new Setting(root).addButton(b=>b.setButtonText("Use local session (no collection)").setCta().onClick(async()=>{
+      if(busy)return;busy=true;b.setDisabled(true);
       try{
-        if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("A desktop filesystem vault is required");
-        const s=this.plugin.settings,manifest=buildXFeedProject(accountId,include,exclude,minimum,pages);
-        const projects=JSON.parse(s.mcpProjectsJson) as RegisteredProject[];
-        if(!Array.isArray(projects)||projects.length>=100||projects.some(p=>p.id===manifest.id))throw Error("Project registry is full or this X project already exists");
-        const project=writeWorkspaceProject(s.mcpWorkspacePath,this.app.vault.adapter.getBasePath(),manifest);
-        s.mcpProjectsJson=JSON.stringify([...projects,project]);s.configPath=project.configPath;
-        await this.plugin.savePrefs();status.setText("Prepared "+project.id+" outside the vault. No provider request or note write occurred.");
+        if(this.plugin.isCollecting())throw Error("Wait for the current collection or stop it first");
+        const session=validateLocalSession(accountSession,csrf);
+        if(!this.plugin.settings.xPythonPath||!existsSync(this.plugin.settings.xPythonPath))throw Error("Configure the isolated Python interpreter in Source Scraper settings first");
+        await prepare();await this.plugin.useLocalSession(session);this.clearSecrets?.();
+        status.setText("Local session loaded for this Obsidian session. No X request was made. Open the status indicator to collect a test sample.");
       }catch(error){status.setText(errorMessage(error));}
+      finally{busy=false;b.setDisabled(false);}
+    }));
+    new Setting(root).addButton(b=>b.setButtonText("Prepare project outside vault (no collection)").onClick(async()=>{
+      if(busy)return;busy=true;b.setDisabled(true);
+      try{
+        if(this.plugin.isCollecting())throw Error("Stop the current collection before changing projects");
+        await prepare();status.setText("Project prepared outside the vault. No request or note write occurred.");
+      }catch(error){status.setText(errorMessage(error));}
+      finally{busy=false;b.setDisabled(false);}
     }));
   }
-  onClose():void{this.contentEl.empty();}
+  onClose():void{this.clearSecrets?.();this.clearSecrets=undefined;this.contentEl.empty();}
 }
-class ScraperView extends ItemView {
-  private page=0;
-  private search="";
-  constructor(leaf:WorkspaceLeaf,private plugin:ScraperPlugin){super(leaf);}
+/** Compatibility only: saved legacy leaves are detached on layout readiness. */
+class LegacyScraperView extends ItemView {
   getViewType():string{return VIEW_TYPE;}
   getDisplayText():string{return "Source Scraper";}
-  getIcon():string{return "database";}
-  async onOpen():Promise<void>{this.render();}
-  async onClose():Promise<void>{}
+}
+class ScraperReview {
+  private page=0;
+  private search="";
+  constructor(private root:HTMLElement|undefined,private plugin:ScraperPlugin){}
+  private get app():Plugin["app"]{return this.plugin.app;}
+  mount(root:HTMLElement):void{this.root=root;this.render();}
+  unmount():void{this.root=undefined;}
   render():void{
-    const root=this.containerEl.children[1] as HTMLElement;
+    const root=this.root;if(!root||!root.isConnected)return;
     root.empty();root.addClass("source-scraper-view");
-    root.createEl("h2",{text:"Source Scraper"});
-    paragraph(root,"Collect, inspect and preview candidates. Only ChatGPT writes notes through the separate Obsidian connector on your instruction.");
-    const controls=root.createDiv({cls:"ss-controls"});
+    const tools=root.createEl("details",{cls:"ss-review-tools"});tools.createEl("summary",{text:"Import and project tools"});
+    const controls=tools.createDiv({cls:"ss-controls"});
     const action=(text:string,click:()=>void)=>{
       const button=controls.createEl("button",{text});
-      button.addEventListener("click",click);
+      button.addEventListener("click",()=>{this.plugin.closePopover();click();});
       return button;
     };
     action("Import JSON / NDJSON",()=>new ImportModal(this.app,this.plugin).open());
@@ -410,16 +455,17 @@ class ScraperView extends ItemView {
         "Machine score: "+entity.score+" · Review: "+entity.review+
         " · Evidence mentions: "+(entity.provenance?.mentions.length??"not exported")});
       const inspect=item.createEl("button",{text:"Inspect data and evidence"});
-      inspect.onclick=()=>new DetailModal(this.app,this.plugin,entity).open();
+      inspect.onclick=()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();};
     }
     const selected=this.plugin.getSelected();
-    const exportButton=action("Preview selected drafts",()=>{
+    const exportButton=root.createEl("button",{text:"Preview selected drafts",cls:"ss-preview-action"});
+    exportButton.onclick=()=>{
       try{
         if(!selected.length)throw new Error("Select records before previewing notes");
         if(selected.length>200)throw new Error("Select no more than 200 records per export");
-        new ExportModal(this.app,this.plugin,selected).open();
+        this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
-    });
+    };
     exportButton.disabled=selected.length===0;
     paragraph(root,"Source Scraper never creates or changes vault notes. Only ChatGPT may write through the separate Obsidian connector when you explicitly order it.");
   }
@@ -433,7 +479,7 @@ class ScraperSettings extends PluginSettingTab {
     new Setting(root).setName("Allow local read-only X feed access")
       .setDesc("Off by default. Uses the locally supplied session directly with X through Twifork. No paid API or third-party session service. This does not start collection.")
       .addToggle(t=>t.setValue(this.plugin.settings.xProviderEnabled==="true").onChange(async v=>{
-        this.plugin.settings.xProviderEnabled=String(v);await this.plugin.savePrefs();
+        if(!v)await this.plugin.forgetLocalSession();else{this.plugin.settings.xProviderEnabled="true";await this.plugin.savePrefs();}
       }));
     new Setting(root).setName("Isolated Python for Twifork")
       .setDesc("Absolute interpreter path for the project-local Twifork 2.4.0 environment; not accepted through remote tool arguments.")
@@ -482,6 +528,18 @@ export default class ScraperPlugin extends Plugin {
   selected=new Set<string>();
   readonly cli=new CliBridge();
   mcpStatus="disabled";
+  private statusItem?:HTMLElement;
+  private statusLabel?:HTMLElement;
+  private popover?:ScraperPopover;
+  private review?:ScraperReview;
+  private memorySession?:XLocalSession;
+  private unloaded=false;
+  private uiJobId?:string;
+  private uiPolling=false;
+  private uiStarting=false;
+  private uiError="";
+  private uiMessage="";
+  private projectCache?:{key:string;projects:PanelProject[]};
   private provider?:SourceScraperProvider;
   private providerHost?:unknown;
   private providerSignature="";
@@ -493,15 +551,106 @@ export default class ScraperPlugin extends Plugin {
         if(typeof stored[key]==="string")this.settings[key]=stored[key];
       }
     }
-    this.registerView(VIEW_TYPE,leaf=>new ScraperView(leaf,this));
-    this.addRibbonIcon("database","Source Scraper",()=>{void this.openView();});
+    this.registerView(VIEW_TYPE,leaf=>new LegacyScraperView(leaf));
+    this.statusItem=this.addStatusBarItem();this.statusItem.addClass("mod-clickable","ss-status");
+    this.statusItem.setAttribute("role","button");this.statusItem.setAttribute("aria-haspopup","dialog");this.statusItem.setAttribute("aria-expanded","false");this.statusItem.tabIndex=0;
+    setIcon(this.statusItem.createSpan({cls:"ss-status-icon"}),"scan-search");this.statusLabel=this.statusItem.createSpan();
+    this.registerDomEvent(this.statusItem,"click",()=>{if(this.popover?.isOpen)this.closePopover(true);else void this.openView();});
+    this.registerDomEvent(this.statusItem,"keydown",event=>{
+      if((event.key==="Enter"||event.key===" ")&&!event.repeat){event.preventDefault();if(this.popover?.isOpen)this.closePopover(true);else void this.openView();}
+    });
     this.addCommand({id:"open-panel",name:"Open Source Scraper",callback:()=>{void this.openView();}});
     this.addSettingTab(new ScraperSettings(this.app,this));
-    this.app.workspace.onLayoutReady(()=>this.connectMcp());
+    this.app.workspace.onLayoutReady(()=>{
+      if(this.unloaded)return;
+      this.app.workspace.detachLeavesOfType(VIEW_TYPE);this.placeStatus();this.connectMcp();this.updateStatus();
+      const parent=this.statusItem?.parentElement,Observer=this.statusItem?.ownerDocument.defaultView?.MutationObserver;
+      if(parent&&Observer){const observer=new Observer(()=>this.placeStatus());observer.observe(parent,{childList:true});this.register(()=>observer.disconnect());}
+    });
     this.registerInterval(window.setInterval(()=>this.connectMcp(),3000));
+    this.registerInterval(window.setInterval(()=>{this.updateStatus();void this.pollUiJob();},1000));
+    this.updateStatus();
   }
-  onunload():void{this.disposeProvider?.();this.provider?.dispose();this.cli.cancel();}
-  async savePrefs():Promise<void>{await this.saveData(this.settings);this.connectMcp();}
+  onunload():void{this.unloaded=true;this.closePopover();this.memorySession=undefined;this.disposeProvider?.();this.provider?.dispose();this.cli.cancel();}
+  async savePrefs():Promise<void>{await this.saveData(this.settings);this.projectCache=undefined;this.connectMcp();this.updateStatus();}
+  localSession():XLocalSession|undefined{return this.memorySession;}
+  async forgetLocalSession():Promise<void>{this.memorySession=undefined;this.settings.xProviderEnabled="false";this.uiMessage="Local X session disconnected.";await this.savePrefs();}
+  async useLocalSession(session:XLocalSession):Promise<void>{
+    const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
+    this.memorySession={...session};this.settings.xProviderEnabled="true";
+    try{await this.savePrefs();this.uiError="";this.uiMessage="Local X session loaded. Collect a small sample to verify the feed.";}
+    catch(error){this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
+    this.updateStatus();
+  }
+  registeredProjects():RegisteredProject[]{
+    if(this.provider)return this.provider.localProjects();
+    try{const list=JSON.parse(this.settings.mcpProjectsJson);return Array.isArray(list)?list.filter(p=>p&&typeof p.id==="string"&&typeof p.configPath==="string"):[];}catch{return [];}
+  }
+  private projectsForPanel():PanelProject[]{
+    const list=this.registeredProjects(),key=JSON.stringify(list);
+    if(this.projectCache?.key===key)return this.projectCache.projects;
+    const projects=list.map(p=>{
+      try{
+        if(statSync(p.configPath).size>200000)throw Error("Manifest limit");
+        const manifest=parseProjectManifest(readFileSync(p.configPath,"utf8"));
+        return {id:p.id,name:manifest.name,isX:manifest.sources.some(s=>s.adapter==="x-for-you-local"),minimumScore:manifest.policy.minimumScore};
+      }catch{return {id:p.id,name:p.id.replace(/[-_]/g," "),isX:false,minimumScore:0};}
+    });
+    this.projectCache={key,projects};return projects;
+  }
+  isCollecting():boolean{return this.uiStarting||this.cli.running||Boolean(this.provider?.activity().running);}
+  private panelSnapshot():PanelSnapshot{
+    const list=this.registeredProjects(),projects=this.projectsForPanel(),readiness=xFeedReadiness(this.memorySession);
+    const activity=this.provider?.activity();
+    return {engine:Boolean(this.settings.cliPath&&existsSync(this.settings.cliPath)),mcp:Boolean(this.provider),python:Boolean(this.settings.xPythonPath&&existsSync(this.settings.xPythonPath)),
+      session:readiness.accountSessionConfigured&&readiness.csrfConfigured,xAllowed:this.settings.xProviderEnabled==="true",
+      projects,projectId:list.find(p=>p.configPath===this.settings.configPath)?.id||"",findings:this.imported?.records.length??0,
+      findingProject:projects.find(p=>p.id===this.imported?.projectId)?.name||this.imported?.projectId||"",
+      running:this.isCollecting(),error:this.uiError||(activity?.lastState==="failed"?activity.error:undefined),message:this.uiMessage};
+  }
+  private placeStatus():void{
+    const item=this.statusItem,parent=item?.parentElement;if(!item||!parent)return;
+    const chat=parent.querySelector<HTMLElement>(".cmt-status");
+    if(chat?.parentElement===parent&&chat.nextElementSibling!==item)chat.after(item);
+  }
+  private updateStatus():void{
+    if(this.unloaded||!this.statusItem)return;
+    const state=panelState(this.panelSnapshot()),label="Source Scraper: "+state.label;
+    if(this.statusLabel?.textContent!==label)this.statusLabel?.setText(label);
+    this.statusItem.dataset.state=state.state;this.statusItem.title=state.title+". Click to open Source Scraper.";
+    this.statusItem.setAttribute("aria-label",label+". Open Source Scraper.");this.popover?.update();
+  }
+  closePopover(restoreFocus=false):void{this.popover?.close(restoreFocus);}
+  private async collectSelected():Promise<void>{
+    if(this.isCollecting()||this.unloaded)return;
+    const provider=this.provider,id=this.panelSnapshot().projectId;if(!provider||!id)return;
+    this.uiStarting=true;this.uiError="";this.uiMessage="Starting explicit collection…";this.updateStatus();
+    try{
+      const job=await provider.execute("source_scraper_run_project",{projectId:id,requestId:"obsidian-ui-"+randomUUID(),pageSize:100,maxPages:10}) as {id:string};
+      if(!this.unloaded)this.uiJobId=job.id;
+    }catch(error){this.uiError=errorMessage(error);this.uiMessage="";}
+    finally{this.uiStarting=false;this.updateStatus();}
+  }
+  private async pollUiJob():Promise<void>{
+    if(this.unloaded||!this.uiJobId||!this.provider||this.uiPolling)return;
+    this.uiPolling=true;const provider=this.provider,jobId=this.uiJobId;
+    try{
+      const job=await provider.execute("source_scraper_get_run_status",{jobId}) as {state:string;projectId:string;error?:string};
+      if(this.unloaded||provider!==this.provider||jobId!==this.uiJobId)return;
+      if(["running","queued","cancelling"].includes(job.state))return;
+      this.uiJobId=undefined;
+      if(job.state!=="succeeded"){this.uiError=job.error||"Collection "+job.state;this.uiMessage="";return;}
+      this.uiStarting=true;
+      const minimum=this.projectsForPanel().find(p=>p.id===job.projectId)?.minimumScore??0;
+      const data=await provider.execute("source_scraper_list_findings",{projectId:job.projectId,minScore:minimum,limit:100}) as {records:EntityRecord[]};
+      if(this.unloaded||provider!==this.provider)return;
+      const keys:string[]=[];for(const entity of data.records){if(Buffer.byteLength(JSON.stringify([...keys,entity.key]),"utf8")>12000)break;keys.push(entity.key);}
+      if(keys.length)await provider.execute("source_scraper_stage_findings",{projectId:job.projectId,keys});
+      else this.setImported({schemaVersion:1,dataset:"entities",projectId:job.projectId,records:[]});
+      if(!this.unloaded){this.uiMessage=keys.length+" candidates meet the project relevance filter. Open review to inspect quality.";this.uiError="";}
+    }catch(error){if(!this.unloaded&&provider===this.provider){this.uiError=errorMessage(error);this.uiJobId=undefined;}}
+    finally{this.uiStarting=false;this.uiPolling=false;this.updateStatus();}
+  }
   private connectMcp():void{
     const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
     const signature=JSON.stringify(this.settings);
@@ -520,11 +669,12 @@ export default class ScraperPlugin extends Plugin {
       const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
         allowXProvider:this.settings.xProviderEnabled==="true",
         xPythonPath:this.settings.xPythonPath,
+        getXSession:()=>this.memorySession,
         nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
         statePath:join(process.env.LOCALAPPDATA||join(homedir(),".local","share"),"SourceScraper",vaultId,"state.json"),
         vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
         checkRead:path=>host.checkToolReadAccess(path),
-        stage:value=>{this.setImported(value);void this.openView();},
+        stage:value=>{this.setImported(value);},
         readReference:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile))throw Error("Reference note missing");return this.app.vault.read(file);}
       });
       this.disposeProvider=host.registerToolProvider(provider);this.provider=provider;this.mcpStatus="connected; 15 tools registered; vault notes read-only";
@@ -545,14 +695,24 @@ export default class ScraperPlugin extends Plugin {
     return (this.imported?.records??[]).filter(x=>this.selected.has(x.key));
   }
   refresh():void{
-    for(const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)){
-      const view=leaf.view;
-      if(view instanceof ScraperView)view.render();
-    }
+    this.updateStatus();this.popover?.update(true);
   }
   async openView():Promise<void>{
-    const leaf=this.app.workspace.getRightLeaf(false)??this.app.workspace.getLeaf(true);
-    await leaf.setViewState({type:VIEW_TYPE,active:true});
-    await this.app.workspace.revealLeaf(leaf);
+    if(this.unloaded||!this.statusItem)return;
+    if(!this.popover)this.popover=new ScraperPopover(this.statusItem,{
+      snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
+      settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
+      setup:()=>new XFeedSetupModal(this.app,this).open(),
+      importFindings:()=>new ImportModal(this.app,this).open(),
+      disconnect:()=>{void this.forgetLocalSession().catch(notify);},
+      collect:()=>{void this.collectSelected();},
+      cancel:()=>{const jobId=this.uiJobId||this.provider?.activity().jobId;if(jobId&&this.provider)void this.provider.execute("source_scraper_cancel_run",{jobId}).catch(notify);else this.cli.cancel();},
+      selectProject:id=>{
+        if(this.isCollecting())return;
+        const p=this.registeredProjects().find(p=>p.id===id);if(p){this.settings.configPath=p.configPath;this.uiError="";this.uiMessage="";void this.savePrefs().catch(notify);}
+      },
+      renderReview:root=>{this.review??=new ScraperReview(undefined,this);this.review.mount(root);},unmountReview:()=>this.review?.unmount()
+    });
+    this.popover.open();
   }
 }

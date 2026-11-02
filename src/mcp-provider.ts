@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
 import {dirname,isAbsolute,join,relative,resolve,sep} from "node:path";
-import {CliBridge,CliCommandError,type CliConfig} from "./cli-bridge.ts";
+import {CliBridge,CliCommandError,type CliConfig,type XLocalSession} from "./cli-bridge.ts";
 import {parseExport,type EntityExport} from "./contracts.ts";
 import {parseProjectManifest} from "./project-manifest.ts";
 import {parseNoteMapping} from "./note-mapping.ts";
@@ -12,6 +12,7 @@ export interface RegisteredProject {id:string;configPath:string;manifestHash:str
 export interface ProviderOptions {
   allowXProvider?:boolean;
   xPythonPath?:string;
+  getXSession?:()=>XLocalSession|undefined;
   cliPath:string;cliHash:string;nodeExecutable:string;projects:RegisteredProject[];
   workspacePath:string;statePath:string;vaultPath:string;
   mapping:()=>string;pathExists:(path:string)=>boolean;stage:(value:EntityExport)=>void;
@@ -121,6 +122,10 @@ export class SourceScraperProvider {
   }
   dispose():void{this.closed=true;this.bridge.cancel();}
   private projects():RegisteredProject[]{return [...this.options.projects,...this.state.projects];}
+  localProjects():RegisteredProject[]{return this.projects().map(p=>({...p}));}
+  activity():{running:boolean;jobId?:string;lastState?:string;error?:string}{
+    const last=this.state.jobs.at(-1);return {running:Boolean(this.activeJob),jobId:this.activeJob?.id,lastState:last?.state,error:last?.error};
+  }
   private project(id:unknown):{project:RegisteredProject;config:CliConfig}{
     const project=this.projects().find(p=>p.id===text(id,"projectId"));
     if(!project)throw Error("PROJECT_NOT_ALLOWED");
@@ -138,7 +143,7 @@ export class SourceScraperProvider {
     }
     if(!isAbsolute(this.options.nodeExecutable)||hash(readFileSync(this.options.cliPath,"utf8"))!==this.options.cliHash)
       throw Error("CLI_NOT_TRUSTED: verify and register the CLI locally");
-    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,xPythonPath:this.options.xPythonPath}};
+    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,xPythonPath:this.options.xPythonPath,xSession:this.options.getXSession?.()}};
   }
   private async invoke(id:unknown,command:Parameters<CliBridge["invoke"]>[1],args:string[]=[]):Promise<any>{
     const {config}=this.project(id);
@@ -199,7 +204,7 @@ export class SourceScraperProvider {
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
-          csrfConfigured:Boolean(process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
+          csrfConfigured:Boolean(this.options.getXSession?.()?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(this.options.getXSession?.()?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
           pythonConfigured:Boolean(this.options.xPythonPath||process.env.SOURCE_SCRAPER_X_PYTHON),
           credentialDestination:"x.com",apiKeyRequired:false,paidFallback:false,maxPagesPerRun:10}};
       case "list_projects":return {projects:this.projects().map(p=>({id:p.id,configured:true}))};
