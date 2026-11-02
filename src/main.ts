@@ -258,7 +258,7 @@ class ExportModal extends Modal {
   private folder:string;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin,
     private records:EntityRecord[]){
-    super(app);this.folder=plugin.settings.outputFolder;
+    super(app);this.folder=plugin.settings.outputFolder.trim()||"Source Scraper/Imported";
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
