@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ibbuilds/source-scraper
-          ref: 228cc342d055a76e947aca856835d8801d446235
+          ref: e7ac0dc3d20f388982354b4b1bfa2e5b5e2561f4
           path: engine
       - uses: actions/setup-node@v4
         with:
