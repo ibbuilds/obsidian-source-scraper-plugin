@@ -32,10 +32,10 @@ All names below have the `source_scraper_` prefix. Inputs reject unknown fields.
 | list_projects | none | Configured project IDs |
 | validate_project | projectId | Structural validation without collection |
 | create_project | manifest | Create-only project JSON outside the vault; no source execution |
-| run_project | projectId, requestId, optional pageSize/maxPages | Engine job ID; no vault notes |
+| run_project | projectId, requestId, optional pageSize/maxPages/sourceIds | Engine job ID; no vault notes |
 | get_run_status | jobId | State, available result, safe error/partial-result information |
 | cancel_run | jobId | Cancel the owned current job; retain committed data |
-| list_findings | projectId, optional limit/offset/search/type/minScore | Globally filtered entity page in engine score/key order |
+| list_findings | projectId, optional limit/offset/search/type/minScore/filters | Globally filtered entity page in engine score/key order |
 | inspect_finding | projectId, key | Evidence, existing reviews/history and fingerprint |
 | reprocess_project | projectId, requestId | Explicit offline engine reassessment |
 | record_ai_assessment | projectId, key, assessment | Separate agent record; no human review |
@@ -63,3 +63,6 @@ Run `npm run check`, `npm test`, and `npm run build`. Build the matching engine,
 Host tests additionally verify authenticated HTTP tools/list and tools/call, namespacing, local enablement, class-instance dispatch, revocation and disposal. Live acceptance must distinguish a loopback MCP harness from a cloud ChatGPT connector session. An already open ChatGPT/Codex session can retain its old tool inventory: refresh/reconnect the existing connector to discover newly registered tools. A tools/list response proves server availability, not that a cached client has refreshed.
 
 No real vault-note creation is part of development acceptance. Compare pre-existing user-content hashes after installation and keep backups/rollback data private. Do not run CI against the personal vault.
+
+
+Generic deterministic filters use `collection-filters-v1`; see [the filter contract](COLLECTION-FILTERS.md). Project profiles and per-request filters combine with AND. The core owns matching and pagination; the plugin accepts only bounded declarative data, never code. Source selection cannot authorize an unregistered source. ChatGPT editorial quality is outside this feature.

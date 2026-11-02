@@ -1,3 +1,4 @@
+import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
 import {dirname,isAbsolute,join,relative,resolve,sep} from "node:path";
@@ -32,10 +33,10 @@ const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>
   ["list_projects","List locally registered projects; paths are not executable arguments.",{},[],true],
   ["validate_project","Validate a registered project without running sources.",{projectId:string},["projectId"],true],
   ["create_project","Explicitly create a safe project manifest in the registered workspace; never runs sources.",{manifest:{type:"object"}},["manifest"],false],
-  ["run_project","Run authorized sources into engine SQLite only; never creates notes.",{projectId:string,requestId:string,pageSize:{...number,minimum:1,maximum:500},maxPages:{...number,minimum:1,maximum:1000}},["projectId","requestId"],false],
+  ["run_project","Run authorized sources into engine SQLite only; never creates notes.",{projectId:string,requestId:string,pageSize:{...number,minimum:1,maximum:500},maxPages:{...number,minimum:1,maximum:1000},sourceIds:COLLECTION_FILTER_SCHEMA.properties.sourceIds},["projectId","requestId"],false],
   ["get_run_status","Read a job status without starting or retrying it.",{jobId:string},["jobId"],true],
   ["cancel_run","Cancel the owned active job; preserve committed checkpoints.",{jobId:string},["jobId"],false],
-  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,minScore:{...number,maximum:100}},["projectId"],true],
+  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,minScore:{...number,maximum:100},filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
   ["inspect_finding","Read entity evidence, human reviews, evaluator history and evidence fingerprint.",{projectId:string,key:string},["projectId","key"],true],
   ["reprocess_project","Explicit offline reassessment; preserves human reviews and writes no notes.",{projectId:string,requestId:string},["projectId","requestId"],false],
   ["record_ai_assessment","Record an agent recommendation, never a human approval. Read selected references first.",{projectId:string,key:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
@@ -155,7 +156,13 @@ export class SourceScraperProvider {
       this.engineChecked=true;
       this.engineCapabilities=version.capabilities??[];
     }
-    if(command==="run"&&parseProjectManifest(readFileSync(config.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local")&&
+    const manifest=parseProjectManifest(readFileSync(config.configPath,"utf8"));
+    if((manifest.filters||args.includes("--filters-json")||args.includes("--source-ids-json"))&&
+      !this.engineCapabilities.includes("collection-filters-v1"))throw Error("SCHEMA_UNSUPPORTED: deterministic filters require collection-filters-v1");
+    const sourceFlag=args.indexOf("--source-ids-json");
+    const sources=compileCollectionFilters(manifest.sources.map(s=>s.id),manifest.filters,
+      sourceFlag<0?undefined:{version:1,sourceIds:JSON.parse(args[sourceFlag+1])}).sourceIds;
+    if(command==="run"&&manifest.sources.some(s=>sources.includes(s.id)&&s.adapter==="x-for-you-local")&&
       !this.engineCapabilities.includes("x-for-you-local-v1"))throw Error("SCHEMA_UNSUPPORTED: X feed collection requires x-for-you-local-v1");
     return this.bridge.invoke(config,command,["--config",config.configPath,...args]);
   }
@@ -167,11 +174,15 @@ export class SourceScraperProvider {
   }
   private async start(args:Record<string,unknown>,command:"run"|"reprocess"):Promise<Job>{
     const {project}=this.project(args.projectId);
-    const usesX=parseProjectManifest(readFileSync(project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local");
+    const manifest=parseProjectManifest(readFileSync(project.configPath,"utf8"));
+    const sourceIds=compileCollectionFilters(manifest.sources.map(s=>s.id),manifest.filters,
+      args.sourceIds===undefined?undefined:{version:1,sourceIds:args.sourceIds}).sourceIds;
+    const usesX=manifest.sources.some(s=>sourceIds.includes(s.id)&&s.adapter==="x-for-you-local");
     if(command==="run"&&usesX&&!this.options.allowXProvider)throw Error("X_LOCAL_APPROVAL_REQUIRED: enable local read-only X access");
     if(command==="run"&&usesX&&args.pageSize!==undefined&&Number(args.pageSize)<100)throw Error("X_FEED_PAGE_SIZE: use at least 100");
     const requestId=text(args.requestId,"requestId",200),projectId=text(args.projectId,"projectId");
     const limits=command==="run"?["--page-size",String(integer(args.pageSize,100,1,500)),"--max-pages",String(integer(args.maxPages,100,1,1000))]:[];
+    if(command==="run"&&args.sourceIds!==undefined)limits.push("--source-ids-json",JSON.stringify(sourceIds));
     const signature=hash({projectId,command,limits});
     const prior=this.state.jobs.find(j=>j.requestId===requestId);
     if(prior){if(prior.signature!==signature)throw Error("REQUEST_CONFLICT");return prior;}
@@ -203,6 +214,8 @@ export class SourceScraperProvider {
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
+        collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,
+          appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},
         xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
           csrfConfigured:Boolean(this.options.getXSession?.()?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(this.options.getXSession?.()?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
           pythonConfigured:Boolean(this.options.xPythonPath||process.env.SOURCE_SCRAPER_X_PYTHON),
@@ -225,9 +238,12 @@ export class SourceScraperProvider {
         if(job===this.activeJob){job.state="cancelling";this.persist();this.bridge.cancel();}return job;
       }
       case "list_findings":{
+        const manifest=parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8"));
+        const filters=args.filters===undefined?undefined:parseCollectionFilters(args.filters,manifest.sources.map(s=>s.id));
         const flags=["--limit",String(integer(args.limit,100,1,500)),"--offset",String(integer(args.offset,0,0,1000000))];
         for(const field of ["search","type"])if(args[field]!==undefined)flags.push("--"+field,text(args[field],field));
         if(args.minScore!==undefined)flags.push("--min-score",String(integer(args.minScore,0,0,100)));
+        if(filters)flags.push("--filters-json",JSON.stringify(filters));
         return this.invoke(args.projectId,"query",flags);
       }
       case "inspect_finding":return this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);

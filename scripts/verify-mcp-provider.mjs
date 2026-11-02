@@ -34,6 +34,19 @@ for(let i=0;i<200;i++){status=await call("get_run_status",{jobId:job.id});if(!["
 assert.equal(status.state,"succeeded",JSON.stringify(status));
 const findings=await call("list_findings",{projectId:"starter-project",limit:100});
 assert.ok(findings.count>=2);const selected=findings.records.slice(0,2).map(e=>e.key);
+const filter={version:1,sourceIds:["local-observations"],entity:{fields:["key"],includeTerms:[selected[0]],matchMode:"substring"}};
+const filtered=await call("list_findings",{projectId:"starter-project",limit:1,filters:filter});
+assert.deepEqual(filtered.records.map(e=>e.key),[selected[0]]);assert.ok(filtered.filtering);
+assert.equal((await call("list_findings",{projectId:"starter-project",filters:{version:1,entity:{fields:["key"],excludeTerms:selected,matchMode:"substring"}}})).records.some(e=>selected.includes(e.key)),false);
+assert.equal((await call("list_findings",{projectId:"starter-project",limit:100})).count,findings.count,"filter requests never delete stored evidence");
+await assert.rejects(call("run_project",{projectId:"starter-project",requestId:"unknown-source",sourceIds:["unregistered"]}),/INVALID_FILTER/);
+const scoped=await call("run_project",{projectId:"starter-project",requestId:"source-scope",sourceIds:["local-observations"]});
+for(let i=0;i<200;i++){status=await call("get_run_status",{jobId:scoped.id});if(!["running","queued"].includes(status.state))break;await new Promise(r=>setTimeout(r,25));}
+assert.equal(status.state,"succeeded",JSON.stringify(status));
+const oldCli=join(root,"old-cli.mjs");writeFileSync(oldCli,'console.log(JSON.stringify({name:"source-scraper",jsonSchemaVersion:1,capabilities:["agent-assessments-v1","selected-entity-export-v1"]}));');
+const oldProvider=new SourceScraperProvider({...options,cliPath:oldCli,cliHash:hash(readFileSync(oldCli)),statePath:join(root,"old-state.json")});
+await assert.rejects(oldProvider.execute("source_scraper_list_findings",{projectId:"starter-project",filters:filter}),/collection-filters-v1/);oldProvider.dispose();
+
 const detail=await call("inspect_finding",{projectId:"starter-project",key:selected[0]});
 const assessment={evidenceFingerprint:detail.fingerprint,rubric:"Synthetic acceptance rubric: traceable source evidence and clear utility",recommendation:"recommend",
   reasons:["Synthetic test judgment; not an actual LLM evaluation"],uncertainties:["License not independently verified"],references:[],actor:"acceptance-harness",model:"simulated"};
@@ -53,5 +66,5 @@ provider.dispose();provider=new SourceScraperProvider(options);await provider.re
 writeFileSync(configPath,readFileSync(configPath,"utf8")+"\n");
 await assert.rejects(call("validate_project",{projectId:"starter-project"}),/SOURCE_NOT_TRUSTED/);
 assert.equal(readFileSync(join(vault,"References.md"),"utf8"),"Existing user note\n");
-provider.dispose();console.log(JSON.stringify({passed:true,realCli:true,simulatedAssessment:true,entities:findings.count,staged:2,
+provider.dispose();console.log(JSON.stringify({passed:true,realCli:true,genericFilters:true,sourceSelection:true,oldCliFailsClosed:true,simulatedAssessment:true,entities:findings.count,staged:2,
   createdInSyntheticVault:0,noNoteWriteTool:true,jobRetryIdempotent:true,draftsReadOnly:true,restartQueue:true,manifestTrust:true,personalVaultWrites:0,evidenceDirectory:root}));
