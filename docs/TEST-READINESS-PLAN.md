@@ -4,6 +4,8 @@ The supplied ChatGPT connection panel is the interaction reference. Source Scrap
 
 Use Obsidian's ButtonComponent, SearchComponent, DropdownComponent, interface font, semantic colours, radii, spacing and shadows. No added fonts, fixed brand palette, dashboard, tab strip, decorative icons or separate sidebar. The Taste proposal informed hierarchy; the user's explicit native-Obsidian requirement governs all visual tokens.
 
+The header, content and navigation/footer actions use whitespace instead of separator lines, matching the ChatGPT connection panel's native padding and control geometry.
+
 ## Main journey
 
 1. Home: X / Para ti, actual connection state, one action (Conectar X, Buscar recursos, Detener or Reintentar), then Recursos with its count. Configured example data must remain labeled de ejemplo. Target height: below 260px in the supplied configured-example state.
