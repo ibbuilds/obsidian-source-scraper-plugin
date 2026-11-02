@@ -27,7 +27,7 @@ See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, li
 
 Click **Source Scraper** in the status bar to inspect readiness, choose a registered project, explicitly collect/stop, or review candidates. **Import findings** also works offline. Candidate details and Markdown previews remain read-only. Escape, the close button or an outside click closes the floating panel; incoming MCP findings update the indicator without opening it. Existing saved Source Scraper sidebar leaves are removed on the next plugin load.
 
-**Connect X locally** accepts masked `auth_token` and `ct0` values only in Obsidian. They stay in memory until disconnect/unload and never enter plugin preferences or MCP responses. Loading them prepares access but makes no X request. See the [test readiness plan](docs/TEST-READINESS-PLAN.md) for acceptance gates and the outstanding real-feed test.
+Expand **Connection** to check local readiness or choose **Connect X locally**. The setup accepts masked `auth_token` and `ct0` values only in Obsidian. They stay in memory until disconnect/unload and never enter plugin preferences or MCP responses. Loading them prepares access but makes no X request. See the [test readiness plan](docs/TEST-READINESS-PLAN.md) for acceptance gates and the outstanding real-feed test.
 
 ## Verification and boundaries
 
