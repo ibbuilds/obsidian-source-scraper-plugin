@@ -1,6 +1,6 @@
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
-  Setting,TFile,setIcon
+  Setting,TFile,setIcon,ButtonComponent,SearchComponent
 } from "obsidian";
 import {parseExport,type EntityExport,type EntityRecord} from "./contracts.ts";
 import {selectedPlans} from "./vault-writer.ts";
@@ -88,14 +88,14 @@ class ProjectModal extends Modal {
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"General project configuration"});
-    paragraph(root,"Define any project with the public Source Scraper JSON manifest format. No topic rules are imposed, and editing this form never executes a source or writes a note.");
+    root.createEl("h3",{text:"Editar proyecto"});
+    paragraph(root,"Edita un proyecto de Source Scraper. Validarlo no ejecuta una búsqueda ni guarda notas.");
     const candidates=this.app.vault.getFiles()
       .filter(f=>f.extension==="json"&&f.stat.size<=200000);
-    new Setting(root).setName("Existing project in this vault (optional)")
-      .setDesc("Inspect or use a project JSON without overwriting it.")
+    new Setting(root).setName("Proyecto existente")
+      .setDesc("Opcional. Puedes consultar un archivo JSON sin modificarlo.")
       .addDropdown(d=>{
-        d.addOption("","Start from the neutral local JSON template");
+        d.addOption("","Usar plantilla");
         for(const file of candidates.slice(0,200))d.addOption(file.path,file.path);
         d.onChange(async path=>{
           this.selectedPath=path;
@@ -121,19 +121,19 @@ class ProjectModal extends Modal {
       this.selectedPath="";
     });
     const status=root.createEl("pre",{cls:"ss-preview"});
-    status.setText("Validate or copy project JSON. Project files are created outside the vault through registered MCP workspaces.");
-    new Setting(root).addButton(b=>b.setButtonText("Validate project JSON")
+    status.setText("Valida o copia el JSON. Los proyectos nuevos se crean en el espacio de trabajo externo mediante MCP.");
+    new Setting(root).addButton(b=>b.setButtonText("Validar proyecto")
       .onClick(()=>{
         try{
           const manifest=parseProjectManifest(this.body);
-          status.setText("Valid basic project structure\n"+
+          status.setText("Proyecto válido\n"+
             "ID: "+manifest.id+"\nSources: "+manifest.sources.length+
             "\nPipeline: "+manifest.pipeline.join(", ")+
             "\nOutputs: "+manifest.outputs.length+
             "\nThe engine performs adapter-specific validation when run. No sources executed.");
         }catch(error){status.setText(errorMessage(error));}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Use selected existing project (no writes)")
+    new Setting(root).addButton(b=>b.setButtonText("Usar proyecto")
       .onClick(async()=>{
         try{
           if(!this.selectedPath)throw Error("Choose an existing project JSON above");
@@ -145,7 +145,7 @@ class ProjectModal extends Modal {
           this.plugin.settings.configPath=join(adapter.getBasePath(),file.path);
           await this.plugin.savePrefs();
           this.close();
-          new Notice("Selected existing project for optional CLI use. No source has run.");
+          new Notice("Proyecto seleccionado. No se ha iniciado una búsqueda.");
         }catch(error){notify(error);}
       }));
   }
@@ -158,9 +158,9 @@ class NoteMappingModal extends Modal {
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Portable note mapping JSON"});
-    paragraph(root,"Choose additional YAML properties, a note-title field and which generic data sections to include. This configuration changes previews and future new notes only; existing notes are never edited.");
-    const area=root.createEl("textarea",{attr:{rows:"12",placeholder:"Source-independent note mapping JSON"}});
+    root.createEl("h3",{text:"Formato de borradores"});
+    paragraph(root,"Elige las propiedades, el título y las secciones de los borradores. Esta configuración no cambia notas existentes.");
+    const area=root.createEl("textarea",{attr:{rows:"12",placeholder:"Configuración JSON del borrador"}});
     area.value=this.text;
     area.addEventListener("input",()=>{this.text=area.value;});
     const result=root.createEl("pre",{cls:"ss-preview"});
@@ -171,25 +171,25 @@ class NoteMappingModal extends Modal {
         const folder=this.plugin.settings.outputFolder||"Source Scraper/Imported";
         const plans=selectedPlans(folder,selected.slice(0,1),mapping);
         result.setText(plans[0].content.slice(0,4500));
-      }else result.setText("Valid portable mapping (version 1). Import and select a record to see its preview.");
+      }else result.setText("Formato válido. Selecciona un recurso para ver una muestra.");
     };
-    new Setting(root).addButton(b=>b.setButtonText("Validate and preview mapping")
+    new Setting(root).addButton(b=>b.setButtonText("Ver muestra")
       .onClick(()=>{try{validate();}catch(error){result.setText(errorMessage(error));}}));
-    new Setting(root).addButton(b=>b.setButtonText("Save mapping (no note writes)")
+    new Setting(root).addButton(b=>b.setButtonText("Guardar formato")
       .setCta().onClick(async()=>{
         try{
           const mapping=parseNoteMapping(this.text);
           this.plugin.settings.noteMappingJson=JSON.stringify(mapping,null,2);
           await this.plugin.savePrefs();
           this.close();
-          new Notice("Saved portable JSON mapping. Existing notes were untouched.");
+          new Notice("Formato guardado.");
         }catch(error){notify(error);}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Restore generic default in editor")
+    new Setting(root).addButton(b=>b.setButtonText("Restablecer plantilla")
       .onClick(()=>{
         this.text=DEFAULT_NOTE_MAPPING_JSON;
         area.value=this.text;
-        result.setText("Default loaded into the editor. Press Save to apply.");
+        result.setText("Plantilla cargada. Pulsa Guardar formato para aplicarla.");
       }));
   }
   onClose():void{this.contentEl.empty();}
@@ -247,7 +247,7 @@ class DetailModal extends Modal {
           this.entity.review=this.decision;
           this.plugin.refresh();
           this.close();
-          new Notice("Human review saved to the matching Source Scraper project.");
+          new Notice("Revisión guardada en el proyecto.");
         }catch(error){notify(error);}
         finally{this.busy=false;}
       }));
@@ -262,7 +262,7 @@ class ExportModal extends Modal {
   }
   onOpen():void{
     const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Vista previa de notas"});
+    root.createEl("h3",{text:"Borradores"});
     paragraph(root,"Revisa el borrador. No se guarda ninguna nota desde este panel.");
     const preview=root.createEl("pre",{cls:"ss-preview"});
     const refresh=()=>{
@@ -287,11 +287,11 @@ class RunModal extends Modal {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
     const root=this.contentEl;root.empty();
-    root.createEl("h3",{text:"Run an explicitly configured local project"});
-    paragraph(root,"This may access sources or trusted MCP executables configured in your project. It does not automatically export notes, invoke webhook outputs or modify existing vault files.");
+    root.createEl("h3",{text:"Ejecutar proyecto"});
+    paragraph(root,"Ejecuta las fuentes del proyecto configurado y muestra sus resultados. No guarda notas.");
     paragraph(root,"CLI: "+(this.plugin.settings.cliPath||"Not configured"));
     paragraph(root,"Project: "+(this.plugin.settings.configPath||"Not configured"));
-    new Setting(root).addButton(b=>b.setButtonText("Run source collection and preview JSON")
+    new Setting(root).addButton(b=>b.setButtonText("Buscar recursos")
       .setCta().onClick(async()=>{
         if(this.busy)return;
         this.busy=true;
@@ -303,11 +303,11 @@ class RunModal extends Modal {
           });
           this.plugin.setImported(imported);
           this.close();
-          new Notice("Collection completed. Preview imported without writing notes.");
+          new Notice("Búsqueda terminada. Recursos disponibles.");
         }catch(error){notify(error);}
         finally{this.busy=false;}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Cancel running process")
+    new Setting(root).addButton(b=>b.setButtonText("Detener")
       .onClick(()=>{this.plugin.cli.cancel();this.close();}));
   }
 }
@@ -389,13 +389,14 @@ class ScraperReview {
     const imported=this.plugin.imported;
     if(!imported){paragraph(root,"Todavía no hay resultados. Haz una búsqueda o importa un archivo.");return;}
     const summary=root.createDiv({cls:"ss-review-summary"});
-    summary.createEl("p",{cls:"ss-count",text:imported.records.length+" recursos · Seleccionados: "+this.plugin.selected.size});
+    summary.createEl("p",{cls:"ss-count",text:imported.records.length+(imported.records.length===1?" recurso":" recursos")});
     if(imported.projectId==="starter-project")summary.createEl("p",{cls:"ss-example-note",text:"Ejemplo local · no es tu feed de X."});
-    const searchBox=root.createDiv({cls:"ss-search"});setIcon(searchBox.createSpan({cls:"ss-search-icon"}),"search");
-    const input=searchBox.createEl("input",{type:"search",attr:{placeholder:"Filtrar resultados",'aria-label':"Filtrar resultados"}});input.value=this.search;
-    input.addEventListener("input",()=>{
+    const searchBox=root.createDiv({cls:"ss-search"});
+    const search=new SearchComponent(searchBox).setPlaceholder("Filtrar recursos").setValue(this.search);
+    const input=search.inputEl;input.setAttribute("aria-label","Filtrar recursos");
+    search.onChange(()=>{
       const cursor=input.selectionStart??input.value.length;this.search=input.value;this.page=0;this.render();
-      const restored=root.querySelector<HTMLInputElement>('input[placeholder="Filtrar resultados"]');
+      const restored=root.querySelector<HTMLInputElement>('input[placeholder="Filtrar recursos"]');
       if(restored){restored.focus();const position=Math.min(cursor,this.search.length);restored.setSelectionRange(position,position);}
     });
     const query=this.search.toLowerCase();
@@ -406,30 +407,23 @@ class ScraperReview {
     if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No hay coincidencias"});paragraph(empty,"Prueba otra palabra.");}
     for(const entity of visible){
       const item=list.createEl("article",{cls:"ss-record"});
-      const head=item.createDiv({cls:"ss-record-head"});head.createEl("h4",{cls:"ss-record-title",text:entity.title});
+      const head=item.createDiv({cls:"ss-record-head"});
       const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Seleccionar "+entity.title}});
       checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
       checkbox.addEventListener("change",()=>{
         if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
         this.render();Array.from(root.querySelectorAll<HTMLInputElement>(".ss-select-control")).find(node=>node.dataset.key===entity.key)?.focus();
       });
+      const inspect=new ButtonComponent(head).setButtonText(entity.title).onClick(()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();}).buttonEl;
+      inspect.classList.add("ss-record-title");inspect.type="button";inspect.setAttribute("aria-label","Ver detalle: "+entity.title);
       const source=item.createDiv({cls:"ss-record-source"});
-      source.createSpan({text:entity.type.replace(/[-_]/g," ")});
       if(entity.url){
-        source.createSpan({cls:"ss-source-separator",text:"·"});
         const link=source.createEl("a",{href:entity.url,text:new URL(entity.url).hostname.replace(/^www\./,""),attr:{target:"_blank",rel:"noopener noreferrer"}});
         link.setAttribute("aria-label","Abrir recurso: "+entity.title);
-      }
+      }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
       const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
       if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
-      const meta=item.createDiv({cls:"ss-record-meta"});
-      const score=meta.createSpan({cls:"ss-tag",text:"Relevancia "+entity.score});score.title="Puntuación orientativa; revisa la evidencia.";
-      const decision=meta.createSpan({cls:"ss-tag ss-review-tag",text:entity.review==="pending"?"Sin revisar":entity.review==="approved"?"Aprobado":"Descartado"});decision.dataset.review=entity.review;
-      const bottom=item.createDiv({cls:"ss-record-bottom"});
-      const mentions=entity.provenance?.mentions.length;
-      bottom.createSpan({cls:"ss-evidence-count",text:mentions===undefined?"Sin evidencia adjunta":mentions+(mentions===1?" mención":" menciones")});
-      const inspect=bottom.createEl("button",{text:"Ver detalle",cls:"ss-evidence-action"});inspect.setAttribute("aria-label","Ver detalle: "+entity.title);
-      inspect.onclick=()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();};
+      if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Aprobado":"Descartado"});decision.dataset.review=entity.review;}
     }
     const pagination=root.createDiv({cls:"ss-pagination"});pagination.hidden=pageCount===1;
     const previous=pagination.createEl("button",{text:"Anterior"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;this.render();};
@@ -437,23 +431,21 @@ class ScraperReview {
     const next=pagination.createEl("button",{text:"Siguiente"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;this.render();};
     const selected=this.plugin.getSelected();
     const draftArea=root.createDiv({cls:"ss-review-footer"});
-    const preview=draftArea.createEl("button",{text:"Preparar notas",cls:"ss-preview-action"});preview.disabled=selected.length===0;
-    preview.onclick=()=>{
+    const selection=draftArea.createSpan({cls:"ss-selection-count",text:selected.length+(selected.length===1?" seleccionado":" seleccionados")});selection.setAttribute("role","status");
+    const preview=new ButtonComponent(draftArea).setButtonText("Ver borradores").setTooltip("Vista previa para ChatGPT; no guarda notas").setDisabled(selected.length===0).onClick(()=>{
       try{
         if(!selected.length)throw Error("Selecciona recursos antes de preparar notas.");
         if(selected.length>200)throw Error("Selecciona como máximo 200 recursos.");
         this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
-    };
-    const tools=root.createEl("details",{cls:"ss-review-tools"});tools.createEl("summary",{text:"Herramientas avanzadas"});
-    const controls=tools.createDiv({cls:"ss-controls"});
-    const action=(text:string,click:()=>void)=>{const button=controls.createEl("button",{text});button.addEventListener("click",()=>{this.plugin.closePopover();click();});};
-    action("Import JSON / NDJSON",()=>new ImportModal(this.app,this.plugin).open());
-    action("Project JSON editor",()=>new ProjectModal(this.app,this.plugin).open());
-    action("Note mapping",()=>new NoteMappingModal(this.app,this.plugin).open());
-    action("Run local CLI (optional)",()=>new RunModal(this.app,this.plugin).open());
-    action("X feed setup",()=>new XFeedSetupModal(this.app,this.plugin).open());
-    action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+imported.records.length+" sources; no automatic writes."));
+    }).buttonEl;preview.classList.add("ss-preview-action");preview.type="button";
+  }
+  renderTools(controls:HTMLElement):void{
+    const action=(text:string,click:()=>void)=>{new ButtonComponent(controls).setButtonText(text).onClick(()=>{this.plugin.closePopover();click();});};
+    action("Editar proyecto",()=>new ProjectModal(this.app,this.plugin).open());
+    action("Formato de borradores",()=>new NoteMappingModal(this.app,this.plugin).open());
+    action("Ejecutar proyecto",()=>new RunModal(this.app,this.plugin).open());
+    action("Diagnóstico",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
   }
 }
 class ScraperSettings extends PluginSettingTab {
@@ -497,7 +489,7 @@ class ScraperSettings extends PluginSettingTab {
         this.plugin.settings.cliPath=value.trim();await this.plugin.savePrefs();
       }));
     new Setting(root).setName("Explicit project JSON manifest")
-      .setDesc("Local manifest to run only when you press Run. Use Project JSON editor to create a new config without overwriting existing files.")
+      .setDesc("Local manifest to run only when you press Run. Use Editar proyecto to create a new config without overwriting existing files.")
       .addText(t=>t.setValue(this.plugin.settings.configPath).onChange(async value=>{
         this.plugin.settings.configPath=value.trim();await this.plugin.savePrefs();
       }));
@@ -698,7 +690,8 @@ export default class ScraperPlugin extends Plugin {
         if(this.isCollecting())return;
         const p=this.registeredProjects().find(p=>p.id===id);if(p){this.settings.configPath=p.configPath;this.uiError="";this.uiMessage="";void this.savePrefs().catch(notify);}
       },
-      renderReview:root=>{this.review??=new ScraperReview(undefined,this);this.review.mount(root);},unmountReview:()=>this.review?.unmount()
+      renderReview:root=>{this.review??=new ScraperReview(undefined,this);this.review.mount(root);},unmountReview:()=>this.review?.unmount(),
+      renderTools:root=>{this.review??=new ScraperReview(undefined,this);this.review.renderTools(root);}
     });
     if(showResults)this.popover.showReview();else this.popover.open();
   }

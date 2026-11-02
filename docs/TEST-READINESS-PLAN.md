@@ -1,26 +1,20 @@
-# Status-bar interface and testing readiness
+# Native Obsidian interface — acceptance
 
-The supplied ChatGPT connection screenshots define the interaction: Source Scraper sits immediately after ChatGPT in the status bar and opens an anchored, non-modal popover on click. No automatic side pane, collection or note writing.
+The supplied ChatGPT connection panel is the interaction reference. Source Scraper remains directly after ChatGPT in the status bar and opens a compact, anchored, non-modal popover. The visible label is always **Source Scraper**, with no count, state suffix or custom colour. Readiness is available in its tooltip and inside the popover.
 
-Compact maintenance pass: the status bar shows only **Source Scraper**, without an icon or count, at a fixed content width. The full name/state remain in the tooltip and accessible label; candidate counts live inside the popover. Unchanged heartbeats skip DOM updates, and explicit data refreshes use one update path. Desktop acceptance checks stable width with 256 candidates and zero idle popover mutations across two heartbeat intervals.
+Use Obsidian's ButtonComponent, SearchComponent, DropdownComponent, interface font, semantic colours, radii, spacing and shadows. No added fonts, fixed brand palette, dashboard, tab strip, decorative icons or separate sidebar. The Taste proposal informed hierarchy; the user's explicit native-Obsidian requirement governs all visual tokens.
 
-Design brief: domain = provenance, candidate queue, local collection, X session, quality review, explicit selection. Colors come from Obsidian's editor surface, raised surface, soft separators, muted labels, violet action accent, green verified checks and warning/error states. The signature is the status indicator → source readiness → candidate review loop beside the existing MCP indicators. Avoid a sidebar, a full dashboard and raw configuration as the first screen.
+## Main journey
 
-Intent: inspect source readiness and review resources without losing the current note. Hierarchy: one outcome heading, one primary action, project choice only when available, and connection diagnostics behind a disclosure. Palette/type: native Obsidian semantic tokens and interface font. Depth: one raised surface with a quiet border/shadow. Density: 4px rhythm, 20px overview padding and 16px review padding, readable labels and explicit keyboard focus.
+1. Home: X / Para ti, actual connection state, one action (Conectar X, Buscar recursos, Detener or Reintentar), then Recursos with its count. Configured example data must remain labeled de ejemplo. Target height: below 260px in the supplied configured-example state.
+2. Recursos: native search, native selection checkboxes, title opening source evidence, official domain, concise description, selected count and Ver borradores. A back arrow returns home. Scores and full evidence remain in the detail dialog. Non-pending human decisions remain visible.
+3. Opciones: import results, change/disconnect X, other registered sources, collapsed advanced tools, plugin settings and diagnostics. The back arrow returns to the originating screen. All advanced functionality remains available.
+4. Borradores: previews only. Source Scraper never writes notes. ChatGPT uses the existing separate connector only on the user's explicit order.
 
-The redesigned review uses source cards with human-readable titles, domain links, native selection checkboxes and separate relevance/review badges. Evidence is a direct action; raw keys and full metadata stay in the evidence dialog. Search retains focus, long titles wrap, and sources scroll independently above draft preview and advanced tools. The shared footer states the note-writing boundary once. Reject the tall diagnostic dashboard, the settings-style record rows and repeated warning paragraphs; favor a short overview and a focused research inbox. Verify overview height below 600px in the standard isolated fixture, collapsed/expanded connection, selection focus, actual light/dark screenshots and narrow viewport bounds.
+## Verification
 
-1. Replace sidebar entry with accessible status item and anchored popover; preserve command compatibility and migrate only existing Source Scraper leaves. Gate: nothing opens on startup or queue restoration.
-2. Reuse candidate import, selection, evidence and draft preview inside the floating panel. Gate: current note/layout and user-file hashes remain unchanged.
-3. Provide masked in-memory X session setup; secrets never enter preferences, state receipts, notes or logs. Local session loading does not collect. Gate: disabled grant strips credentials; restart/unload drops in-memory values.
-4. Keep job state honest; explicit run/stop, no double submission, source errors visible, and no false X-ready claim while session/live acceptance is missing.
-5. Exercise status ordering, click/toggle, keyboard/focus, outside click, resize, long candidates, light/dark appearance, restoration, run/review/drafts and zero-note mutation in isolated Desktop acceptance. Capture actual app screenshots for visual review, then merge passing changes and install only plugin-owned files.
-6. Remaining live gate: owner connects X locally, reads a small real For You sample, verifies account/provenance and evaluates actual candidate quality. UI/fixture success does not claim this gate or guarantee 100% availability of an unofficial X client.
-
-## Simplification after the real configured-vault screenshot
-
-The user supplied a configured vault with four starter findings. The previous fixture hid project controls and understated the actual interface height. Acceptance now reproduces two registered public projects, four starter records and healthy local tools with no X session. The normal screen must still say Sin conectar and offer Conectar X; it must not imply those examples came from X.
-
-Direction: a small native utility, 360px wide, with one header, two persistent tabs (Buscar / Resultados), one state-dependent search action and no global explanatory footer, hero icon, project selector or diagnostic panel. Project/import/debug controls live under Más opciones. Default configured-example screen height must remain below 350px. Results are directly accessible as a compact selectable list; technical evidence is a disclosure inside a readable detail dialog. Spanish labels follow the user's language. Preserve keyboard tab navigation, focus, passive MCP updates and the no-note-write boundary.
-
-Connection is a local guided form: inline cookie instructions, three fields, filters collapsed, numeric ID/full twid accepted, no collection on submit. Existing memory sessions can be reused when filters change; changed filters create immutable external profiles instead of silently replacing manifests. Verify that secrets never enter preferences/manifests and that prior profiles remain unchanged. Capture actual element screenshots in dark/light and narrow states, including the configured example state, before delivery.
+- Typecheck, unit tests and build.
+- Genuine isolated Obsidian Desktop: status ordering and fixed label width; keyboard activation, back navigation, focus restoration, Escape/outside click; no idle DOM rewrites; import and invalid-import recovery; native filtering and clear button; native selection and preview; evidence; advanced tools; masked session setup and no persisted secrets; explicit collection/cancel/no duplicate runs; completed empty results; light/dark and narrow layout, including long names; passive MCP arrivals and cleanup on unload.
+- Existing isolated-vault files remain byte-for-byte unchanged throughout all scenarios.
+- Screenshots come from the genuine running plugin, with illustrative fixtures explicitly marked. They are not stand-alone HTML mockups.
+- Remaining external gate: load the owner's X session locally and inspect a real For You sample. Neither fixture success nor loading a local session certifies live feed access or quality.

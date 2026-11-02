@@ -7,12 +7,12 @@ export interface PanelSnapshot {
 /** The normal user journey is the personalized X feed; other adapters stay in advanced options. */
 export function discoveryState(s:PanelSnapshot){
   const project=s.projects.find(p=>p.isX&&p.id===s.projectId)||s.projects.find(p=>p.isX);
-  if(s.running)return {state:"running",status:"Buscando…",hint:"Puedes cerrar el panel. La búsqueda continúa.",action:"cancel",button:"Detener búsqueda",projectId:project?.id};
+  if(s.running)return {state:"running",status:"Buscando…",hint:"Puedes cerrar el panel. La búsqueda continúa.",action:"cancel",button:"Detener",projectId:project?.id};
   if(!s.engine||!s.mcp)return {state:"setup",status:"Falta configurar",hint:"Completa la conexión local para empezar a buscar.",action:"settings",button:"Configurar Source Scraper",projectId:project?.id};
   if(!s.python)return {state:"setup",status:"Falta preparar X",hint:"Configura el lector local de X para continuar.",action:"settings",button:"Preparar conexión",projectId:project?.id};
-  if(!project||!s.session||!s.xAllowed)return {state:"setup",status:"Sin conectar",hint:"Conecta X para encontrar herramientas y recursos en tu feed Para ti.",action:"connect",button:"Conectar X",projectId:project?.id};
-  if(s.error)return {state:"error",status:"No se pudo buscar",hint:"Comprueba tu sesión de X e inténtalo de nuevo. El detalle está en Más opciones.",action:"collect",button:"Reintentar búsqueda",projectId:project.id};
-  return {state:"ready",status:"Sesión cargada",hint:"Busca una muestra de tu feed. Después podrás elegir qué recursos conservar.",action:"collect",button:"Buscar recursos",projectId:project.id};
+  if(!project||!s.session||!s.xAllowed)return {state:"setup",status:"Sin conectar",hint:"Encuentra herramientas y recursos en tu feed.",action:"connect",button:"Conectar X",projectId:project?.id};
+  if(s.error)return {state:"error",status:"No se pudo buscar",hint:"Revisa tu sesión de X y vuelve a intentarlo.",action:"collect",button:"Reintentar",projectId:project.id};
+  return {state:"ready",status:"Sesión cargada",hint:s.message==="Búsqueda terminada."?(s.findings?"Búsqueda terminada. Revisa los recursos.":"No se encontraron recursos. Prueba otros filtros."):"Busca recursos y elige cuáles revisar con ChatGPT.",action:"collect",button:"Buscar recursos",projectId:project.id};
 }
 export function panelState(s:PanelSnapshot){
   if(s.running)return {state:"running",label:"Collecting",icon:"loader-circle",title:"Collecting sources",description:"You can close this panel. Collection will continue; no vault notes are written."};

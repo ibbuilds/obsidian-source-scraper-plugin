@@ -1,13 +1,13 @@
 # Source Scraper: flujo de uso
 
-Abre **Source Scraper** en la barra de estado, a la derecha de ChatGPT. El panel tiene dos pestañas:
+Abre **Source Scraper** en la barra de estado, a la derecha de ChatGPT. Es una ventana compacta que usa la fuente, los colores y los controles nativos de Obsidian:
 
-- **Buscar**: conecta X y pulsa **Buscar recursos**. Si falta preparar el motor o lector local, el botón indica qué configuración falta. Una sesión cargada todavía requiere una búsqueda real para verificar acceso.
-- **Resultados**: filtra, selecciona y abre **Ver detalle** para revisar la procedencia. **Preparar notas** muestra borradores; no guarda archivos. Pide a ChatGPT que evalúe la selección y escriba mediante tu conector de Obsidian solo cuando tú se lo indiques.
+- La pantalla inicial muestra la conexión a X y un botón para conectar, buscar o detener la búsqueda. Si falta preparar el motor o lector local, el botón indica qué configuración falta. Una sesión cargada todavía requiere una búsqueda real para verificar acceso.
+- Pulsa la fila **Recursos** para filtrar y seleccionar resultados. Pulsa el nombre de un recurso para revisar su procedencia. **Ver borradores** muestra borradores; no guarda archivos. Pide a ChatGPT que evalúe la selección y escriba mediante tu conector de Obsidian solo cuando tú se lo indiques. La flecha del encabezado vuelve a la pantalla inicial.
 
 Los datos del proyecto inicial se identifican como **Ejemplo local**. No son tu feed de X. La disponibilidad del motor/MCP no se presenta como una conexión verificada a X.
 
-**Más opciones** reúne la importación JSON, otras fuentes y los diagnósticos. No necesitas escoger un proyecto para usar el feed de X: Buscar utiliza la fuente X registrada. Las fuentes genéricas siguen disponibles en Otras fuentes. En Resultados, Herramientas avanzadas conserva el editor de proyectos y el mapeo de borradores.
+El icono de ajustes abre **Opciones**: importación JSON, sesión de X, otras fuentes, diagnósticos y herramientas avanzadas. No necesitas escoger un proyecto para usar el feed de X: el botón principal utiliza la fuente X registrada. Las fuentes genéricas siguen disponibles en Otras fuentes. Herramientas avanzadas conserva el editor de proyectos y el mapeo de borradores. La flecha vuelve a la pantalla desde la que abriste las opciones.
 
 La importación explícita lleva directamente a Resultados. Los resultados que llegan por MCP actualizan la cola sin abrir el panel. Esc, el botón de cierre o un clic fuera lo cierran. No se abre un panel lateral ni se ejecuta una búsqueda al arrancar.
 
