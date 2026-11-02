@@ -1,9 +1,14 @@
 import {parseProjectManifest,type ProjectManifest} from "./project-manifest.ts";
+import type {XLocalSession} from "./cli-bridge.ts";
 
-export function xFeedReadiness(){return {
-  csrfConfigured:Boolean(process.env.SOURCE_SCRAPER_X_CSRF),
-  accountSessionConfigured:Boolean(process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION)
+export function xFeedReadiness(session?:XLocalSession){return {
+  csrfConfigured:Boolean(session?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),
+  accountSessionConfigured:Boolean(session?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION)
 };}
+export function validateLocalSession(accountSession:string,csrf:string):XLocalSession{
+  if([accountSession,csrf].some(s=>!s||s.length>8192||/[^\x21-\x7e]/.test(s)))throw Error("Enter both local session values without spaces");
+  return {accountSession,csrf};
+}
 /** No credential, endpoint, command or vault path is accepted by this setup contract. */
 export function buildXFeedProject(accountId:string,include:string,exclude:string,minimumScore:number,pagesPerRun:number):ProjectManifest{
   if(!/^\d{1,30}$/.test(accountId))throw Error("Enter the connected account's numeric X user ID");

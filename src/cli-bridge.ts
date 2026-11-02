@@ -10,7 +10,8 @@ function safe(s:string):string{
     .replace(/(?:token|password|secret|cookie|session|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi,"[redacted]")
     .slice(0,400);
 }
-export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string;allowXProvider?:boolean;xPythonPath?:string}
+export interface XLocalSession {accountSession:string;csrf:string}
+export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string;allowXProvider?:boolean;xPythonPath?:string;xSession?:XLocalSession}
 export class CliCommandError extends Error {
   readonly output:unknown;
   readonly exitCode:number|null;
@@ -35,7 +36,7 @@ export class CliBridge {
         let closed=false;
         const child=spawn(node,[script,command,...args],{
           shell:false,windowsHide:true,stdio:["ignore","pipe","pipe"],
-          signal:abort.signal,env:cliEnvironment(config.allowXProvider===true,config.xPythonPath)
+          signal:abort.signal,env:cliEnvironment(config.allowXProvider===true,config.xPythonPath,config.xSession)
         });
         const timer=setTimeout(()=>abort.abort(),timeout);
         let forceTimer:ReturnType<typeof setTimeout>|undefined;
@@ -156,12 +157,15 @@ export class CliBridge {
   }
 }
 /** Only a local UI grant may authorize free first-party X reads. No paid-provider fallback. */
-export function cliEnvironment(allowXProvider:boolean,xPythonPath?:string):NodeJS.ProcessEnv{
+export function cliEnvironment(allowXProvider:boolean,xPythonPath?:string,session?:XLocalSession):NodeJS.ProcessEnv{
   const env={...process.env};
   delete env.SOURCE_SCRAPER_X_PROVIDER_APPROVED;
   delete env.SOURCE_SCRAPER_GETXAPI_API_KEY;
   delete env.SOURCE_SCRAPER_X_LOCAL_APPROVED;
-  if(allowXProvider){env.SOURCE_SCRAPER_X_LOCAL_APPROVED="local-read-only";if(xPythonPath)env.SOURCE_SCRAPER_X_PYTHON=xPythonPath;}
+  if(allowXProvider){
+    env.SOURCE_SCRAPER_X_LOCAL_APPROVED="local-read-only";if(xPythonPath)env.SOURCE_SCRAPER_X_PYTHON=xPythonPath;
+    if(session){env.SOURCE_SCRAPER_X_ACCOUNT_SESSION=session.accountSession;env.SOURCE_SCRAPER_X_CSRF=session.csrf;}
+  }
   else{
     delete env.SOURCE_SCRAPER_X_ACCOUNT_SESSION;
     delete env.SOURCE_SCRAPER_X_CSRF;

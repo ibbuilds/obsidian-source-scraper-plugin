@@ -20,3 +20,4 @@ coverage/
 .obsidian/
 main.js
 .obsidian-cache/
+tests/desktop/artifacts/

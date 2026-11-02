@@ -7,3 +7,80 @@
 .source-scraper-view .ss-count { margin: 0.5rem 0; }
 .source-scraper-modal textarea { width: 100%; min-height: 9rem; font-family: var(--font-monospace); }
 .source-scraper-modal .ss-preview { white-space: pre-wrap; font-family: var(--font-monospace); max-height: 18rem; overflow: auto; }
+
+/* Same status-bar family as ChatGPT's connection indicator, after its order 1000. */
+.ss-status { display: inline-flex; align-items: center; gap: 6px; order: 1001; cursor: var(--cursor-link); }
+.ss-status-icon { display: inline-flex; align-items: center; }
+.ss-status-icon svg { width: var(--icon-xs, 14px); height: var(--icon-xs, 14px); }
+.ss-status[data-state="ready"] .ss-status-icon { color: var(--text-success); }
+.ss-status[data-state="review"] .ss-status-icon { color: var(--text-accent); }
+.ss-status[data-state="error"] .ss-status-icon { color: var(--text-error); }
+.ss-status:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: var(--radius-s); }
+.ss-popover {
+  position: fixed; inset: auto; margin: 0; padding: 0;
+  width: min(420px, calc(100vw - 24px)); max-height: min(680px, calc(100vh - 24px));
+  display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;
+  background: var(--background-primary); color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l, 12px);
+  box-shadow: var(--shadow-l); z-index: var(--layer-popover, 1000);
+  font-family: var(--font-interface); font-size: var(--font-ui-small); line-height: var(--line-height-normal, 1.5);
+}
+.ss-popover::backdrop { background: none; pointer-events: none; }
+.ss-popover:focus { outline: none; }
+.ss-popover [hidden] { display: none !important; }
+.ss-popover-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--background-modifier-border); flex: none; }
+.ss-brand { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.ss-brand strong { font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600); }
+.ss-subtitle { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.ss-brand-icon { display: flex; color: var(--text-muted); margin-right: 4px; }
+.ss-brand-icon svg { width: 20px; height: 20px; }
+.ss-popover .ss-icon-button { width: 40px; min-width: 40px; height: 40px; padding: 8px; display: inline-flex; align-items: center; justify-content: center; border: none; box-shadow: none; background: transparent; color: var(--text-muted); }
+.ss-popover .ss-icon-button:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.ss-icon-button svg { width: 18px; height: 18px; }
+.ss-popover-body { padding: 20px 16px 16px; overflow: auto; overscroll-behavior: contain; min-height: 0; }
+.ss-status-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ss-state-icon { display: flex; color: var(--text-muted); flex: none; }
+.ss-state-icon svg { width: 24px; height: 24px; }
+.ss-popover-body[data-state="ready"] .ss-state-icon { color: var(--text-success); }
+.ss-popover-body[data-state="review"] .ss-state-icon { color: var(--text-accent); }
+.ss-popover-body[data-state="error"] .ss-state-icon { color: var(--text-error); }
+.ss-popover h3.ss-title { margin: 0; font-size: 18px; line-height: 1.35; font-weight: var(--font-semibold, 600); text-wrap: balance; }
+.ss-description { color: var(--text-muted); margin: 0 0 16px; text-wrap: pretty; overflow-wrap: anywhere; }
+.ss-checks { display: flex; flex-direction: column; gap: 4px; margin: 16px 0 20px; }
+.ss-check-row { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.ss-check { display: flex; color: var(--text-faint); }
+.ss-check[data-ready="true"] { color: var(--text-success); }
+.ss-check svg { width: 16px; height: 16px; }
+.ss-check-label { flex: 1; min-width: 0; }
+.ss-check-value { color: var(--text-muted); font-size: var(--font-ui-smaller); text-align: right; font-variant-numeric: tabular-nums; }
+.ss-project-label { display: flex; flex-direction: column; gap: 8px; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.ss-project-select { width: 100%; min-height: 36px; font-size: var(--font-ui-small); color: var(--text-normal); }
+.ss-popover-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.ss-popover .ss-button { width: 100%; min-height: 40px; height: auto; padding: 8px 12px; white-space: normal; cursor: var(--cursor-link); }
+.ss-popover .ss-primary { background: var(--interactive-accent); color: var(--text-on-accent); border: none; }
+.ss-popover .ss-primary:hover { background: var(--interactive-accent-hover); }
+.ss-popover .ss-quiet { background: transparent; border: none; box-shadow: none; color: var(--text-muted); }
+.ss-popover .ss-quiet:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.ss-popover button:focus-visible, .ss-popover select:focus-visible, .ss-popover summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: var(--radius-s); }
+.ss-popover button:disabled { opacity: .5; cursor: default; }
+.ss-boundary, .ss-feedback { margin: 12px 0 0; font-size: var(--font-ui-smaller); color: var(--text-muted); overflow-wrap: anywhere; }
+.ss-feedback { color: var(--text-normal); }
+.ss-popover .source-scraper-view { padding: 16px; }
+.ss-review-tools { margin-bottom: 16px; }
+.ss-review-tools summary { cursor: var(--cursor-link); color: var(--text-muted); padding: 4px 0; }
+.ss-popover .ss-record .setting-item { padding: 8px 0; border: none; }
+.ss-popover .ss-record .setting-item-info { min-width: 0; }
+.ss-popover .ss-record .setting-item-name { font-weight: var(--font-medium, 500); overflow-wrap: anywhere; }
+.ss-popover .ss-record .setting-item-description { font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
+.ss-popover .ss-record button { margin-top: 8px; }
+.ss-popover .ss-controls { align-items: center; }
+.ss-popover .ss-count { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.ss-preview-action { width: 100%; min-height: 40px; margin-top: 16px; }
+.ss-x-setup .setting-item { align-items: flex-start; }
+.ss-x-setup input[type="password"] { min-width: 0; max-width: 100%; }
+@media (max-width: 480px) {
+  .ss-popover-header { padding: 8px 12px; gap: 4px; }
+  .ss-popover-body { padding: 16px 12px; }
+  .ss-popover .setting-item { flex-wrap: wrap; gap: 8px; }
+  .ss-popover .setting-item-control { min-width: 0; }
+}
