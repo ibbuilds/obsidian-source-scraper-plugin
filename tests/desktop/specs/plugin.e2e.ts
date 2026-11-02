@@ -64,6 +64,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
   });
   it("provides local cookie instructions, masks values and clears fields on dismissal",async()=>{
     await setup();expect(await browser.$(".modal-container").getText()).toContain("No necesitas una API de pago");
+    mkdirSync(screenshots,{recursive:true});await browser.$(".ss-x-setup").saveScreenshot(resolve(screenshots,"conectar-x.png"));
     const secrets=await browser.$$(".ss-x-setup input[type=password]");expect(secrets.length).toBe(2);await secrets[0].setValue("synthetic-not-real");
     await browser.$(".ss-session-help summary").click();expect(await browser.$(".ss-session-help").getText()).toContain("Application → Cookies");
     await browser.keys("Escape");await setup();expect(await browser.$(".ss-x-setup input[type=password]").getValue()).toBe("");await browser.keys("Escape");expect(await snapshot()).toEqual(original);
