@@ -57,6 +57,38 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
   it("retains keyboard focus when filtering multiple characters",async()=>{
     await review();await browser.$("input[placeholder='Any title, key or type']").setValue("Independent");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===1);expect(await browser.$(".ss-record").getText()).toContain("Independent research sample");expect(await browser.$("input[placeholder='Any title, key or type']").isFocused()).toBe(true);expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
+  it("runs and cancels explicitly, prevents duplicate submission and stages completed results while closed (simulated provider)",async()=>{
+    await browser.executeObsidian(({plugins},data)=>{
+      const p=(plugins as any).sourceScraper;
+      const previous={provider:p.provider,connect:p.connectMcp,projects:p.projectsForPanel,settings:p.settings};
+      let state="cancelled",runs=0;
+      p.settings={...p.settings,configPath:"isolated-ui-project"};
+      p.projectsForPanel=()=>[{id:"desktop-generic",name:"Desktop test project",isX:false,minimumScore:0}];
+      p.connectMcp=()=>{};
+      p.provider={localProjects:()=>[{id:"desktop-generic",configPath:"isolated-ui-project"}],activity:()=>({running:state==="running",jobId:"ui-job"}),execute:async(name:string)=>{
+        if(name==="source_scraper_run_project"){runs++;state="running";return {id:"ui-job"};}
+        if(name==="source_scraper_get_run_status")return {state,projectId:"desktop-generic"};
+        if(name==="source_scraper_cancel_run"){state="cancelled";return {};}
+        if(name==="source_scraper_list_findings")return data;
+        if(name==="source_scraper_stage_findings"){p.setImported(data);return {};}
+        throw Error("Unexpected simulated request");
+      }};
+      p.__desktopRun={finish:()=>{state="succeeded";},count:()=>runs,restore:()=>{p.provider=previous.provider;p.connectMcp=previous.connect;p.projectsForPanel=previous.projects;p.settings=previous.settings;p.uiError="";p.uiMessage="";p.updateStatus();}};
+      p.updateStatus();
+    },fixture);
+    try{
+      await overview();await click("Collect sources");
+      await browser.executeObsidian(async({plugins})=>{await (plugins as any).sourceScraper.collectSelected();});
+      expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__desktopRun.count())).toBe(1);
+      await click("Stop collection");await browser.waitUntil(async()=>(await browser.$(".ss-title").getText()).includes("needs attention"));
+      await click("Collect sources");await browser.keys("Escape");
+      await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__desktopRun.finish();});
+      await browser.waitUntil(()=>browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;return !p.uiJobId&&!p.isCollecting();}));
+      expect(await browser.$(".ss-popover").isExisting()).toBe(false);
+      expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__desktopRun.count())).toBe(2);
+    }finally{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;p.__desktopRun.restore();delete p.__desktopRun;});}
+    expect(await snapshot()).toEqual(original);
+  });
   it("captures native light/dark views and bounds a narrow review inside the viewport",async()=>{
     mkdirSync(screenshots,{recursive:true});await browser.setWindowSize(1100,900);await overview();await browser.execute(()=>{document.body.classList.remove("theme-light");document.body.classList.add("theme-dark");});await browser.saveScreenshot(resolve(screenshots,"overview-dark.png"));
     await browser.execute(()=>{document.body.classList.remove("theme-dark");document.body.classList.add("theme-light");});await browser.saveScreenshot(resolve(screenshots,"overview-light.png"));await browser.setWindowSize(540,640);await review();
