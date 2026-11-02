@@ -54,8 +54,13 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported(data);},fixture);
   });
   it("selects with a native checkbox, retains focus and previews drafts without saving",async()=>{
+    await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.settings.outputFolder="";});
     await review();await browser.$(".ss-record input[type=checkbox]").click();expect(await browser.$(".ss-record input[type=checkbox]").isFocused()).toBe(true);
-    await click("Ver borradores");const folder=browser.$(".modal-container input[type=text]");await folder.waitForDisplayed();await folder.setValue("Draft Only");
+    await click("Ver borradores");const folder=browser.$(".modal-container input[type=text]");await folder.waitForDisplayed();
+    await expect(folder).toHaveValue("Source Scraper/Imported");
+    await expect(browser.$(".modal-container .ss-preview")).toHaveText(expect.stringContaining("Source Scraper/Imported/desktop-generic/"));
+    expect(await snapshot()).toEqual(original);
+    await folder.setValue("Draft Only");
     await expect(browser.$(".modal-container .ss-preview")).toHaveText(expect.stringContaining("desktop-generic"));expect(await browser.$(".modal-container").getText()).toContain("No se guarda ninguna nota");expect(await snapshot()).toEqual(original);await browser.keys("Escape");
   });
   it("shows readable evidence first, with raw JSON behind a disclosure",async()=>{
