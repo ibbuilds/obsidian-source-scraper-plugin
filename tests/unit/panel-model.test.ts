@@ -9,7 +9,7 @@ test("the normal journey requires X even with public demo findings and healthy l
   assert.equal(discoveryState(sample).button,"Conectar X");assert.equal(discoveryState(sample).status,"Sin conectar");
   assert.equal(discoveryState(connected).button,"Buscar recursos");
   assert.equal(discoveryState({...connected,running:true}).action,"cancel");
-  assert.equal(discoveryState({...connected,error:"401"}).button,"Reintentar búsqueda");
+  assert.equal(discoveryState({...connected,error:"401"}).button,"Reintentar");
   assert.equal(discoveryState({...connected,mcp:false}).action,"settings");
 });
 test("the indicator never calls an untested X feed verified or connected without its local session",()=>{

@@ -25,7 +25,7 @@ For MCP, use the reviewed provider-API build of the existing Vault as MCP host, 
 
 See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, limits, state, restart behavior and compatibility. See [User guide](docs/USER-GUIDE.md) and [Safety](docs/SAFETY.md) for the note ownership boundary.
 
-Click **Source Scraper** in the status bar. **Buscar** connects the local X session and starts an explicit search; **Resultados** displays findings directly. **Más opciones** contains JSON import, alternative sources and diagnostics. Initial starter findings are labeled as example data and never imply the X feed is connected. Session setup includes local cookie instructions, accepts a full twid value, and keeps secrets in memory only. See the [user guide](docs/USER-GUIDE.md) for the complete workflow.
+Click **Source Scraper** in the status bar. Its compact native popover shows X readiness and one action to connect, search or stop. **Recursos** opens the selectable list; click a resource name for evidence, then **Ver borradores** for a preview. The settings icon opens **Opciones**, including JSON import, other sources and advanced tools. All controls, typography and colours follow Obsidian's active theme. Initial findings are clearly labeled as examples; loading a session never claims verified X access. See the [user guide](docs/USER-GUIDE.md) for the complete workflow.
 
 ## Verification and boundaries
 
