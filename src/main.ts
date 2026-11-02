@@ -391,83 +391,74 @@ class ScraperReview {
   render():void{
     const root=this.root;if(!root||!root.isConnected)return;
     root.empty();root.addClass("source-scraper-view");
+    const imported=this.plugin.imported;
+    if(!imported){paragraph(root,"No sources to review yet. Import findings or collect a sample first.");return;}
+    const summary=root.createDiv({cls:"ss-review-summary"});
+    summary.createEl("p",{cls:"ss-count",text:imported.records.length+" sources · Selected: "+this.plugin.selected.size});
+    summary.createEl("p",{cls:"ss-review-project",text:imported.projectId.replace(/[-_]/g," ")});
+    const searchBox=root.createDiv({cls:"ss-search"});setIcon(searchBox.createSpan({cls:"ss-search-icon"}),"search");
+    const input=searchBox.createEl("input",{type:"search",attr:{placeholder:"Search sources",'aria-label':"Search sources"}});input.value=this.search;
+    input.addEventListener("input",()=>{
+      const cursor=input.selectionStart??input.value.length;this.search=input.value;this.page=0;this.render();
+      const restored=root.querySelector<HTMLInputElement>('input[placeholder="Search sources"]');
+      if(restored){restored.focus();const position=Math.min(cursor,this.search.length);restored.setSelectionRange(position,position);}
+    });
+    const query=this.search.toLowerCase();
+    const filtered=imported.records.filter(e=>[e.title,e.key,e.type,e.category].some(value=>value.toLowerCase().includes(query)));
+    const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
+    const list=root.createDiv({cls:"ss-candidate-list"});list.setAttribute("aria-label","Sources to review");
+    const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
+    if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No matching sources"});paragraph(empty,"Try a different title, type or keyword.");}
+    for(const entity of visible){
+      const item=list.createEl("article",{cls:"ss-record"});
+      const head=item.createDiv({cls:"ss-record-head"});head.createEl("h4",{cls:"ss-record-title",text:entity.title});
+      const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Select "+entity.title}});
+      checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
+      checkbox.addEventListener("change",()=>{
+        if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
+        this.render();Array.from(root.querySelectorAll<HTMLInputElement>(".ss-select-control")).find(node=>node.dataset.key===entity.key)?.focus();
+      });
+      const source=item.createDiv({cls:"ss-record-source"});
+      source.createSpan({text:entity.type.replace(/[-_]/g," ")});
+      if(entity.url){
+        source.createSpan({cls:"ss-source-separator",text:"·"});
+        const link=source.createEl("a",{href:entity.url,text:new URL(entity.url).hostname.replace(/^www\./,""),attr:{target:"_blank",rel:"noopener noreferrer"}});
+        link.setAttribute("aria-label","Open source: "+entity.title);
+      }
+      const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
+      if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
+      const meta=item.createDiv({cls:"ss-record-meta"});
+      const score=meta.createSpan({cls:"ss-tag",text:"Relevance "+entity.score});score.title="Heuristic score, not independent verification.";
+      const decision=meta.createSpan({cls:"ss-tag ss-review-tag",text:entity.review==="pending"?"Not reviewed":entity.review==="approved"?"Approved":"Rejected"});decision.dataset.review=entity.review;
+      const bottom=item.createDiv({cls:"ss-record-bottom"});
+      const mentions=entity.provenance?.mentions.length;
+      bottom.createSpan({cls:"ss-evidence-count",text:mentions===undefined?"Evidence not exported":mentions+" source mention"+(mentions===1?"":"s")});
+      const inspect=bottom.createEl("button",{text:"View evidence",cls:"ss-evidence-action"});inspect.setAttribute("aria-label","View evidence: "+entity.title);
+      inspect.onclick=()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();};
+    }
+    const pagination=root.createDiv({cls:"ss-pagination"});pagination.hidden=pageCount===1;
+    const previous=pagination.createEl("button",{text:"Previous"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;this.render();};
+    pagination.createSpan({text:"Page "+(this.page+1)+" of "+pageCount});
+    const next=pagination.createEl("button",{text:"Next"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;this.render();};
+    const selected=this.plugin.getSelected();
+    const draftArea=root.createDiv({cls:"ss-review-footer"});
+    const preview=draftArea.createEl("button",{text:"Preview selected drafts",cls:"ss-preview-action"});preview.disabled=selected.length===0;
+    preview.onclick=()=>{
+      try{
+        if(!selected.length)throw Error("Select sources before previewing drafts");
+        if(selected.length>200)throw Error("Select no more than 200 sources per export");
+        this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
+      }catch(error){notify(error);}
+    };
     const tools=root.createEl("details",{cls:"ss-review-tools"});tools.createEl("summary",{text:"Import and project tools"});
     const controls=tools.createDiv({cls:"ss-controls"});
-    const action=(text:string,click:()=>void)=>{
-      const button=controls.createEl("button",{text});
-      button.addEventListener("click",()=>{this.plugin.closePopover();click();});
-      return button;
-    };
+    const action=(text:string,click:()=>void)=>{const button=controls.createEl("button",{text});button.addEventListener("click",()=>{this.plugin.closePopover();click();});};
     action("Import JSON / NDJSON",()=>new ImportModal(this.app,this.plugin).open());
     action("Project JSON editor",()=>new ProjectModal(this.app,this.plugin).open());
     action("Note mapping",()=>new NoteMappingModal(this.app,this.plugin).open());
     action("Run local CLI (optional)",()=>new RunModal(this.app,this.plugin).open());
     action("X feed setup",()=>new XFeedSetupModal(this.app,this.plugin).open());
-    action("Diagnostics",()=>{
-      new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+
-        "; JSON: "+(this.plugin.imported?.records.length??0)+" records; no automatic writes.");
-    });
-    const imported=this.plugin.imported;
-    if(!imported){
-      paragraph(root,"No data imported. Nothing is collected or written automatically.");
-      return;
-    }
-    root.createEl("p",{cls:"ss-count",text:
-      "Project: "+imported.projectId+" · "+imported.records.length+
-      " entities · Selected: "+this.plugin.selected.size});
-    const filter=new Setting(root).setName("Search records");
-    filter.addText(t=>t.setPlaceholder("Any title, key or type")
-      .setValue(this.search).onChange(value=>{
-        const cursor=t.inputEl.selectionStart??value.length;
-        this.search=value;this.page=0;this.render();
-        // Keep focus and caret when filtering: otherwise every keystroke
-        // destroys the text input and makes multi-character searches unusable.
-        const restored=root.querySelector<HTMLInputElement>(
-          'input[placeholder="Any title, key or type"]');
-        if(restored){
-          restored.focus();
-          const position=Math.min(cursor,value.length);
-          restored.setSelectionRange(position,position);
-        }
-      }));
-    const filtered=imported.records.filter(e=>
-      [e.title,e.key,e.type,e.category].some(v=>v.toLowerCase().includes(this.search.toLowerCase())));
-    const pageSize=40;
-    const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
-    this.page=Math.min(this.page,pageCount-1);
-    const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
-    const pageRow=root.createDiv({cls:"ss-controls"});
-    const prev=pageRow.createEl("button",{text:"Previous"});
-    prev.disabled=this.page===0;prev.onclick=()=>{this.page--;this.render();};
-    paragraph(pageRow,"Page "+(this.page+1)+" / "+pageCount+" ("+filtered.length+" matches)");
-    const next=pageRow.createEl("button",{text:"Next"});
-    next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;this.render();};
-    for(const entity of visible){
-      const item=root.createDiv({cls:"ss-record"});
-      new Setting(item).setName(entity.title).setDesc(entity.type+" · "+entity.key)
-        .addToggle(toggle=>toggle.setValue(this.plugin.selected.has(entity.key))
-          .onChange(checked=>{
-            if(checked)this.plugin.selected.add(entity.key);
-            else this.plugin.selected.delete(entity.key);
-            this.render();
-          }));
-      item.createEl("div",{cls:"ss-record-meta",text:
-        "Machine score: "+entity.score+" · Review: "+entity.review+
-        " · Evidence mentions: "+(entity.provenance?.mentions.length??"not exported")});
-      const inspect=item.createEl("button",{text:"Inspect data and evidence"});
-      inspect.onclick=()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();};
-    }
-    const selected=this.plugin.getSelected();
-    const exportButton=root.createEl("button",{text:"Preview selected drafts",cls:"ss-preview-action"});
-    exportButton.onclick=()=>{
-      try{
-        if(!selected.length)throw new Error("Select records before previewing notes");
-        if(selected.length>200)throw new Error("Select no more than 200 records per export");
-        this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
-      }catch(error){notify(error);}
-    };
-    exportButton.disabled=selected.length===0;
-    paragraph(root,"Source Scraper never creates or changes vault notes. Only ChatGPT may write through the separate Obsidian connector when you explicitly order it.");
+    action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+imported.records.length+" sources; no automatic writes."));
   }
 }
 class ScraperSettings extends PluginSettingTab {

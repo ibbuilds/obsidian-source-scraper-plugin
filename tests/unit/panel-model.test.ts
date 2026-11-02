@@ -18,6 +18,10 @@ test("existing findings remain reviewable offline, while active collection and e
   assert.equal(panelState({...offline,error:"Authentication failed"}).state,"error");
   assert.equal(panelState({...offline,running:true,error:"Old error"}).state,"running");
 });
+test("a selected public project can collect without an X session",()=>{
+  const state=panelState({...connected,session:false,xAllowed:false,python:false,projectId:"public",projects:[{id:"public",name:"Public resources",isX:false,minimumScore:0}]});
+  assert.equal(state.title,"Ready to collect sources");assert.equal(state.state,"ready");
+});
 test("the floating panel stays above its status anchor and within narrow or short viewports",()=>{
   assert.deepEqual(panelPosition({right:990,top:780,bottom:800},420,500,1000,800),{left:568,top:272});
   assert.deepEqual(panelPosition({right:300,top:8,bottom:28},280,200,320,640),{left:20,top:36});
