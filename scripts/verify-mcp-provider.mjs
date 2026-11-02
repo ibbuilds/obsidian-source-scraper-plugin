@@ -47,6 +47,12 @@ const oldCli=join(root,"old-cli.mjs");writeFileSync(oldCli,'console.log(JSON.str
 const oldProvider=new SourceScraperProvider({...options,cliPath:oldCli,cliHash:hash(readFileSync(oldCli)),statePath:join(root,"old-state.json")});
 await assert.rejects(oldProvider.execute("source_scraper_list_findings",{projectId:"starter-project",filters:filter}),/collection-filters-v1/);oldProvider.dispose();
 
+const missingMetric=await call("list_findings",{projectId:"starter-project",filters:{version:1,observation:{numericRanges:[{field:"attributes.metrics.likes",min:100}],dateRanges:[{field:"occurredAt",maxAgeDays:60}]}}});
+assert.equal(missingMetric.count,0,"unavailable counters never pass admission thresholds");
+const v1Only=join(root,"v1-cli.mjs");writeFileSync(v1Only,'console.log(JSON.stringify({name:"source-scraper",jsonSchemaVersion:1,capabilities:["agent-assessments-v1","selected-entity-export-v1","collection-filters-v1"]}));');
+const v1Provider=new SourceScraperProvider({...options,cliPath:v1Only,cliHash:hash(readFileSync(v1Only)),statePath:join(root,"v1-state.json")});
+await assert.rejects(v1Provider.execute("source_scraper_list_findings",{projectId:"starter-project",filters:{version:1,observation:{numericRanges:[{field:"attributes.metrics.likes",min:100}]}}}),/candidate-thresholds-v1/);v1Provider.dispose();
+
 const detail=await call("inspect_finding",{projectId:"starter-project",key:selected[0]});
 const assessment={evidenceFingerprint:detail.fingerprint,rubric:"Synthetic acceptance rubric: traceable source evidence and clear utility",recommendation:"recommend",
   reasons:["Synthetic test judgment; not an actual LLM evaluation"],uncertainties:["License not independently verified"],references:[],actor:"acceptance-harness",model:"simulated"};
@@ -66,5 +72,5 @@ provider.dispose();provider=new SourceScraperProvider(options);await provider.re
 writeFileSync(configPath,readFileSync(configPath,"utf8")+"\n");
 await assert.rejects(call("validate_project",{projectId:"starter-project"}),/SOURCE_NOT_TRUSTED/);
 assert.equal(readFileSync(join(vault,"References.md"),"utf8"),"Existing user note\n");
-provider.dispose();console.log(JSON.stringify({passed:true,realCli:true,genericFilters:true,sourceSelection:true,oldCliFailsClosed:true,simulatedAssessment:true,entities:findings.count,staged:2,
+provider.dispose();console.log(JSON.stringify({passed:true,realCli:true,genericFilters:true,dateEngagementThresholds:true,sourceSelection:true,oldCliFailsClosed:true,simulatedAssessment:true,entities:findings.count,staged:2,
   createdInSyntheticVault:0,noNoteWriteTool:true,jobRetryIdempotent:true,draftsReadOnly:true,restartQueue:true,manifestTrust:true,personalVaultWrites:0,evidenceDirectory:root}));

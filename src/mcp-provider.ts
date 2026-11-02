@@ -1,4 +1,4 @@
-import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters} from "./collection-filters.ts";
+import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
 import {dirname,isAbsolute,join,relative,resolve,sep} from "node:path";
@@ -159,6 +159,10 @@ export class SourceScraperProvider {
     const manifest=parseProjectManifest(readFileSync(config.configPath,"utf8"));
     if((manifest.filters||args.includes("--filters-json")||args.includes("--source-ids-json"))&&
       !this.engineCapabilities.includes("collection-filters-v1"))throw Error("SCHEMA_UNSUPPORTED: deterministic filters require collection-filters-v1");
+    const filterFlag=args.indexOf("--filters-json");
+    const requestedFilters=filterFlag<0?undefined:parseCollectionFilters(JSON.parse(args[filterFlag+1]),manifest.sources.map(s=>s.id));
+    if((usesThresholdFilters(manifest.filters)||usesThresholdFilters(requestedFilters))&&!this.engineCapabilities.includes("candidate-thresholds-v1"))
+      throw Error("SCHEMA_UNSUPPORTED: numeric/date filters require candidate-thresholds-v1");
     const sourceFlag=args.indexOf("--source-ids-json");
     const sources=compileCollectionFilters(manifest.sources.map(s=>s.id),manifest.filters,
       sourceFlag<0?undefined:{version:1,sourceIds:JSON.parse(args[sourceFlag+1])}).sourceIds;
@@ -214,7 +218,7 @@ export class SourceScraperProvider {
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
-        collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,
+        collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},
         xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
           csrfConfigured:Boolean(this.options.getXSession?.()?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(this.options.getXSession?.()?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
