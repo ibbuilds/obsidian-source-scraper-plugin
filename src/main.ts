@@ -1,6 +1,6 @@
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
-  Setting,WorkspaceLeaf,TFile,setIcon
+  Setting,TFile,setIcon
 } from "obsidian";
 import {parseExport,type EntityExport,type EntityRecord} from "./contracts.ts";
 import {selectedPlans} from "./vault-writer.ts";
@@ -529,7 +529,6 @@ export default class ScraperPlugin extends Plugin {
   readonly cli=new CliBridge();
   mcpStatus="disabled";
   private statusItem?:HTMLElement;
-  private statusLabel?:HTMLElement;
   private popover?:ScraperPopover;
   private review?:ScraperReview;
   private memorySession?:XLocalSession;
@@ -554,7 +553,7 @@ export default class ScraperPlugin extends Plugin {
     this.registerView(VIEW_TYPE,leaf=>new LegacyScraperView(leaf));
     this.statusItem=this.addStatusBarItem();this.statusItem.addClass("mod-clickable","ss-status");
     this.statusItem.setAttribute("role","button");this.statusItem.setAttribute("aria-haspopup","dialog");this.statusItem.setAttribute("aria-expanded","false");this.statusItem.tabIndex=0;
-    setIcon(this.statusItem.createSpan({cls:"ss-status-icon"}),"scan-search");this.statusLabel=this.statusItem.createSpan();
+    this.statusItem.createSpan({text:"SS"});
     this.registerDomEvent(this.statusItem,"click",()=>{if(this.popover?.isOpen)this.closePopover(true);else void this.openView();});
     this.registerDomEvent(this.statusItem,"keydown",event=>{
       if((event.key==="Enter"||event.key===" ")&&!event.repeat){event.preventDefault();if(this.popover?.isOpen)this.closePopover(true);else void this.openView();}
@@ -613,12 +612,13 @@ export default class ScraperPlugin extends Plugin {
     const chat=parent.querySelector<HTMLElement>(".cmt-status");
     if(chat?.parentElement===parent&&chat.nextElementSibling!==item)chat.after(item);
   }
-  private updateStatus():void{
+  private updateStatus(dataChanged=false):void{
     if(this.unloaded||!this.statusItem)return;
-    const state=panelState(this.panelSnapshot()),label="Source Scraper: "+state.label;
-    if(this.statusLabel?.textContent!==label)this.statusLabel?.setText(label);
-    this.statusItem.dataset.state=state.state;this.statusItem.title=state.title+". Click to open Source Scraper.";
-    this.statusItem.setAttribute("aria-label",label+". Open Source Scraper.");this.popover?.update();
+    const state=panelState(this.panelSnapshot()),label="Source Scraper. "+state.title+". Open Source Scraper.";
+    if(this.statusItem.dataset.state!==state.state)this.statusItem.dataset.state=state.state;
+    if(this.statusItem.title!==label)this.statusItem.title=label;
+    if(this.statusItem.getAttribute("aria-label")!==label)this.statusItem.setAttribute("aria-label",label);
+    this.popover?.update(dataChanged);
   }
   closePopover(restoreFocus=false):void{this.popover?.close(restoreFocus);}
   private async collectSelected():Promise<void>{
@@ -695,7 +695,7 @@ export default class ScraperPlugin extends Plugin {
     return (this.imported?.records??[]).filter(x=>this.selected.has(x.key));
   }
   refresh():void{
-    this.updateStatus();this.popover?.update(true);
+    this.updateStatus(true);
   }
   async openView():Promise<void>{
     if(this.unloaded||!this.statusItem)return;

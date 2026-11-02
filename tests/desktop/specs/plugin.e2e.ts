@@ -16,7 +16,8 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
   it("starts with an accessible status indicator and no automatic pane or collection",async()=>{
     original=await snapshot();await browser.$(".ss-status").waitForDisplayed();expect(await browser.$(".ss-popover").isExisting()).toBe(false);
     expect(await browser.executeObsidian(({app})=>app.workspace.getLeavesOfType("source-scraper-view").length)).toBe(0);
-    await expect(browser.$(".ss-status")).toHaveAttribute("role","button");expect(await snapshot()).toEqual(original);
+    await expect(browser.$(".ss-status")).toHaveAttribute("role","button");await expect(browser.$(".ss-status")).toHaveText("SS");
+    await expect(browser.$(".ss-status")).toHaveAttribute("aria-label",expect.stringContaining("Source Scraper"));expect(await snapshot()).toEqual(original);
   });
   it("follows ChatGPT when its high-order status item loads later",async()=>{
     await browser.execute(()=>{const parent=document.querySelector(".ss-status")!.parentElement!,chat=document.createElement("div");chat.className="status-bar-item cmt-status";chat.textContent="ChatGPT: Ready";chat.style.order="1000";parent.appendChild(chat);});
@@ -28,10 +29,30 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
     await browser.keys("Enter");await browser.$(".ss-popover").waitForDisplayed();await browser.$(".ss-status").click();expect(await browser.$(".ss-popover").isExisting()).toBe(false);
     await browser.executeObsidianCommand("source-scraper:open-panel");await browser.$(".ss-popover").waitForDisplayed();await browser.$(".workspace-tab-header-container").click();expect(await browser.$(".ss-popover").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);
   });
+  it("does not rewrite the idle panel on each heartbeat",async()=>{
+    await overview();
+    const mutations=await browser.executeAsync((done)=>{
+      const root=document.querySelector(".ss-popover")!;let count=0;
+      const observer=new MutationObserver(records=>{count+=records.length;});
+      observer.observe(root,{subtree:true,attributes:true,childList:true,characterData:true});
+      setTimeout(()=>{observer.disconnect();done(count);},2200);
+    });
+    expect(mutations).toBe(0);await browser.keys("Escape");
+  });
   it("imports without reopening the panel or offering note writes",async()=>{
     await importFixture();await browser.waitUntil(async()=>!(await browser.$(".modal-container").isExisting()));expect(await browser.$(".ss-popover").isExisting()).toBe(false);
-    await expect(browser.$(".ss-status")).toHaveText(expect.stringContaining("2 candidates"));await review();expect((await browser.$$(".ss-record")).length).toBe(2);
+    await expect(browser.$(".ss-status")).toHaveText("SS");await review();expect((await browser.$$(".ss-record")).length).toBe(2);
     expect(await browser.$(".source-scraper-view").getText()).toContain("Only ChatGPT may write");expect(await browser.$("//button[normalize-space()='Create new notes only']").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);
+  });
+  it("keeps SS at the same compact width as the queue grows, with counts inside the panel",async()=>{
+    await browser.keys("Escape");const width=await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width);
+    await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported({...data,records:Array.from({length:256},(_,i)=>({...data.records[0],key:"compact-test-"+i}))});},fixture);
+    await expect(browser.$(".ss-status")).toHaveText("SS");
+    expect(await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width)).toBe(width);expect(width).toBeLessThanOrEqual(40);
+    await overview();await expect(browser.$(".ss-title")).toHaveText("256 candidates to review");
+    await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported(data);},fixture);
+    await expect(browser.$(".ss-title")).toHaveText("2 candidates to review");
+    await click("Review candidates");expect(await snapshot()).toEqual(original);
   });
   it("previews selected Markdown without saving or creating files",async()=>{
     await browser.$(".ss-record .checkbox-container").click();await click("Preview selected drafts");const folder=browser.$(".modal-container input[type=text]");await folder.waitForDisplayed();await folder.setValue("Draft Only");
@@ -52,7 +73,7 @@ describe("Source Scraper status popover in isolated Obsidian",()=>{
     expect(result.loaded&&result.cleared).toBe(true);expect(result.data).not.toContain("fixture-memory");expect(await snapshot()).toEqual(original);
   });
   it("rejects incompatible imports and retains the old candidate queue",async()=>{
-    await importFixture({...fixture,schemaVersion:2});expect(await snapshot()).toEqual(original);await browser.keys("Escape");await expect(browser.$(".ss-status")).toHaveText(expect.stringContaining("2 candidates"));
+    await importFixture({...fixture,schemaVersion:2});expect(await snapshot()).toEqual(original);await browser.keys("Escape");await expect(browser.$(".ss-status")).toHaveText("SS");
   });
   it("retains keyboard focus when filtering multiple characters",async()=>{
     await review();await browser.$("input[placeholder='Any title, key or type']").setValue("Independent");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===1);expect(await browser.$(".ss-record").getText()).toContain("Independent research sample");expect(await browser.$("input[placeholder='Any title, key or type']").isFocused()).toBe(true);expect(await snapshot()).toEqual(original);await browser.keys("Escape");
