@@ -4,10 +4,17 @@ import {mkdtempSync,mkdirSync,rmSync,readFileSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createHash} from "node:crypto";
-import {buildXFeedProject,validateLocalSession,xFeedReadiness} from "../../src/x-feed.ts";
+import {buildXFeedProject,validateLocalSession,xFeedReadiness,normalizeXAccountId,xFeedVariant} from "../../src/x-feed.ts";
 import {cliEnvironment} from "../../src/cli-bridge.ts";
 import {SourceScraperProvider,writeWorkspaceProject} from "../../src/mcp-provider.ts";
 import {DEFAULT_NOTE_MAPPING_JSON} from "../../src/note-mapping.ts";
+test("local setup accepts a numeric account ID or twid and versions changed filters without replacing the original",()=>{
+  for(const value of ["123456","u=123456","u%3D123456",'"u=123456"'])assert.equal(normalizeXAccountId(value),"123456");
+  for(const value of ["","u=abc","%bad","-1","u=123; other=value"])assert.throws(()=>normalizeXAccountId(value));
+  const original=buildXFeedProject("123456","react","",50,1),changed=buildXFeedProject("123456","rust","",50,1);
+  assert.equal(xFeedVariant(changed).id,xFeedVariant(changed).id);assert.notEqual(xFeedVariant(original).id,xFeedVariant(changed).id);
+  assert.equal(original.id,"x-for-you-resources");assert.deepEqual(xFeedVariant(changed).outputs,[]);
+});
 
 test("masked local session values are bounded, never saved and only forwarded under a local grant",()=>{
   const session=validateLocalSession("synthetic-auth-value","synthetic-csrf-value");

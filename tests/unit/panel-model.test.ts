@@ -1,9 +1,17 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {panelPosition,panelState,type PanelSnapshot} from "../../src/panel-model.ts";
+import {panelPosition,panelState,discoveryState,type PanelSnapshot} from "../../src/panel-model.ts";
 
 const connected:PanelSnapshot={engine:true,mcp:true,python:true,session:true,xAllowed:true,
   projects:[{id:"x",name:"X feed",isX:true,minimumScore:50}],projectId:"x",findings:0,findingProject:"",running:false};
+test("the normal journey requires X even with public demo findings and healthy local tools",()=>{
+  const sample={...connected,session:false,xAllowed:false,findings:4,exampleFindings:true,projects:[{id:"starter-project",name:"Offline starter",isX:false,minimumScore:0}],projectId:"starter-project"};
+  assert.equal(discoveryState(sample).button,"Conectar X");assert.equal(discoveryState(sample).status,"Sin conectar");
+  assert.equal(discoveryState(connected).button,"Buscar recursos");
+  assert.equal(discoveryState({...connected,running:true}).action,"cancel");
+  assert.equal(discoveryState({...connected,error:"401"}).button,"Reintentar búsqueda");
+  assert.equal(discoveryState({...connected,mcp:false}).action,"settings");
+});
 test("the indicator never calls an untested X feed verified or connected without its local session",()=>{
   assert.equal(panelState(connected).label,"Ready to test");
   assert.match(panelState(connected).description,/still needs verification/);

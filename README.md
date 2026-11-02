@@ -25,9 +25,7 @@ For MCP, use the reviewed provider-API build of the existing Vault as MCP host, 
 
 See [MCP integration](docs/MCP-INTEGRATION.md) for exact tools, capabilities, limits, state, restart behavior and compatibility. See [User guide](docs/USER-GUIDE.md) and [Safety](docs/SAFETY.md) for the note ownership boundary.
 
-Click **Source Scraper** in the status bar to inspect readiness, choose a registered project, explicitly collect/stop, or review candidates. **Import findings** also works offline. Candidate details and Markdown previews remain read-only. Escape, the close button or an outside click closes the floating panel; incoming MCP findings update the indicator without opening it. Existing saved Source Scraper sidebar leaves are removed on the next plugin load.
-
-Expand **Connection** to check local readiness or choose **Connect X locally**. The setup accepts masked `auth_token` and `ct0` values only in Obsidian. They stay in memory until disconnect/unload and never enter plugin preferences or MCP responses. Loading them prepares access but makes no X request. See the [test readiness plan](docs/TEST-READINESS-PLAN.md) for acceptance gates and the outstanding real-feed test.
+Click **Source Scraper** in the status bar. **Buscar** connects the local X session and starts an explicit search; **Resultados** displays findings directly. **Más opciones** contains JSON import, alternative sources and diagnostics. Initial starter findings are labeled as example data and never imply the X feed is connected. Session setup includes local cookie instructions, accepts a full twid value, and keeps secrets in memory only. See the [user guide](docs/USER-GUIDE.md) for the complete workflow.
 
 ## Verification and boundaries
 

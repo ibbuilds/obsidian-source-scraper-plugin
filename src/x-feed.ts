@@ -1,5 +1,18 @@
 import {parseProjectManifest,type ProjectManifest} from "./project-manifest.ts";
 import type {XLocalSession} from "./cli-bridge.ts";
+import {createHash} from "node:crypto";
+
+export function normalizeXAccountId(input:string):string{
+  let value=input.trim().replace(/^"|"$/g,"");
+  try{value=decodeURIComponent(value);}catch{throw Error("Revisa el valor de twid o el ID de tu cuenta.");}
+  value=value.replace(/^u=/,"");
+  if(!/^\d{1,30}$/.test(value))throw Error("Pega el número de tu cuenta o el valor de la cookie twid.");
+  return value;
+}
+/** A changed filter creates another external profile; prior manifests and data are retained. */
+export function xFeedVariant(manifest:ProjectManifest):ProjectManifest{
+  return {...manifest,id:"x-for-you-"+createHash("sha256").update(JSON.stringify(manifest)).digest("hex").slice(0,12)};
+}
 
 export function xFeedReadiness(session?:XLocalSession){return {
   csrfConfigured:Boolean(session?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),

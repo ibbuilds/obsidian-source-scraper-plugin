@@ -1,8 +1,8 @@
-import {panelPosition,panelState,type PanelSnapshot} from "./panel-model.ts";
+import {panelPosition,discoveryState,type PanelSnapshot} from "./panel-model.ts";
 
 export interface PopoverHost {
   snapshot:()=>PanelSnapshot;icon:(root:HTMLElement,name:string)=>void;
-  settings:()=>void;setup:()=>void;collect:()=>void;cancel:()=>void;
+  settings:()=>void;setup:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
   importFindings:()=>void;
   disconnect?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;
@@ -12,6 +12,8 @@ let sequence=0;
 export class ScraperPopover {
   private root?:HTMLDivElement;
   private body?:HTMLDivElement;
+  private resultsCount?:HTMLSpanElement;
+  private resultNotice?:HTMLParagraphElement;
   private screen:"home"|"review"="home";
   private disposers:Array<()=>void>=[];
   private frame?:number;
@@ -48,7 +50,7 @@ export class ScraperPopover {
   }
   close(restoreFocus=false):void{
     this.host.unmountReview?.();
-    this.root?.remove();this.root=undefined;this.body=undefined;this.homeUpdate=undefined;this.focusPending=false;this.screen="home";
+    this.root?.remove();this.root=undefined;this.body=undefined;this.resultsCount=undefined;this.resultNotice=undefined;this.homeUpdate=undefined;this.focusPending=false;this.screen="home";
     this.disposers.splice(0).forEach(dispose=>dispose());
     if(this.frame!==undefined)this.win.cancelAnimationFrame(this.frame);this.frame=undefined;
     this.anchor.setAttribute("aria-expanded","false");this.anchor.removeAttribute("aria-controls");
@@ -60,6 +62,8 @@ export class ScraperPopover {
     const s=this.host.snapshot(),key=JSON.stringify(s);
     if(!dataChanged&&key===this.snapshotKey)return;
     this.snapshotKey=key;
+    if(this.resultsCount&&this.resultsCount.textContent!==String(s.findings))this.resultsCount.textContent=String(s.findings);
+    this.updateResultNotice(s);
     if(JSON.stringify(s.projects)!==this.signature||(dataChanged&&this.screen==="review"))this.render();else this.homeUpdate?.(s);
     this.position();
   }
@@ -72,78 +76,67 @@ export class ScraperPopover {
   private iconButton(parent:HTMLElement,name:string,label:string,action:()=>void):void{
     const button=this.button(parent,"",action,"ss-icon-button");button.setAttribute("aria-label",label);button.title=label;this.host.icon(button,name);
   }
+  private setScreen(screen:"home"|"review"):void{
+    this.screen=screen;this.render();this.root?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
+  }
   private render():void{
-    const root=this.root;if(!root)return;root.replaceChildren();this.homeUpdate=undefined;
-    this.host.unmountReview?.();
+    const root=this.root;if(!root)return;root.replaceChildren();this.homeUpdate=undefined;this.resultNotice=undefined;this.host.unmountReview?.();
     const snapshot=this.host.snapshot();this.signature=JSON.stringify(snapshot.projects);this.snapshotKey=JSON.stringify(snapshot);
-    const header=this.el(root,"header","ss-popover-header");
-    if(this.screen==="review")this.iconButton(header,"arrow-left","Back to overview",()=>{this.screen="home";this.render();});
-    else this.host.icon(this.el(header,"span","ss-brand-icon"),"scan-search");
-    const brand=this.el(header,"div","ss-brand");this.el(brand,"strong","","Source Scraper");
-    this.el(brand,"span","ss-subtitle",this.screen==="home"?"Resource discovery":"Candidate review");
-    this.iconButton(header,"sliders-horizontal","Source Scraper settings",()=>{this.close(false);this.host.settings();});
-    this.iconButton(header,"x","Close Source Scraper",()=>this.close(true));
-    this.body=this.el(root,"div","ss-popover-body");
-    if(this.screen==="review")this.host.renderReview(this.body);else this.renderHome(this.body,snapshot);
-    const footer=this.el(root,"footer","ss-panel-footer");this.host.icon(this.el(footer,"span",""),"shield-check");
-    this.el(footer,"span","","Only ChatGPT writes notes, when you ask.");
-    if(root.style.visibility!=="hidden")root.focus({preventScroll:true});
+    const header=this.el(root,"header","ss-popover-header");this.el(header,"strong","ss-brand","Source Scraper");
+    this.iconButton(header,"settings-2","Configuración",()=>{this.close(false);this.host.settings();});
+    this.iconButton(header,"x","Cerrar Source Scraper",()=>this.close(true));
+    const tabs=this.el(root,"div","ss-tabs");tabs.setAttribute("role","tablist");tabs.setAttribute("aria-label","Source Scraper");
+    for(const [screen,label] of [["home","Buscar"],["review","Resultados"]] as const){
+      const tab=this.button(tabs,label,()=>this.setScreen(screen),"ss-tab");tab.dataset.screen=screen;tab.id=root.id+"-"+screen;
+      tab.setAttribute("role","tab");tab.setAttribute("aria-selected",String(this.screen===screen));tab.setAttribute("aria-controls",root.id+"-content");tab.tabIndex=this.screen===screen?0:-1;
+      if(screen==="review"){this.resultsCount=this.el(tab,"span","ss-result-count",String(snapshot.findings));}
+      tab.addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();this.setScreen(event.key==="Home"?"home":event.key==="End"?"review":this.screen==="home"?"review":"home");}});
+    }
+    this.body=this.el(root,"div","ss-popover-body");this.body.id=root.id+"-content";this.body.setAttribute("role","tabpanel");this.body.setAttribute("aria-labelledby",root.id+"-"+this.screen);
+    if(this.screen==="review"){
+      if(snapshot.findings){this.host.renderReview(this.body);this.resultNotice=this.el(this.body,"p","ss-result-notice");this.updateResultNotice(snapshot);}
+      else{this.el(this.body,"p","ss-empty-title","Aún no hay resultados");this.el(this.body,"p","ss-hint","Conecta X y haz tu primera búsqueda.");this.button(this.body,"Ir a Buscar",()=>this.setScreen("home"),"ss-button ss-primary");}
+    }else this.renderHome(this.body,snapshot);
     this.position();
   }
+  private updateResultNotice(s:PanelSnapshot):void{
+    if(!this.resultNotice)return;
+    const text=s.running?"Buscando recursos… Los resultados anteriores siguen disponibles.":s.error?"La búsqueda no terminó. Vuelve a Buscar para reintentar.":"";
+    this.resultNotice.textContent=text;this.resultNotice.hidden=!text;
+  }
   private renderHome(body:HTMLElement,snapshot:PanelSnapshot):void{
-    body.classList.add("ss-overview");
-    const hero=this.el(body,"section","ss-hero");
-    const heading=this.el(hero,"div","ss-status-heading"),icon=this.el(heading,"span","ss-state-icon");
-    const title=this.el(heading,"h3","ss-title"),description=this.el(hero,"p","ss-description");
-    const context=this.el(hero,"p","ss-queue-context");
-    const project=this.el(body,"label","ss-project-label","Project");
-    const select=this.el(project,"select","ss-project-select");select.setAttribute("aria-label","Research project");
+    body.classList.add("ss-discovery");
+    const source=this.el(body,"div","ss-source-line");this.el(source,"strong","","X · Para ti");const status=this.el(source,"span","ss-source-status");
+    const hint=this.el(body,"p","ss-hint");
+    const primary=this.button(body,"Conectar X",()=>{
+      const state=discoveryState(this.host.snapshot());
+      if(state.action==="cancel")this.host.cancel();
+      else if(state.action==="collect")this.host.collect(state.projectId);
+      else{this.close(false);if(state.action==="settings")this.host.settings();else this.host.setup();}
+    },"ss-button ss-primary");
+    const complete=this.button(body,"Ver resultados",()=>this.setScreen("review"),"ss-button ss-text-action");
+    const more=this.el(body,"details","ss-more");this.el(more,"summary","","Más opciones");
+    const options=this.el(more,"div","ss-more-content");
+    this.button(options,"Importar JSON",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
+    this.button(options,"Conectar otra sesión de X",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
+    const disconnect=this.button(options,"Desconectar X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
+    const alternative=this.el(options,"label","ss-project-label","Otras fuentes");
+    const select=this.el(alternative,"select","ss-project-select");select.setAttribute("aria-label","Otras fuentes");
     for(const p of snapshot.projects){const option=this.doc.createElement("option");option.value=p.id;option.textContent=p.name;select.appendChild(option);}
     select.addEventListener("change",()=>this.host.selectProject(select.value));
-    const actions=this.el(body,"div","ss-popover-actions");
-    const primary=this.button(actions,"Review candidates",()=>{
-      const s=this.host.snapshot(),selected=s.projects.find(p=>p.id===s.projectId);
-      if(s.findings)this.showReview();
-      else if(s.running)this.host.cancel();
-      else if(!s.engine||!s.mcp){this.close(false);this.host.settings();}
-      else if(!selected||Boolean(selected.isX&&(!s.session||!s.xAllowed||!s.python))){this.close(false);this.host.setup();}
-      else this.host.collect();
-    },"ss-button ss-primary");
-    const secondary=this.el(actions,"div","ss-secondary-actions");
-    const collect=this.button(secondary,"Collect sources",()=>this.host.snapshot().running?this.host.cancel():this.host.collect());
-    this.button(secondary,"Import findings",()=>{this.close(false);this.host.importFindings();});
-    const feedback=this.el(body,"p","ss-feedback");feedback.setAttribute("role","status");feedback.setAttribute("aria-live","polite");
-    const connection=this.el(body,"details","ss-connection"),summary=this.el(connection,"summary","ss-connection-summary");
-    const connectionIcon=this.el(summary,"span","ss-connection-icon");this.host.icon(connectionIcon,"plug");
-    this.el(summary,"span","ss-connection-label","Connection");
-    const connectionState=this.el(summary,"span","ss-connection-state");
-    const chevron=this.el(summary,"span","ss-chevron");this.host.icon(chevron,"chevron-down");
-    const checks=this.el(connection,"div","ss-checks");
-    const row=(label:string)=>{const node=this.el(checks,"div","ss-check-row"),mark=this.el(node,"span","ss-check");this.el(node,"span","ss-check-label",label);const value=this.el(node,"span","ss-check-value");return {node,mark,value};};
-    const engine=row("Local engine"),mcp=row("ChatGPT tools"),session=row("X session"),python=row("X runtime");
-    const connectionActions=this.el(connection,"div","ss-connection-actions");
-    this.button(connectionActions,"Connect X locally",()=>{this.close(false);this.host.setup();},"ss-button ss-quiet");
-    const disconnect=this.button(connectionActions,"Disconnect local X",()=>this.host.disconnect?.(),"ss-button ss-quiet");
-    const setRow=(target:ReturnType<typeof row>,ok:boolean,text:string)=>{target.value.textContent=text;target.mark.dataset.ready=String(ok);this.host.icon(target.mark,ok?"check":"minus");};
+    const runOther=this.button(options,"Buscar en esta fuente",()=>this.host.collect(select.value),"ss-button ss-secondary");
+    const diagnostics=this.el(options,"p","ss-diagnostics");
+    const help=this.el(options,"p","ss-help","1. Conecta X. 2. Busca recursos. 3. En Resultados, selecciona lo útil y pídele a ChatGPT que lo evalúe o prepare notas. Este plugin no escribe en tu bóveda.");
+    help.setAttribute("role","note");
     this.homeUpdate=s=>{
-      const state=panelState(s),selected=s.projects.find(p=>p.id===s.projectId);
-      const canCollect=Boolean(s.engine&&s.mcp&&selected&&(!selected.isX||(s.session&&s.xAllowed&&s.python)));
-      body.dataset.state=state.state;
-      title.textContent=state.title;description.textContent=state.description;this.host.icon(icon,state.icon);
-      context.textContent=s.findings&&s.findingProject?"Review queue · "+s.findingProject.replace(/[-_]/g," "):"";context.hidden=!context.textContent;
-      project.hidden=!s.projects.length;select.value=s.projectId;select.disabled=s.running;
-      primary.textContent=s.findings?"Review candidates":s.running?"Stop collection":!s.engine||!s.mcp?"Open settings":canCollect?"Collect sources":"Connect X locally";
-      collect.hidden=!s.findings;collect.textContent=s.running?"Stop collection":"Collect sources";collect.disabled=!s.running&&!canCollect;
-      collect.title=collect.disabled?"Configure the local connection and select a project to collect.":"";
-      secondary.classList.toggle("ss-single-action",collect.hidden);
-      feedback.textContent=s.message||"";feedback.hidden=!feedback.textContent;
-      const localReady=s.engine&&s.mcp, xReady=s.session&&s.xAllowed&&s.python;
-      connectionState.textContent=!localReady?"Setup needed":selected?.isX&&!xReady?"X not connected":"Local tools ready";
-      connectionState.dataset.ready=String(localReady&&(!selected?.isX||xReady));
-      setRow(engine,s.engine,s.engine?"Detected":"Not configured");setRow(mcp,s.mcp,s.mcp?"15 available":"Not connected");
-      setRow(session,s.session&&s.xAllowed,s.session&&s.xAllowed?"Loaded locally":"Not connected");setRow(python,s.python,s.python?"Detected":"Not configured");
-      python.node.hidden=Boolean(selected&&!selected.isX);session.node.hidden=Boolean(selected&&!selected.isX);
+      const state=discoveryState(s);body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
+      complete.hidden=s.running||!s.findings||s.message!=="Búsqueda terminada.";
+      select.value=s.projectId;select.disabled=s.running;
+      alternative.hidden=!s.projects.length;runOther.hidden=!s.projects.length;
+      const selected=s.projects.find(p=>p.id===select.value);
+      runOther.disabled=s.running||!s.engine||!s.mcp||!selected||Boolean(selected.isX&&(!s.session||!s.xAllowed||!s.python));
       disconnect.hidden=!s.session||!s.xAllowed;disconnect.disabled=s.running;
+      diagnostics.textContent=s.error||"Motor: "+(s.engine?"disponible":"sin configurar")+" · MCP: "+(s.mcp?"disponible":"sin conectar")+" · Lector X: "+(s.python?"disponible":"sin preparar");
       rootBusy(body,s.running);
     };
     this.homeUpdate(snapshot);
