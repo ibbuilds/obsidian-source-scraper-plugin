@@ -53,6 +53,28 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     expect(await browser.execute(()=>document.querySelector(".ss-status")!.getBoundingClientRect().width)).toBe(width);
     await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported(data);},fixture);
   });
+  it("measures bounded review interactions on 4,000 records",async()=>{
+    await review();
+    const measured=await browser.executeObsidian(({plugins},data)=>{
+      const p=(plugins as any).sourceScraper;
+      p.setImported({...data,records:Array.from({length:4000},(_,i)=>({...data.records[0],key:"perf-"+i,title:"Resource "+i}))});
+      const root=document.querySelector(".ss-popover-body")!;
+      const originalInput=root.querySelector("input[placeholder='Filtrar recursos']");
+      const observer=new MutationObserver(()=>{});observer.observe(root,{subtree:true,childList:true});
+      const searchTimes:number[]=[],selectionTimes:number[]=[];
+      for(const query of ["Resource 1","Resource 2","Resource 3","Resource 4",""]){
+        const input=root.querySelector<HTMLInputElement>("input[placeholder='Filtrar recursos']")!;
+        const start=performance.now();input.value=query;input.dispatchEvent(new Event("input",{bubbles:true}));searchTimes.push(performance.now()-start);
+      }
+      const firstCheckbox=root.querySelector(".ss-select-control");
+      for(let i=0;i<20;i++){const box=root.querySelector<HTMLInputElement>(".ss-select-control")!;const start=performance.now();box.click();selectionTimes.push(performance.now()-start);}
+      const changes=observer.takeRecords().length;observer.disconnect();
+      const result={searchTimes,selectionTimes,childListMutations:changes,checkboxPreserved:firstCheckbox===root.querySelector(".ss-select-control"),inputPreserved:originalInput===root.querySelector("input[placeholder='Filtrar recursos']"),visible:root.querySelectorAll(".ss-record").length};
+      p.setImported(data);return result;
+    },fixture);
+    console.log("REVIEW_PERFORMANCE "+JSON.stringify(measured));expect(measured.visible).toBe(40);expect(measured.inputPreserved).toBe(true);expect(measured.checkboxPreserved).toBe(true);
+    expect(await snapshot()).toEqual(original);
+  });
   it("selects with a native checkbox, retains focus and previews drafts without saving",async()=>{
     await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.settings.outputFolder="";});
     await review();await browser.$(".ss-record input[type=checkbox]").click();expect(await browser.$(".ss-record input[type=checkbox]").isFocused()).toBe(true);
