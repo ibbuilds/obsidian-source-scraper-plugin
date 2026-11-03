@@ -110,6 +110,10 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       await overview();await click("Filtros de búsqueda");await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"filters-dark.png"));await browser.$(".ss-filter-form textarea").setValue("rust, open source");await click("Guardar filtros");await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
       const second=await browser.executeObsidian(({plugins,require})=>{const p=(plugins as any).sourceScraper;return {count:JSON.parse(p.settings.mcpProjectsJson).length,preserved:require("node:fs").readFileSync(p.__firstManifest.path,"utf8")===p.__firstManifest.raw};});
       expect(second.count).toBe(2);expect(second.preserved).toBe(true);
+      const current=await browser.executeObsidian(({plugins,require})=>{const p=(plugins as any).sourceScraper;return {path:p.settings.configPath,raw:require("node:fs").readFileSync(p.settings.configPath,"utf8")};});
+      await setup();await click("Conectar");await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
+      const reconnected=await browser.executeObsidian(({plugins,require})=>{const p=(plugins as any).sourceScraper;return {path:p.settings.configPath,raw:require("node:fs").readFileSync(p.settings.configPath,"utf8"),count:JSON.parse(p.settings.mcpProjectsJson).length};});
+      expect(reconnected).toEqual({...current,count:2});
     }finally{await browser.executeObsidian(async({plugins})=>{const p=(plugins as any).sourceScraper;await p.sessionStore?.forgetAndCommit(async()=>{});p.memorySession=p.__sessionBefore.memory;p.settings=p.__sessionBefore.settings;await p.savePrefs();delete p.__sessionBefore;delete p.__firstManifest;});}
     await browser.keys("Escape");expect(await snapshot()).toEqual(original);
   });
