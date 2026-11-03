@@ -25,11 +25,13 @@ function crypt(script:string,input:string):Promise<string>{
   if(process.platform!=="win32")return Promise.reject(Error(STORAGE_ERROR));
   return new Promise((resolve,reject)=>{
     const helper=join(process.env.SystemRoot||"C:\\Windows","System32","WindowsPowerShell","v1.0","powershell.exe");
+    const helperEnv:NodeJS.ProcessEnv={};
+    for(const key of ["SystemRoot","WINDIR","USERPROFILE","HOMEDRIVE","HOMEPATH","APPDATA","LOCALAPPDATA","TEMP","TMP","COMSPEC","PATHEXT","USERNAME","USERDOMAIN"]){if(process.env[key]!==undefined)helperEnv[key]=process.env[key];}
     const child=spawn(helper,["-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",Buffer.from(script,"utf16le").toString("base64")],{
-      shell:false,windowsHide:true,stdio:["pipe","pipe","pipe"],env:{SystemRoot:process.env.SystemRoot||"C:\\Windows",WINDIR:process.env.WINDIR||"C:\\Windows"}
+      shell:false,windowsHide:true,stdio:["pipe","pipe","pipe"],env:helperEnv
     });
     let output="",bytes=0,stderr=0,failed=false;
-    const timer=setTimeout(()=>{failed=true;child.kill();},15000);
+    const timer=setTimeout(()=>{failed=true;child.kill();},30000);
     child.stdout.setEncoding("utf8");child.stdout.on("data",(part:string)=>{bytes+=Buffer.byteLength(part);if(bytes>65536){failed=true;child.kill();}else output+=part;});
     child.stderr.on("data",(part:Buffer)=>{stderr+=part.length;if(stderr>65536){failed=true;child.kill();}});
     child.on("error",()=>{failed=true;});
