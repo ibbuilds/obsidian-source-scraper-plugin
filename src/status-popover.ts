@@ -73,6 +73,7 @@ export class ScraperPopover {
   }
   private button(parent:HTMLElement,label:string,action:()=>void,cls="ss-button"):HTMLButtonElement{
     const button=new ButtonComponent(parent).setButtonText(label).onClick(action).buttonEl;
+    if(cls.split(" ").includes("ss-primary"))button.classList.add("mod-cta");
     button.classList.add(...cls.split(" "));button.type="button";return button;
   }
   private iconButton(parent:HTMLElement,name:string,label:string,action:()=>void):void{
@@ -132,7 +133,7 @@ export class ScraperPopover {
       filters.disabled=s.running||!s.projects.some(p=>p.isX);
       rootBusy(body,s.running);
     };
-    body.appendChild(primary);this.homeUpdate(snapshot);
+    const footer=this.el(body.parentElement!,"footer","ss-home-footer");footer.appendChild(primary);this.homeUpdate(snapshot);
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
