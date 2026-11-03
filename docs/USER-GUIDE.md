@@ -1,31 +1,76 @@
-# Source Scraper: flujo de uso
+# Source Scraper user guide
 
-Abre **Source Scraper** en la barra de estado, a la derecha de ChatGPT. Es una ventana compacta que usa la fuente, los colores y los controles nativos de Obsidian:
+Open **Source Scraper** from the status bar, immediately after ChatGPT. The panel
+uses Obsidian colors, typography and controls. It is 400 × 500 px, clamps to small
+windows and scrolls internally. Product UI, validation and help use English by
+default. Collected titles, evidence and user-authored content keep their original
+language.
 
-- La pantalla inicial muestra la conexión a X y un botón para conectar, buscar o detener la búsqueda. Si falta preparar el motor o lector local, el botón indica qué configuración falta. Una sesión cargada todavía requiere una búsqueda real para verificar acceso.
-- Pulsa la fila **Recursos** para filtrar y seleccionar resultados. Pulsa el nombre de un recurso para revisar su procedencia. **Ver borradores** muestra borradores; no guarda archivos. Pide a ChatGPT que evalúe la selección y escriba mediante tu conector de Obsidian solo cuando tú se lo indiques. La flecha del encabezado vuelve a la pantalla inicial.
+The home screen shows the X connection, **Search filters**, **Resources** and one
+primary action: connect, collect, stop or retry. Missing engine/reader setup links
+to settings. Loading a session is not itself a live access verification.
 
-Los datos del proyecto inicial se identifican como **Ejemplo local**. No son tu feed de X. La disponibilidad del motor/MCP no se presenta como una conexión verificada a X.
+Open **Resources** to filter and select results. Select a resource title to inspect
+its provenance. **Preview drafts** shows previews without writing files. Ask
+ChatGPT to evaluate the selection or save notes through your separate Obsidian
+connector when you want it to. The back arrow returns to collection.
 
-El icono de ajustes abre **Opciones**: importación JSON, sesión de X, otras fuentes, diagnósticos y herramientas avanzadas. No necesitas escoger un proyecto para usar el feed de X: el botón principal utiliza la fuente X registrada. Las fuentes genéricas siguen disponibles en Otras fuentes. Herramientas avanzadas conserva el editor de proyectos y el mapeo de borradores. La flecha vuelve a la pantalla desde la que abriste las opciones.
+Starter data is labelled **Local example**; it is not your X feed. **Options**
+contains imports, session management, other sources and **Advanced tools**. The
+main action uses the registered X source. Generic sources remain available under
+**Other sources**. Advanced tools retain project editing and draft formatting.
 
-La importación explícita lleva directamente a Resultados. Los resultados que llegan por MCP actualizan la cola sin abrir el panel. Esc, el botón de cierre o un clic fuera lo cierran. No se abre un panel lateral ni se ejecuta una búsqueda al arrancar.
+Importing explicitly opens results. MCP updates the review queue without opening
+the panel. Escape, Close or an outside click dismisses the panel. Startup never
+opens a panel or begins collection automatically.
 
-## Conectar X
+## Connect X
 
-1. Pulsa **Conectar X**. La ayuda **¿Dónde encuentro estos datos?** explica cómo obtener localmente `twid`, `auth_token` y `ct0` de tu propia sesión de X.
-2. Pega `twid` completo o tu ID numérico y los dos valores ocultos. No los envíes al chat. Pulsa **Conectar** para cargarlos en memoria; esto no hace una petición a X.
-3. Ajusta **Filtros de búsqueda** si lo necesitas. Empieza con una página. Cambiar filtros conserva la configuración y los datos anteriores en otro perfil externo; no modifica notas.
-4. Pulsa **Buscar recursos**. La primera muestra real debe confirmar acceso, procedencia y utilidad. No hay API de pago ni alternativa comercial automática.
+1. Select **Connect X**. **Where do I find these values?** explains how to obtain
+   `twid`, `auth_token` and `ct0` from your own browser session.
+2. Enter the full twid or numeric account ID and the two masked cookie values.
+   Do not send them in chat. **Connect** loads the session without calling X.
+3. Open **Search filters** from the home screen. Set include/exclude terms,
+   any/all matching, maximum age in days and minimum likes/reposts. Empty fields
+   add no restriction. **Profile limits and rules** contains pages per collection,
+   the existing keyword match-score threshold and advanced rules. Start with one
+   page. Saving changed filters retains previous manifests/data in a separate
+   external profile and never changes vault notes.
+4. Select **Find resources**. A real sample verifies access and retained evidence.
+   There is no paid API or automatic commercial fallback.
 
-En Windows, la sesión se guarda cifrada con DPAPI para tu usuario, fuera de la bóveda, y se restaura automáticamente al abrir Obsidian o recargar el plugin. **Desconectar X** elimina la copia guardada. No se guarda en notas, proyectos ni preferencias. Si X vence o revoca la sesión, hay que renovarla. Si ya está cargada, deja los campos de cookies vacíos para conservarla al editar filtros. En otros sistemas se mantiene el modo en memoria. Consulta [X-FEED](X-FEED.md) para límites y detalles del lector local.
+Windows encrypts the session with DPAPI for the current user, outside the vault,
+and restores it when Obsidian or the plugin restarts. **Disconnect X** deletes
+the saved copy. Cookies never enter notes, project files or preferences. Expired
+or revoked X sessions require renewal. Editing filters never requests cookies.
+When renewing, blank cookie fields retain the loaded session; reconnecting the
+same account preserves the entire source profile. Other operating systems keep
+the memory-only session behavior. See [X-FEED](X-FEED.md).
 
-## Usar desde ChatGPT
+## Forms and settings
 
-Las 15 herramientas Source Scraper del conector existente permiten validar fuentes, iniciar trabajos acotados, leer hallazgos, registrar recomendaciones de IA separadas de revisiones humanas y preparar una selección persistente. Las recomendaciones incluyen evidencia y referencias; no equivalen a verificación independiente ni a autorización de escritura.
+Normal dialogs are 560 × 600 px; JSON and preview editors are 720 × 640 px. Each
+clamps to the available window. Titles and actions remain visible; central
+content and long code scroll internally. Inputs have consistent visible labels,
+help and sizing. Results render up to 40 rows per page while preserving focus.
 
-Los borradores se preparan para una carpeta elegida por el usuario. Solo ChatGPT, mediante el conector separado de Obsidian y con una orden explícita, crea o cambia notas. Source Scraper no tiene una herramienta para guardarlas.
+**Plugin settings** groups **Connection** and **Drafts**. Paths, fingerprints and
+the trusted project registry sit under **Engine settings**. Editing a field does
+not restart the provider. **Save settings** commits edited fields and preserves
+session or format changes made meanwhile in other screens.
 
-## Límites
+## Use from ChatGPT
 
-Importaciones: 5.000 registros / 8 MB. Consultas MCP: hasta 500 registros por página. Selecciones: 1–200 claves. El motor ejecuta un comando por vez; la cancelación conserva lo ya confirmado. Los trabajos interrumpidos no se reinician automáticamente. Las referencias de la cola persisten sin volver a recolectar fuentes.
+The existing connector exposes 15 Source Scraper tools to validate sources,
+start bounded jobs, read findings, record AI recommendations separately from
+human decisions and maintain a persistent selection. Recommendations include
+evidence and references; they are not independent verification or permission to
+write notes. Only ChatGPT, through the separate Obsidian connector and on your
+explicit instruction, creates or updates final notes.
+
+## Limits
+
+Imports: 5,000 records / 8 MB. MCP queries: up to 500 records per page.
+Selections: 1–200 keys. One engine command runs at a time. Cancellation retains
+committed work. Interrupted jobs do not restart automatically. Review queues
+persist without collecting sources again.

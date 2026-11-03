@@ -4,9 +4,9 @@ import {createHash} from "node:crypto";
 
 export function normalizeXAccountId(input:string):string{
   let value=input.trim().replace(/^"|"$/g,"");
-  try{value=decodeURIComponent(value);}catch{throw Error("Revisa el valor de twid o el ID de tu cuenta.");}
+  try{value=decodeURIComponent(value);}catch{throw Error("Check the twid value or your account ID.");}
   value=value.replace(/^u=/,"");
-  if(!/^\d{1,30}$/.test(value))throw Error("Pega el número de tu cuenta o el valor de la cookie twid.");
+  if(!/^\d{1,30}$/.test(value))throw Error("Paste your numeric account ID or the twid cookie value.");
   return value;
 }
 /** A changed filter creates another external profile; prior manifests and data are retained. */

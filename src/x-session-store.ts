@@ -24,7 +24,7 @@ $encrypted=[Convert]::FromBase64String([Console]::In.ReadLine().Trim())
 $plain=[Security.Cryptography.ProtectedData]::Unprotect($encrypted,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
 try { [Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain)) }
 finally { [Array]::Clear($plain,0,$plain.Length) }`;
-const STORAGE_ERROR="No se pudo acceder a la sesión cifrada de X. Vuelve a conectar X con tu usuario de Windows.";
+const STORAGE_ERROR="Could not access the encrypted X session. Reconnect X with your Windows user account.";
 
 /** Fixed script only. Values travel over anonymous stdin/stdout pipes, never argv/environment/logs. */
 function crypt(script:string,input:string):Promise<string>{
@@ -103,7 +103,7 @@ export class XSessionStore {
       try{await commit();}
       catch{
         try{if(previous===undefined)await unlink(this.file).catch(error=>{if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;});else await this.write(previous);}
-        catch{throw Error("No se pudo restaurar la sesión cifrada tras un error de ajustes. Vuelve a conectar X.");}
+        catch{throw Error("Could not restore the encrypted session after a settings error. Reconnect X.");}
         throw Error(STORAGE_ERROR);
       }
     });

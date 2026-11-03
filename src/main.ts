@@ -1,3 +1,5 @@
+import {dialog,action,formStatus,labelFields} from "./form-ui.ts";
+import {feedFilterForm,applyFeedFilterForm} from "./filter-form.ts";
 import {ReviewIndex} from "./review-index.ts";
 import {XSessionStore} from "./x-session-store.ts";
 import {
@@ -49,28 +51,27 @@ class ImportModal extends Modal {
   private pasted="";
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
-    const root=this.contentEl;
-    root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Importar resultados"});
-    paragraph(root,"Pega un archivo de resultados JSON o selecciona uno de tu bóveda.");
+    const {body:root,footer}=dialog(this,"Import results",false);
+    action(footer,"Close",()=>this.close());
+    paragraph(root,"Paste engine results or choose a file from your vault.");
     const files=this.app.vault.getFiles().filter(file=>/\.(json|ndjson)$/i.test(file.path));
-    new Setting(root).setName("Archivo JSON de la bóveda")
-      .setDesc("Opcional: también puedes pegar los datos abajo.")
+    new Setting(root).setName("Vault JSON file")
+      .setDesc("You can also paste results below.")
       .addDropdown(d=>{
-        d.addOption("","Pegar datos");
+        d.addOption("","Paste results");
         for(const file of files.slice(0,200))d.addOption(file.path,file.path);
-        d.setValue("").onChange(value=>{this.selectedFile=value;});
+        d.setValue("").onChange(value=>{this.selectedFile=value;input.disabled=Boolean(value);});
       });
-    const input=root.createEl("textarea",{attr:{rows:"11",placeholder:"Pega aquí los resultados JSON o NDJSON"}});
+    const input=root.createEl("textarea",{cls:"ss-code-input",attr:{rows:"8","aria-label":"JSON or NDJSON results",placeholder:"Paste engine results as JSON or NDJSON"}});
     input.addEventListener("input",()=>{this.pasted=input.value;});
-    new Setting(root).addButton(b=>b.setButtonText("Importar")
+    new Setting(footer).addButton(b=>b.setButtonText("Import")
       .setCta().onClick(async()=>{
         try{
-          let text=this.pasted;
+          let text=this.selectedFile?"":this.pasted;
           if(!text.trim()&&this.selectedFile){
             const file=this.app.vault.getAbstractFileByPath(this.selectedFile);
-            if(!(file instanceof TFile))throw new Error("Selected export is no longer available");
-            if(file.stat.size>8_000_000)throw new Error("Import exceeds 8 MB");
+            if(!(file instanceof TFile))throw new Error("The results file is no longer available.");
+            if(file.stat.size>8_000_000)throw new Error("The file exceeds the 8 MB import limit.");
             text=await this.app.vault.read(file);
           }
           this.plugin.setImported(parseExport(text));
@@ -78,6 +79,7 @@ class ImportModal extends Modal {
           await this.plugin.openView(true);
         }catch(error){notify(error);}
       }));
+    labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -89,32 +91,32 @@ class ProjectModal extends Modal {
     super(app);
   }
   onOpen():void{
-    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Editar proyecto"});
-    paragraph(root,"Edita un proyecto de Source Scraper. Validarlo no ejecuta una búsqueda ni guarda notas.");
+    const {body:root,footer}=dialog(this,"Edit project",true);
+    action(footer,"Close",()=>this.close());
+    paragraph(root,"Edit a Source Scraper project. Validation does not collect sources or write notes.");
     const candidates=this.app.vault.getFiles()
       .filter(f=>f.extension==="json"&&f.stat.size<=200000);
-    new Setting(root).setName("Proyecto existente")
-      .setDesc("Opcional. Puedes consultar un archivo JSON sin modificarlo.")
+    new Setting(root).setName("Existing project")
+      .setDesc("Open an existing JSON file without changing it.")
       .addDropdown(d=>{
-        d.addOption("","Usar plantilla");
+        d.addOption("","Use template");
         for(const file of candidates.slice(0,200))d.addOption(file.path,file.path);
         d.onChange(async path=>{
           this.selectedPath=path;
           if(!path)return;
           try{
             const file=this.app.vault.getAbstractFileByPath(path);
-            if(!(file instanceof TFile))throw Error("Project JSON is unavailable");
+            if(!(file instanceof TFile))throw Error("The project file is no longer available.");
             const input=await this.app.vault.read(file);
             const manifest=parseProjectManifest(input);
             this.body=JSON.stringify(manifest,null,2);
             area.value=this.body;
-            status.setText("Loaded project "+manifest.id+". No file was changed.");
+            status.setText("Project loaded: "+manifest.id+". The file has not changed.");
           }catch(error){notify(error);}
         });
       });
     const area=root.createEl("textarea",{
-      attr:{rows:"14",placeholder:"Public Source Scraper project JSON"}
+      cls:"ss-code-input",attr:{rows:"12","aria-label":"Project configuration as JSON",placeholder:"Project configuration as JSON"}
     });
     area.value=this.body;
     area.addEventListener("input",()=>{
@@ -123,22 +125,22 @@ class ProjectModal extends Modal {
       this.selectedPath="";
     });
     const status=root.createEl("pre",{cls:"ss-preview"});
-    status.setText("Valida o copia el JSON. Los proyectos nuevos se crean en el espacio de trabajo externo mediante MCP.");
-    new Setting(root).addButton(b=>b.setButtonText("Validar proyecto")
+    status.setText("Validate the JSON first. Create new projects in the external workspace through MCP.");
+    new Setting(footer).addButton(b=>b.setButtonText("Validate project")
       .onClick(()=>{
         try{
           const manifest=parseProjectManifest(this.body);
-          status.setText("Proyecto válido\n"+
+          status.setText("Project valid\n"+
             "ID: "+manifest.id+"\nSources: "+manifest.sources.length+
-            "\nPipeline: "+manifest.pipeline.join(", ")+
+            "\nProcessors: "+manifest.pipeline.join(", ")+
             "\nOutputs: "+manifest.outputs.length+
-            "\nThe engine performs adapter-specific validation when run. No sources executed.");
+            "\nThe engine validates each source when run. No collection has started.");
         }catch(error){status.setText(errorMessage(error));}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Usar proyecto")
+    new Setting(footer).addButton(b=>b.setButtonText("Use project")
       .onClick(async()=>{
         try{
-          if(!this.selectedPath)throw Error("Choose an existing project JSON above");
+          if(!this.selectedPath)throw Error("Choose an existing project to use.");
           const file=this.app.vault.getAbstractFileByPath(this.selectedPath);
           const adapter=this.app.vault.adapter;
           if(!(file instanceof TFile)||!(adapter instanceof FileSystemAdapter))
@@ -147,9 +149,10 @@ class ProjectModal extends Modal {
           this.plugin.settings.configPath=join(adapter.getBasePath(),file.path);
           await this.plugin.savePrefs();
           this.close();
-          new Notice("Proyecto seleccionado. No se ha iniciado una búsqueda.");
+          new Notice("Project selected. Collection has not started.");
         }catch(error){notify(error);}
       }));
+    labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -159,10 +162,10 @@ class NoteMappingModal extends Modal {
     super(app);this.text=plugin.settings.noteMappingJson;
   }
   onOpen():void{
-    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Formato de borradores"});
-    paragraph(root,"Elige las propiedades, el título y las secciones de los borradores. Esta configuración no cambia notas existentes.");
-    const area=root.createEl("textarea",{attr:{rows:"12",placeholder:"Configuración JSON del borrador"}});
+    const {body:root,footer}=dialog(this,"Draft format",true);
+    action(footer,"Close",()=>this.close());
+    paragraph(root,"Choose draft properties, title and sections. Existing notes are never changed.");
+    const area=root.createEl("textarea",{cls:"ss-code-input",attr:{rows:"12","aria-label":"Draft format as JSON",placeholder:"Draft format configuration as JSON"}});
     area.value=this.text;
     area.addEventListener("input",()=>{this.text=area.value;});
     const result=root.createEl("pre",{cls:"ss-preview"});
@@ -173,26 +176,27 @@ class NoteMappingModal extends Modal {
         const folder=this.plugin.settings.outputFolder||"Source Scraper/Imported";
         const plans=selectedPlans(folder,selected.slice(0,1),mapping);
         result.setText(plans[0].content.slice(0,4500));
-      }else result.setText("Formato válido. Selecciona un recurso para ver una muestra.");
+      }else result.setText("Format valid. Select a resource to preview a sample.");
     };
-    new Setting(root).addButton(b=>b.setButtonText("Ver muestra")
+    new Setting(footer).addButton(b=>b.setButtonText("Preview sample")
       .onClick(()=>{try{validate();}catch(error){result.setText(errorMessage(error));}}));
-    new Setting(root).addButton(b=>b.setButtonText("Guardar formato")
+    new Setting(footer).addButton(b=>b.setButtonText("Save format")
       .setCta().onClick(async()=>{
         try{
           const mapping=parseNoteMapping(this.text);
           this.plugin.settings.noteMappingJson=JSON.stringify(mapping,null,2);
           await this.plugin.savePrefs();
           this.close();
-          new Notice("Formato guardado.");
+          new Notice("Draft format saved.");
         }catch(error){notify(error);}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Restablecer plantilla")
+    new Setting(root).addButton(b=>b.setButtonText("Reset template")
       .onClick(()=>{
         this.text=DEFAULT_NOTE_MAPPING_JSON;
         area.value=this.text;
-        result.setText("Plantilla cargada. Pulsa Guardar formato para aplicarla.");
+        result.setText("Template loaded. Select Save format to apply it.");
       }));
+    labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -205,15 +209,14 @@ class DetailModal extends Modal {
     this.decision=entity.review;
   }
   onOpen():void{
-    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:this.entity.title});
-    if(this.entity.url)root.createEl("a",{text:"Abrir recurso ↗",href:this.entity.url,attr:{target:"_blank",rel:"noopener noreferrer"}});
+    const {body:root,footer}=dialog(this,this.entity.title);action(footer,"Close",()=>this.close());
+    if(this.entity.url)root.createEl("a",{text:"Open resource ↗",href:this.entity.url,attr:{target:"_blank",rel:"noopener noreferrer"}});
     const description=this.entity.attributes.description;
     if(typeof description==="string")paragraph(root,description.slice(0,1500));
-    root.createEl("h4",{text:"Por qué aparece"});
+    root.createEl("h4",{text:"Why it appears"});
     const reasons=root.createEl("ul");for(const reason of this.entity.reasons)reasons.createEl("li",{text:reason});
-    paragraph(root,"Relevancia: "+this.entity.score+"/100 · "+(this.entity.provenance?.mentions.length??0)+" menciones adjuntas. La puntuación es orientativa.");
-    const technical=root.createEl("details");technical.createEl("summary",{text:"Ver evidencia completa"});
+    paragraph(root,"Relevance: "+this.entity.score+"/100 · "+(this.entity.provenance?.mentions.length??0)+" attached mentions. This score is a guide.");
+    const technical=root.createEl("details");technical.createEl("summary",{text:"View full evidence"});
     const pre=technical.createEl("pre");
     pre.addClass("ss-preview");
     pre.setText(JSON.stringify({
@@ -221,23 +224,23 @@ class DetailModal extends Modal {
       url:this.entity.url??null,attributes:this.entity.attributes,
       score:this.entity.score,confidence:this.entity.confidence,
       review:this.entity.review,reasons:this.entity.reasons,
-      provenance:this.entity.provenance??"Not included in export"
+      provenance:this.entity.provenance??"Not included in this import"
     },null,2));
     void this.plugin.showAgentAssessments(this.entity,technical);
     if(!this.plugin.settings.cliPath||!this.plugin.settings.configPath){
 
       return;
     }
-    const reviewControls=root.createEl("details");reviewControls.createEl("summary",{text:"Mi revisión"});
-    new Setting(reviewControls).setName("Decisión").addDropdown(d=>d.addOptions({
-      pending:"Pendiente",approved:"Aprobado",rejected:"Descartado"
+    const reviewControls=root.createEl("details");reviewControls.createEl("summary",{text:"My review"});
+    new Setting(reviewControls).setName("Decision").addDropdown(d=>d.addOptions({
+      pending:"Pending",approved:"Approved",rejected:"Rejected"
     }).setValue(this.decision).onChange(value=>{
       this.decision=value as "pending"|"approved"|"rejected";
     }));
-    new Setting(reviewControls).setName("Motivo").addTextArea(t=>
-      t.setPlaceholder("¿Qué comprobaste?")
+    new Setting(reviewControls).setName("Reason").addTextArea(t=>
+      t.setPlaceholder("What did you verify?")
         .onChange(value=>{this.reason=value;}));
-    new Setting(reviewControls).addButton(b=>b.setButtonText("Guardar revisión")
+    new Setting(reviewControls).addButton(b=>b.setButtonText("Save review")
       .onClick(async()=>{
         if(this.busy)return;
         this.busy=true;
@@ -249,10 +252,11 @@ class DetailModal extends Modal {
           this.entity.review=this.decision;
           this.plugin.refresh();
           this.close();
-          new Notice("Revisión guardada en el proyecto.");
+          new Notice("Review saved to the project.");
         }catch(error){notify(error);}
         finally{this.busy=false;}
       }));
+    labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -263,24 +267,25 @@ class ExportModal extends Modal {
     super(app);this.folder=plugin.settings.outputFolder.trim()||"Source Scraper/Imported";
   }
   onOpen():void{
-    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal");
-    root.createEl("h3",{text:"Borradores"});
-    paragraph(root,"Revisa el borrador. No se guarda ninguna nota desde este panel.");
+    const {body:root,footer}=dialog(this,"Drafts",true);
+    action(footer,"Close",()=>this.close());
+    paragraph(root,"Preview the draft. This panel does not write notes.");
     const preview=root.createEl("pre",{cls:"ss-preview"});
     const refresh=()=>{
       try{
         const mapping=parseNoteMapping(this.plugin.settings.noteMappingJson);
         const plans=selectedPlans(this.folder,this.records,mapping);
         preview.setText(plans.map(x=>x.path).join("\n")+
-          (plans.length?"\n\nPrimer borrador:\n\n"+plans[0].content.slice(0,3500):""));
+          (plans.length?"\n\nFirst draft:\n\n"+plans[0].content.slice(0,3500):""));
       }catch(error){preview.setText(errorMessage(error));}
     };
-    new Setting(root).setName("Carpeta de destino")
-      .setDesc("Ruta dentro de tu bóveda para los borradores.")
+    new Setting(root).setName("Destination folder")
+      .setDesc("Suggested vault path for the drafts.")
       .addText(t=>t.setPlaceholder("Source Scraper/Imported")
         .setValue(this.folder).onChange(value=>{this.folder=value;refresh();}));
-    refresh();
-    paragraph(root,"Para guardarlo, pídeselo a ChatGPT mediante tu conector de Obsidian.");
+    root.appendChild(preview);refresh();
+    paragraph(root,"Ask ChatGPT to save drafts through your Obsidian connector.");
+    labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
 }
@@ -288,41 +293,40 @@ class RunModal extends Modal {
   private busy=false;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
-    const root=this.contentEl;root.empty();
-    root.createEl("h3",{text:"Ejecutar proyecto"});
-    paragraph(root,"Ejecuta las fuentes del proyecto configurado y muestra sus resultados. No guarda notas.");
-    paragraph(root,"CLI: "+(this.plugin.settings.cliPath||"Not configured"));
-    paragraph(root,"Project: "+(this.plugin.settings.configPath||"Not configured"));
-    new Setting(root).addButton(b=>b.setButtonText("Buscar recursos")
+    const {body:root,footer}=dialog(this,"Run project");action(footer,"Close",()=>this.close());
+    paragraph(root,"Collect from the configured project and view its results. No notes are written.");
+    paragraph(root,"Engine: "+(this.plugin.settings.cliPath?"Ready":"Not configured"));
+    paragraph(root,"Project: "+(this.plugin.registeredProjects().find(p=>p.configPath===this.plugin.settings.configPath)?.id||"Not selected"));
+    new Setting(footer).addButton(b=>b.setButtonText("Find resources")
       .setCta().onClick(async()=>{
         if(this.busy)return;
-        this.busy=true;
+        this.busy=true;b.setDisabled(true);stop.setDisabled(false);
         try{
           const s=this.plugin.settings;
-          if(!s.cliPath||!s.configPath)throw new Error("Configura el motor y una fuente en los ajustes.");
+          if(!s.cliPath||!s.configPath)throw new Error("Configure the engine and a source in plugin settings.");
           const imported=await this.plugin.cli.runAndImport({
             cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable,allowXProvider:s.xProviderEnabled==="true",xPythonPath:s.xPythonPath,xSession:this.plugin.localSession()
           });
           this.plugin.setImported(imported);
           this.close();
-          new Notice("Búsqueda terminada. Recursos disponibles.");
+          new Notice("Collection complete. Resources are ready.");
         }catch(error){notify(error);}
-        finally{this.busy=false;}
+        finally{this.busy=false;b.setDisabled(false);stop.setDisabled(true);}
       }));
-    new Setting(root).addButton(b=>b.setButtonText("Detener")
-      .onClick(()=>{this.plugin.cli.cancel();this.close();}));
+    const stop=action(footer,"Stop",()=>{this.plugin.cli.cancel();this.close();});stop.setDisabled(true);
+    labelFields(root);
   }
 }
 class XFeedSetupModal extends Modal {
   private clearSecrets?:()=>void;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen():void{
-    const root=this.contentEl;root.empty();root.addClass("source-scraper-modal","ss-x-setup");root.createEl("h3",{text:"Conectar X"});
-    paragraph(root,"Usa tu sesión de X para leer tu feed Para ti. No necesitas una API de pago.");
-    const instructions=root.createEl("details",{cls:"ss-session-help"});instructions.createEl("summary",{text:"¿Dónde encuentro estos datos?"});
+    const {body:root,footer}=dialog(this,"Connect X");root.addClass("ss-x-setup");action(footer,"Cancel",()=>this.close());
+    paragraph(root,"Use your X session to read your For You feed. No paid API is required.");
+    const instructions=root.createEl("details",{cls:"ss-session-help"});instructions.createEl("summary",{text:"Where do I find these values?"});
     const steps=instructions.createEl("ol");
-    for(const text of ["Abre x.com e inicia sesión en tu navegador.","Pulsa F12. En Chrome o Edge, abre Application → Cookies → https://x.com.","Copia los valores de twid, auth_token y ct0 en los campos de abajo. No los envíes al chat."])steps.createEl("li",{text});
-    instructions.createEl("a",{text:"Abrir X ↗",href:"https://x.com/home",attr:{target:"_blank",rel:"noopener noreferrer"}});
+    for(const text of ["Open x.com and sign in using your browser.","Press F12. In Chrome or Edge, open Application → Cookies → https://x.com.","Copy twid, auth_token and ct0 into the fields below. Do not send them in chat."])steps.createEl("li",{text});
+    instructions.createEl("a",{text:"Open X ↗",href:"https://x.com/home",attr:{target:"_blank",rel:"noopener noreferrer"}});
     let accountId="",include="react, frontend, css, gsap, motion, typography, design system, open source",exclude="sponsored, giveaway",minimum=50,pages=1,existingId="";
     let accountSession="",csrf="",busy=false;
     const existingSession=this.plugin.localSession();
@@ -334,44 +338,92 @@ class XFeedSetupModal extends Modal {
       if(existing){const manifest=parseProjectManifest(readFileSync(existing.configPath,"utf8"));existingId=existing.id;
         accountId=String(manifest.sources[0].config.accountId||"");include=manifest.policy.includeKeywords.join(", ");exclude=manifest.policy.excludeKeywords.join(", ");minimum=manifest.policy.minimumScore;pages=Number(manifest.sources[0].config.pagesPerRun)||1;}
     }catch{/* Invalid local manifests are reported by preparation, without replacing them. */}
-    new Setting(root).setName("Cuenta (twid)").setDesc("Puedes pegar twid completo o tu ID numérico.").addText(t=>t.setValue(accountId).setPlaceholder("u=123456789").onChange(value=>{accountId=value;}));
+    new Setting(root).setName("Account ID · twid").setDesc("Paste the full twid value or your numeric account ID.").addText(t=>t.setValue(accountId).setPlaceholder("u=123456789").onChange(value=>{accountId=value;}));
     for(const [label,key] of [["auth_token","session"],["ct0","csrf"]] as const){
-      new Setting(root).setName(label).addText(t=>{t.inputEl.type="password";t.inputEl.autocomplete="off";t.inputEl.spellcheck=false;t.inputEl.setAttribute("aria-label",label);secretInputs.push(t.inputEl);t.onChange(value=>{if(key==="session")accountSession=value;else csrf=value;});});
+      new Setting(root).setName(label).setDesc(label==="auth_token"?"Your account access cookie.":"Your session validation cookie.").addText(t=>{t.setPlaceholder(existingSession?"Leave blank to keep the current session":"Paste the value of "+label);t.inputEl.type="password";t.inputEl.autocomplete="off";t.inputEl.spellcheck=false;t.inputEl.setAttribute("aria-label",label);secretInputs.push(t.inputEl);t.onChange(value=>{if(key==="session")accountSession=value;else csrf=value;});});
     }
-    if(existingSession)paragraph(root,"Ya hay una sesión cargada. Deja auth_token y ct0 vacíos para conservarla.");
-    paragraph(root,this.plugin.canRememberSession()?"La sesión se guarda cifrada para tu usuario de Windows y se restaura al abrir Obsidian. Desconectar X borra la sesión guardada.":"En este sistema la sesión se mantiene en memoria hasta cerrar Obsidian. No se guarda en ajustes ni en notas.");
-    const filters=root.createEl("details",{cls:"ss-session-filters"});filters.createEl("summary",{text:"Filtros de búsqueda"});
-    new Setting(filters).setName("Incluir palabras").addTextArea(t=>t.setValue(include).onChange(value=>{include=value;}));
-    new Setting(filters).setName("Excluir palabras").addTextArea(t=>t.setValue(exclude).onChange(value=>{exclude=value;}));
-    new Setting(filters).setName("Relevancia mínima (0–100)").addText(t=>t.setValue(String(minimum)).onChange(value=>{minimum=Number(value);}));
-    new Setting(filters).setName("Páginas por búsqueda (1–10)").addText(t=>t.setValue(String(pages)).onChange(value=>{pages=Number(value);}));
-    const status=root.createEl("p",{cls:"ss-form-status"});status.setAttribute("role","status");
-    new Setting(root).addButton(button=>button.setButtonText("Conectar").setCta().onClick(async()=>{
+    if(existingSession)paragraph(root,"A session is already loaded. Leave auth_token and ct0 blank to keep it.");
+    paragraph(root,this.plugin.canRememberSession()?"Saved encrypted on this device and restored when Obsidian restarts.":"On this system the session stays in memory until Obsidian closes. It is never saved in settings or notes.");
+    const status=formStatus(root);
+    new Setting(footer).addButton(button=>button.setButtonText("Connect").setCta().onClick(async()=>{
       if(busy)return;busy=true;button.setDisabled(true);
       try{
-        if(this.plugin.isCollecting())throw Error("Detén la búsqueda antes de cambiar la sesión.");
+        if(this.plugin.isCollecting())throw Error("Stop collection before changing the session.");
         const session=!accountSession&&!csrf&&this.plugin.localSession()?this.plugin.localSession()!:validateLocalSession(accountSession,csrf);
-        if(!this.plugin.settings.xPythonPath||!existsSync(this.plugin.settings.xPythonPath))throw Error("Falta preparar el lector de X en los ajustes de Source Scraper.");
-        if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("Se necesita Obsidian de escritorio.");
-        if(!Number.isInteger(minimum)||minimum<0||minimum>100)throw Error("Usa una relevancia mínima de 0 a 100.");
-        if(!Number.isInteger(pages)||pages<1||pages>10)throw Error("Usa de 1 a 10 páginas por búsqueda.");
+        if(!this.plugin.settings.xPythonPath||!existsSync(this.plugin.settings.xPythonPath))throw Error("Configure the X reader in Source Scraper settings first.");
+        if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("Obsidian Desktop is required.");
+        if(!Number.isInteger(minimum)||minimum<0||minimum>100)throw Error("Use a minimum relevance score from 0 to 100.");
+        if(!Number.isInteger(pages)||pages<1||pages>10)throw Error("Use 1 to 10 pages per collection.");
         const settings=this.plugin.settings;let manifest=buildXFeedProject(normalizeXAccountId(accountId),include,exclude,minimum,pages);
         const projects=JSON.parse(settings.mcpProjectsJson) as RegisteredProject[];
-        if(!Array.isArray(projects))throw Error("Revisa la configuración local de fuentes.");
+        if(!Array.isArray(projects))throw Error("Check the local source configuration.");
         let project=projects.find(p=>p.id===(existingId||manifest.id));
-        const verify=(entry:RegisteredProject)=>{const raw=readFileSync(entry.configPath,"utf8");if(createHash("sha256").update(raw).digest("hex")!==entry.manifestHash)throw Error("La configuración de esta fuente cambió. Revísala en los ajustes antes de continuar.");return parseProjectManifest(raw);};
-        if(project){const prior=verify(project);if(JSON.stringify({...prior,id:manifest.id,name:manifest.name})!==JSON.stringify(manifest)){manifest=xFeedVariant(manifest);project=projects.find(p=>p.id===manifest.id);if(project&&JSON.stringify(verify(project))!==JSON.stringify(manifest))throw Error("La configuración de filtros no coincide.");}}
+        const verify=(entry:RegisteredProject)=>{const raw=readFileSync(entry.configPath,"utf8");if(createHash("sha256").update(raw).digest("hex")!==entry.manifestHash)throw Error("This source configuration changed. Review it in settings before continuing.");return parseProjectManifest(raw);};
+        if(project){const prior=verify(project);const account=normalizeXAccountId(accountId);if(prior.sources.some(source=>source.adapter==="x-for-you-local"&&String(source.config.accountId)===account)){manifest=prior;}else{manifest=xFeedVariant(manifest);project=projects.find(p=>p.id===manifest.id);if(project)verify(project);}}
         if(!project){
-          if(projects.length>=100)throw Error("Se alcanzó el límite de fuentes guardadas.");
+          if(projects.length>=100)throw Error("The saved source limit has been reached.");
           project=writeWorkspaceProject(settings.mcpWorkspacePath,this.app.vault.adapter.getBasePath(),manifest);settings.mcpProjectsJson=JSON.stringify([...projects,project]);
         }
         settings.configPath=project.configPath;await this.plugin.savePrefs();await this.plugin.useLocalSession(session);
         this.clearSecrets?.();this.close();await this.plugin.openView();
-      }catch(error){status.setText(error instanceof Error&&/Enter both/.test(error.message)?"Pega auth_token y ct0 sin espacios.":errorMessage(error));}
+      }catch(error){status.setText(error instanceof Error&&/Enter both/.test(error.message)?"Paste auth_token and ct0 without spaces.":errorMessage(error));}
       finally{busy=false;button.setDisabled(false);}
     }));
+    labelFields(root);
   }
   onClose():void{this.clearSecrets?.();this.clearSecrets=undefined;this.contentEl.empty();}
+}
+class FeedFiltersModal extends Modal {
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
+  onOpen():void{
+    const {body:root,footer}=dialog(this,"Search filters");root.addClass("ss-filter-form");
+    action(footer,"Cancel",()=>this.close());
+    try{
+      const entries=this.plugin.registeredProjects();
+      const ordered=[...entries].sort((a,b)=>Number(b.configPath===this.plugin.settings.configPath)-Number(a.configPath===this.plugin.settings.configPath));
+      const entry=ordered.find(p=>{try{return parseProjectManifest(readFileSync(p.configPath,"utf8")).sources.some(source=>source.adapter==="x-for-you-local");}catch{return false;}});
+      if(!entry)throw Error("Connect X before configuring its filters.");
+      const raw=readFileSync(entry.configPath,"utf8");
+      if(createHash("sha256").update(raw).digest("hex")!==entry.manifestHash)throw Error("The configuration changed. Review the project in settings.");
+      const project=parseProjectManifest(raw);
+      if(!project.sources.some(source=>source.adapter==="x-for-you-local"))throw Error("Select your X source to edit these filters.");
+      const values=feedFilterForm(project);
+      paragraph(root,"Only links that meet every condition pass. Empty fields add no restriction.");
+      new Setting(root).setName("Include terms").setDesc("Separate terms with commas. Match them against the original post.").addTextArea(t=>t.setValue(values.include).setPlaceholder("e.g. design system, UI kit, typography").onChange(v=>{values.include=v;}));
+      new Setting(root).setName("Match").addDropdown(d=>d.addOptions({any:"Any of these terms",all:"All of these terms"}).setValue(values.mode).onChange(v=>{values.mode=v as "any"|"all";}));
+      new Setting(root).setName("Exclude terms").setDesc("Exclude posts containing any of these terms.").addTextArea(t=>t.setValue(values.exclude).setPlaceholder("e.g. giveaway, sponsored").onChange(v=>{values.exclude=v;}));
+      const numeric=(parent:HTMLElement,name:string,key:"days"|"likes"|"reposts"|"pages"|"minimum",placeholder:string,min:number,max:number,description:string)=>{
+        new Setting(parent).setName(name).setDesc(description).addText(t=>{t.setValue(values[key]).setPlaceholder(placeholder).onChange(v=>{values[key]=v;});t.inputEl.type="number";t.inputEl.min=String(min);t.inputEl.max=String(max);t.inputEl.step="1";t.inputEl.inputMode="numeric";});
+      };
+      numeric(root,"Maximum age · days","days","No limit",1,36500,"Use 30 for the past month, or 60 for the past two months.");
+      const engagement=root.createDiv({cls:"ss-field-pair"});
+      numeric(engagement,"Minimum likes","likes","No minimum",0,Number.MAX_SAFE_INTEGER,"");
+      numeric(engagement,"Minimum reposts","reposts","No minimum",0,Number.MAX_SAFE_INTEGER,"");
+      const advanced=root.createEl("details",{cls:"ss-disclosure"});advanced.createEl("summary",{text:"Profile limits and rules"});
+      numeric(advanced,"Pages per collection","pages","1",1,10,"From 1 to 10. Each page reads a sample of your feed.");
+      numeric(advanced,"Minimum match score","minimum","0",0,100,"Hide resources below this keyword score. It does not measure editorial quality.");
+      if(project.filters){const pre=advanced.createEl("pre",{cls:"ss-preview"});pre.setText(JSON.stringify(project.filters,null,2));paragraph(advanced,"Existing date boundaries, domains and other rules are preserved.");}
+      const status=formStatus(root);let busy=false;
+      action(footer,"Save filters",()=>{void (async()=>{
+        if(busy)return;busy=true;const before={...this.plugin.settings};
+        try{
+          if(this.plugin.isCollecting())throw Error("Wait for collection to finish before changing filters.");
+          if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("Obsidian Desktop is required.");
+          const updated=applyFeedFilterForm(project,values);
+          let selected=entry;
+          if(JSON.stringify(updated)!==JSON.stringify(project)){
+            const variant=xFeedVariant({...updated,id:"x-for-you-resources"});
+            const registered=entries.find(p=>p.id===variant.id);
+            if(registered){if(createHash("sha256").update(readFileSync(registered.configPath,"utf8")).digest("hex")!==registered.manifestHash)throw Error("The saved profile changed. Review it in settings.");selected=registered;}
+            else{if(entries.length>=100)throw Error("The saved profile limit has been reached.");selected=writeWorkspaceProject(this.plugin.settings.mcpWorkspacePath,this.app.vault.adapter.getBasePath(),variant);this.plugin.settings.mcpProjectsJson=JSON.stringify([...entries,selected]);}
+          }
+          this.plugin.settings.configPath=selected.configPath;await this.plugin.savePrefs();this.close();await this.plugin.openView();new Notice("Filters saved. They apply to the next collection.");
+        }catch(error){this.plugin.settings=before;status.setText(errorMessage(error));}
+        finally{busy=false;}
+      })();},true);labelFields(root);
+    }catch(error){paragraph(root,errorMessage(error));}
+  }
+  onClose():void{this.contentEl.empty();}
 }
 /** Compatibility only: saved legacy leaves are detached on layout readiness. */
 class LegacyScraperView extends ItemView {
@@ -389,29 +441,29 @@ class ScraperReview {
     const root=this.root;if(!root||!root.isConnected)return;
     root.empty();root.addClass("source-scraper-view");
     const imported=this.plugin.imported;
-    if(!imported){paragraph(root,"Todavía no hay resultados. Haz una búsqueda o importa un archivo.");return;}
+    if(!imported){paragraph(root,"No results yet. Collect sources or import a results file.");return;}
     const summary=root.createDiv({cls:"ss-review-summary"});
-    summary.createEl("p",{cls:"ss-count",text:imported.records.length+(imported.records.length===1?" recurso":" recursos")});
-    if(imported.projectId==="starter-project")summary.createEl("p",{cls:"ss-example-note",text:"Ejemplo local · no es tu feed de X."});
+    summary.createEl("p",{cls:"ss-count",text:imported.records.length+(imported.records.length===1?" resource":" resources")});
+    if(imported.projectId==="starter-project")summary.createEl("p",{cls:"ss-example-note",text:"Local example · this is not your X feed."});
     const searchBox=root.createDiv({cls:"ss-search"});
-    const search=new SearchComponent(searchBox).setPlaceholder("Filtrar recursos").setValue(this.search);
-    const input=search.inputEl;input.setAttribute("aria-label","Filtrar recursos");
+    const search=new SearchComponent(searchBox).setPlaceholder("Filter resources").setValue(this.search);
+    const input=search.inputEl;input.setAttribute("aria-label","Filter resources");
     const index=new ReviewIndex(imported.records);
-    const list=root.createDiv({cls:"ss-candidate-list"});list.setAttribute("aria-label","Recursos encontrados");
+    const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0"}});list.setAttribute("aria-label","Found resources");
     const pagination=root.createDiv({cls:"ss-pagination"});
     const draftArea=root.createDiv({cls:"ss-review-footer"});
     const selection=draftArea.createSpan({cls:"ss-selection-count"});selection.setAttribute("role","status");
-    const preview=new ButtonComponent(draftArea).setButtonText("Ver borradores").setTooltip("Vista previa para ChatGPT; no guarda notas").onClick(()=>{
+    const preview=new ButtonComponent(draftArea).setButtonText("Preview drafts").setTooltip("Preview for ChatGPT; no notes are written").onClick(()=>{
       try{
         const selected=this.plugin.getSelected();
-        if(!selected.length)throw Error("Selecciona recursos antes de preparar notas.");
-        if(selected.length>200)throw Error("Selecciona como máximo 200 recursos.");
+        if(!selected.length)throw Error("Select resources before previewing drafts.");
+        if(selected.length>200)throw Error("Select up to 200 resources.");
         this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
     }).buttonEl;preview.classList.add("ss-preview-action");preview.type="button";
     const updateSelection=()=>{
       const count=this.plugin.selected.size;
-      selection.textContent=count+(count===1?" seleccionado":" seleccionados");preview.disabled=count===0;
+      selection.textContent=count+(count===1?" selected":" selected");preview.disabled=count===0;
     };
     const renderResults=()=>{
       if(this.root!==root||!root.isConnected)return;
@@ -419,31 +471,31 @@ class ScraperReview {
       const filtered=index.filter(this.search);
       const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
       const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
-      if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No hay coincidencias"});paragraph(empty,"Prueba otra palabra.");}
+      if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No matches"});paragraph(empty,"Try another search term.");}
       for(const entity of visible){
         const item=list.createEl("article",{cls:"ss-record"});
         const head=item.createDiv({cls:"ss-record-head"});
-        const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Seleccionar "+entity.title}});
+        const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Select "+entity.title}});
         checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
         checkbox.addEventListener("change",()=>{
           if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
           updateSelection();
         });
         const inspect=new ButtonComponent(head).setButtonText(entity.title).onClick(()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();}).buttonEl;
-        inspect.classList.add("ss-record-title");inspect.type="button";inspect.setAttribute("aria-label","Ver detalle: "+entity.title);
+        inspect.classList.add("ss-record-title");inspect.type="button";inspect.setAttribute("aria-label","View details: "+entity.title);
         const source=item.createDiv({cls:"ss-record-source"});
         if(entity.url){
           const link=source.createEl("a",{href:entity.url,text:new URL(entity.url).hostname.replace(/^www\./,""),attr:{target:"_blank",rel:"noopener noreferrer"}});
-          link.setAttribute("aria-label","Abrir recurso: "+entity.title);
+          link.setAttribute("aria-label","Open resource: "+entity.title);
         }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
         const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
         if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
-        if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Aprobado":"Descartado"});decision.dataset.review=entity.review;}
+        if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Approved":"Rejected"});decision.dataset.review=entity.review;}
       }
       pagination.hidden=pageCount===1;
-      const previous=pagination.createEl("button",{text:"Anterior"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;renderResults();};
-      pagination.createSpan({text:"Página "+(this.page+1)+" de "+pageCount});
-      const next=pagination.createEl("button",{text:"Siguiente"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;renderResults();};
+      const previous=pagination.createEl("button",{text:"Previous"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;renderResults();};
+      pagination.createSpan({text:filtered.length?((this.page*pageSize+1)+"–"+Math.min((this.page+1)*pageSize,filtered.length)+" of "+filtered.length):"0 resources"});
+      const next=pagination.createEl("button",{text:"Next"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;renderResults();};
     };
     search.onChange(()=>{this.search=input.value;this.page=0;renderResults();});
     renderResults();updateSelection();
@@ -451,62 +503,48 @@ class ScraperReview {
 
   renderTools(controls:HTMLElement):void{
     const action=(text:string,click:()=>void)=>{new ButtonComponent(controls).setButtonText(text).onClick(()=>{this.plugin.closePopover();click();});};
-    action("Editar proyecto",()=>new ProjectModal(this.app,this.plugin).open());
-    action("Formato de borradores",()=>new NoteMappingModal(this.app,this.plugin).open());
-    action("Ejecutar proyecto",()=>new RunModal(this.app,this.plugin).open());
-    action("Diagnóstico",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
+    action("Edit project",()=>new ProjectModal(this.app,this.plugin).open());
+    action("Draft format",()=>new NoteMappingModal(this.app,this.plugin).open());
+    action("Run project",()=>new RunModal(this.app,this.plugin).open());
+    action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
   }
 }
 class ScraperSettings extends PluginSettingTab {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app,plugin);}
   display():void{
-    const root=this.containerEl;root.empty();
+    const root=this.containerEl;root.empty();root.addClass("ss-settings");
     root.createEl("h2",{text:"Source Scraper"});
-    paragraph(root,"MCP: "+this.plugin.mcpStatus);
-    new Setting(root).setName("Allow local read-only X feed access")
-      .setDesc("Off by default. Uses the locally supplied session directly with X through Twifork. No paid API or third-party session service. This does not start collection.")
-      .addToggle(t=>t.setValue(this.plugin.settings.xProviderEnabled==="true").onChange(async v=>{
-        if(!v)await this.plugin.forgetLocalSession();else{this.plugin.settings.xProviderEnabled="true";await this.plugin.savePrefs();}
-      }));
-    new Setting(root).setName("Isolated Python for Twifork")
-      .setDesc("Absolute interpreter path for the project-local Twifork 2.4.0 environment; not accepted through remote tool arguments.")
-      .addText(t=>t.setValue(this.plugin.settings.xPythonPath).onChange(async v=>{this.plugin.settings.xPythonPath=v.trim();await this.plugin.savePrefs();}));
-    new Setting(root).setName("Expose tools through Vault as MCP")
-      .setDesc("Requires the locally enabled provider API. Collection never creates final notes.")
-      .addToggle(t=>t.setValue(this.plugin.settings.mcpEnabled==="true").onChange(async v=>{
-        this.plugin.settings.mcpEnabled=String(v);await this.plugin.savePrefs();
-      }));
-    for(const [key,label] of [["mcpProjectsJson","Trusted project registry JSON"],["mcpWorkspacePath","MCP project workspace"],["mcpCliHash","Trusted CLI SHA-256"]] as const){
-      new Setting(root).setName(label).addTextArea(t=>t.setValue(this.plugin.settings[key]).onChange(async v=>{
-        this.plugin.settings[key]=v;await this.plugin.savePrefs();
-      }));
+    paragraph(root,"Local connection and preferences. Changes take effect when saved.");
+    const body=root.createDiv({cls:"ss-settings-body"});
+    const draft={...this.plugin.settings},dirty=new Set<keyof Preferences>();
+    const change=(key:keyof Preferences,value:string)=>{draft[key]=value;dirty.add(key);};
+    const section=(label:string)=>{const part=body.createDiv({cls:"ss-settings-section"});part.createEl("h3",{text:label});return part;};
+    const connection=section("Connection");
+    new Setting(connection).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
+    new Setting(connection).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
+    new Setting(connection).setName("ChatGPT tools").setDesc("Connect the engine through Vault as MCP.").addToggle(t=>t.setValue(draft.mcpEnabled==="true").onChange(v=>{change("mcpEnabled",String(v));}));
+    const notes=section("Drafts");
+    new Setting(notes).setName("Suggested folder").setDesc("Drafts are previews. The plugin does not create notes.").addText(t=>t.setPlaceholder("Source Scraper/Imported").setValue(draft.outputFolder).onChange(v=>{change("outputFolder",v);}));
+    new Setting(notes).setName("Properties and content").addButton(b=>b.setButtonText("Edit format").onClick(()=>new NoteMappingModal(this.app,this.plugin).open()));
+    const technical=body.createEl("details",{cls:"ss-settings-section ss-disclosure"});technical.createEl("summary",{text:"Engine settings"});
+    paragraph(technical,"Local paths and trusted projects. Usually configured only once.");
+    for(const [key,label,placeholder] of [["cliPath","Engine executable","Absolute path to source-scraper.mjs"],["nodeExecutable","Node.js executable","Path to node.exe"],["xPythonPath","X reader Python","Path to the project Python runtime"],["configPath","Active project","Path to the project file"],["mcpWorkspacePath","Project workspace","A folder outside your vault"],["mcpCliHash","Engine fingerprint · SHA-256","64 hexadecimal characters"]] as const){
+      new Setting(technical).setName(label).addText(t=>t.setValue(draft[key]).setPlaceholder(placeholder).onChange(v=>{change(key,v.trim());}));
     }
-    paragraph(root,"JSON import works without Node. The CLI is optional, executes only when you explicitly click Run, and may contact your configured sources.");
-    new Setting(root).setName("Default destination folder")
-      .setDesc("Optional suggested folder for Markdown drafts. This plugin never creates notes.")
-      .addText(t=>t.setPlaceholder("Source Scraper/Imported")
-        .setValue(this.plugin.settings.outputFolder).onChange(async value=>{
-          this.plugin.settings.outputFolder=value;await this.plugin.savePrefs();
-        }));
-    new Setting(root).setName("Portable note mapping")
-      .setDesc("Configure extra frontmatter properties, optional note sections and a title field. This never changes existing notes.")
-      .addButton(b=>b.setButtonText("Edit mapping JSON")
-        .onClick(()=>new NoteMappingModal(this.app,this.plugin).open()));
-    new Setting(root).setName("Trusted standalone Source Scraper CLI")
-      .setDesc("Absolute path to a locally installed source-scraper.mjs; never auto-downloaded.")
-      .addText(t=>t.setValue(this.plugin.settings.cliPath).onChange(async value=>{
-        this.plugin.settings.cliPath=value.trim();await this.plugin.savePrefs();
-      }));
-    new Setting(root).setName("Explicit project JSON manifest")
-      .setDesc("Local manifest to run only when you press Run. Use Editar proyecto to create a new config without overwriting existing files.")
-      .addText(t=>t.setValue(this.plugin.settings.configPath).onChange(async value=>{
-        this.plugin.settings.configPath=value.trim();await this.plugin.savePrefs();
-      }));
-    new Setting(root).setName("Node executable")
-      .setDesc("Node.js 22.16+ required only for optional CLI execution.")
-      .addText(t=>t.setValue(this.plugin.settings.nodeExecutable).onChange(async value=>{
-        this.plugin.settings.nodeExecutable=value.trim();await this.plugin.savePrefs();
-      }));
+    new Setting(technical).setName("Trusted projects · JSON").setDesc("Local registry of verified paths and fingerprints.").addTextArea(t=>{t.setValue(draft.mcpProjectsJson).onChange(v=>{change("mcpProjectsJson",v);});t.inputEl.addClass("ss-code-input");});
+    const footer=root.createDiv({cls:"ss-settings-footer"}),status=formStatus(footer);let busy=false;
+    action(footer,"Save settings",()=>{void (async()=>{
+      if(busy)return;busy=true;const prior=this.plugin.settings;
+      try{
+        if(this.plugin.isCollecting())throw Error("Wait for collection to finish before saving settings.");
+        const merged={...prior};for(const key of dirty)merged[key]=draft[key];
+        const registry=JSON.parse(merged.mcpProjectsJson);if(!Array.isArray(registry)||registry.length>100||registry.some(p=>!p||typeof p.id!=="string"||typeof p.configPath!=="string"||!/^[a-f0-9]{64}$/.test(p.manifestHash)))throw Error("Check the trusted projects JSON.");
+        this.plugin.settings=merged;
+        if(prior.xProviderEnabled==="true"&&merged.xProviderEnabled!=="true")await this.plugin.forgetLocalSession();else await this.plugin.savePrefs();
+        dirty.clear();status.setText("Settings saved.");status.addClass("ss-status-success");
+      }catch(error){this.plugin.settings=prior;status.removeClass("ss-status-success");status.setText(errorMessage(error));}
+      finally{busy=false;}
+    })();},true);labelFields(root);
   }
 }
 export default class ScraperPlugin extends Plugin {
@@ -570,8 +608,8 @@ export default class ScraperPlugin extends Plugin {
   canRememberSession():boolean{return this.sessionStore?.supported===true;}
   async restoreLocalSession():Promise<void>{
     if(this.settings.xProviderEnabled!=="true")return;
-    try{const saved=await this.sessionStore?.load();if(!this.unloaded&&saved){this.memorySession=saved;this.uiMessage="Sesión de X restaurada. Puedes buscar recursos.";}}
-    catch{this.uiError="No se pudo restaurar la sesión cifrada de X. Pulsa Conectar X para renovarla.";}
+    try{const saved=await this.sessionStore?.load();if(!this.unloaded&&saved){this.memorySession=saved;this.uiMessage="X session restored. You can collect resources.";}}
+    catch{this.uiError="Could not restore the encrypted X session. Select Connect X to renew it.";}
   }
   private changeSession(operation:()=>Promise<void>):Promise<void>{
     const pending=this.sessionChange.then(operation);this.sessionChange=pending.catch(()=>{});return pending;
@@ -580,19 +618,19 @@ export default class ScraperPlugin extends Plugin {
     return this.changeSession(async()=>{
       const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
       this.memorySession=undefined;this.settings.xProviderEnabled="false";
-      try{if(this.sessionStore)await this.sessionStore.forgetAndCommit(()=>this.savePrefs());else await this.savePrefs();this.uiMessage="Sesión de X desconectada y borrada de este equipo.";}
+      try{if(this.sessionStore)await this.sessionStore.forgetAndCommit(()=>this.savePrefs());else await this.savePrefs();this.uiMessage="X disconnected. The saved session was removed from this device.";}
       catch(error){if(!this.unloaded)this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
     });
   }
   async useLocalSession(value:XLocalSession):Promise<void>{
     const session=validateLocalSession(value.accountSession,value.csrf);
     return this.changeSession(async()=>{
-      if(this.unloaded)throw Error("Source Scraper ya está cerrado.");
+      if(this.unloaded)throw Error("Source Scraper is already closed.");
       const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
       this.memorySession={...session};this.settings.xProviderEnabled="true";
       try{
         if(this.sessionStore)await this.sessionStore.saveAndCommit(session,()=>this.savePrefs());else await this.savePrefs();
-        this.uiError="";this.uiMessage=this.canRememberSession()?"Sesión de X guardada y cargada. Haz una búsqueda para verificar acceso.":"Sesión de X cargada. Haz una búsqueda para verificar acceso.";
+        this.uiError="";this.uiMessage=this.canRememberSession()?"X session saved and loaded. Collect resources to verify access.":"X session loaded. Collect resources to verify access.";
       }catch(error){if(!this.unloaded)this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
       this.updateStatus();
     });
@@ -631,7 +669,7 @@ export default class ScraperPlugin extends Plugin {
   }
   private updateStatus(dataChanged=false):void{
     if(this.unloaded||!this.statusItem)return;
-    const state=discoveryState(this.panelSnapshot()),label="Source Scraper. "+state.status+". Abrir Source Scraper.";
+    const state=discoveryState(this.panelSnapshot()),label="Source Scraper. "+state.status+". Open Source Scraper.";
     if(this.statusItem.dataset.state!==state.state)this.statusItem.dataset.state=state.state;
     if(this.statusItem.title!==label)this.statusItem.title=label;
     if(this.statusItem.getAttribute("aria-label")!==label)this.statusItem.setAttribute("aria-label",label);
@@ -641,7 +679,7 @@ export default class ScraperPlugin extends Plugin {
   private async collectSelected(projectId?:string):Promise<void>{
     if(this.isCollecting()||this.unloaded)return;
     const provider=this.provider,id=projectId||this.panelSnapshot().projectId;if(!provider||!id)return;
-    this.uiStarting=true;this.uiError="";this.uiMessage="Buscando…";this.updateStatus();
+    this.uiStarting=true;this.uiError="";this.uiMessage="Collecting…";this.updateStatus();
     try{
       const job=await provider.execute("source_scraper_run_project",{projectId:id,requestId:"obsidian-ui-"+randomUUID(),pageSize:100,maxPages:10}) as {id:string};
       if(!this.unloaded)this.uiJobId=job.id;
@@ -664,7 +702,7 @@ export default class ScraperPlugin extends Plugin {
       const keys:string[]=[];for(const entity of data.records){if(Buffer.byteLength(JSON.stringify([...keys,entity.key]),"utf8")>12000)break;keys.push(entity.key);}
       if(keys.length)await provider.execute("source_scraper_stage_findings",{projectId:job.projectId,keys});
       else this.setImported({schemaVersion:1,dataset:"entities",projectId:job.projectId,records:[]});
-      if(!this.unloaded){this.uiMessage="Búsqueda terminada.";this.uiError="";}
+      if(!this.unloaded){this.uiMessage="Collection complete.";this.uiError="";}
     }catch(error){if(!this.unloaded&&provider===this.provider){this.uiError=errorMessage(error);this.uiJobId=undefined;}}
     finally{this.uiStarting=false;this.uiPolling=false;this.updateStatus();}
   }
@@ -719,7 +757,7 @@ export default class ScraperPlugin extends Plugin {
     if(!this.popover)this.popover=new ScraperPopover(this.statusItem,{
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
-      setup:()=>new XFeedSetupModal(this.app,this).open(),
+      setup:()=>new XFeedSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
       importFindings:()=>new ImportModal(this.app,this).open(),
       disconnect:()=>{void this.forgetLocalSession().catch(notify);},
       collect:id=>{void this.collectSelected(id);},
