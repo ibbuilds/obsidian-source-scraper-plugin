@@ -8,13 +8,19 @@ import type {XLocalSession} from "./cli-bridge.ts";
 
 export interface SessionCipher {protect(value:string):Promise<string>;unprotect(value:string):Promise<string>}
 const PROTECT=String.raw`$ErrorActionPreference='Stop'
+[Console]::Error.WriteLine('SS_DPAPI_START')
 Add-Type -AssemblyName System.Security
-$plain=[Text.Encoding]::UTF8.GetBytes([Console]::In.ReadToEnd())
+[Console]::Error.WriteLine('SS_DPAPI_READY')
+$plain=[Text.Encoding]::UTF8.GetBytes([Console]::In.ReadLine())
+[Console]::Error.WriteLine('SS_DPAPI_INPUT')
 try { [Console]::Out.Write([Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($plain,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))) }
 finally { [Array]::Clear($plain,0,$plain.Length) }`;
 const UNPROTECT=String.raw`$ErrorActionPreference='Stop'
+[Console]::Error.WriteLine('SS_DPAPI_START')
 Add-Type -AssemblyName System.Security
-$encrypted=[Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())
+[Console]::Error.WriteLine('SS_DPAPI_READY')
+$encrypted=[Convert]::FromBase64String([Console]::In.ReadLine().Trim())
+[Console]::Error.WriteLine('SS_DPAPI_INPUT')
 $plain=[Security.Cryptography.ProtectedData]::Unprotect($encrypted,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
 try { [Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain)) }
 finally { [Array]::Clear($plain,0,$plain.Length) }`;
@@ -30,13 +36,13 @@ function crypt(script:string,input:string):Promise<string>{
     const child=spawn(helper,["-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",Buffer.from(script,"utf16le").toString("base64")],{
       shell:false,windowsHide:true,stdio:["pipe","pipe","pipe"],env:helperEnv
     });
-    let output="",bytes=0,stderr=0,failed=false;
+    let output="",bytes=0,stderr=0,failed=false,phase="SS_DPAPI_SPAWN";
     const timer=setTimeout(()=>{failed=true;child.kill();},30000);
     child.stdout.setEncoding("utf8");child.stdout.on("data",(part:string)=>{bytes+=Buffer.byteLength(part);if(bytes>65536){failed=true;child.kill();}else output+=part;});
-    child.stderr.on("data",(part:Buffer)=>{stderr+=part.length;if(stderr>65536){failed=true;child.kill();}});
+    child.stderr.on("data",(part:Buffer)=>{stderr+=part.length;const marker=/SS_DPAPI_(START|READY|INPUT)/.exec(part.toString("utf8"));if(marker)phase=marker[0];if(stderr>65536){failed=true;child.kill();}});
     child.on("error",()=>{failed=true;});
-    child.on("close",code=>{clearTimeout(timer);if(failed||code!==0)reject(Error(STORAGE_ERROR));else resolve(output.trim());});
-    child.stdin.on("error",()=>{failed=true;});child.stdin.end(input,"utf8");
+    child.on("close",code=>{clearTimeout(timer);if(failed||code!==0)reject(Error(STORAGE_ERROR+" ("+phase+")"));else resolve(output.trim());});
+    child.stdin.on("error",()=>{failed=true;});child.stdin.end(input+"\n","utf8");
   });
 }
 const windowsCipher:SessionCipher={protect:value=>crypt(PROTECT,value),unprotect:value=>crypt(UNPROTECT,value)};
@@ -90,7 +96,7 @@ export class XSessionStore {
       if(value){
         const session=validateLocalSession(value.accountSession,value.csrf);
         let encrypted:string;
-        try{encrypted=await this.cipher.protect(JSON.stringify({version:1,vaultId:this.vaultId,session}));}catch{throw Error(STORAGE_ERROR);}
+        try{encrypted=await this.cipher.protect(JSON.stringify({version:1,vaultId:this.vaultId,session}));}catch(error){throw Error(error instanceof Error&&error.message.startsWith(STORAGE_ERROR)?error.message:STORAGE_ERROR);}
         if(!encrypted||encrypted.length>65536||!/^[A-Za-z0-9+/]+={0,2}$/.test(encrypted))throw Error(STORAGE_ERROR);
         await this.write(encrypted);
       }else await unlink(this.file).catch(error=>{if((error as NodeJS.ErrnoException).code!=="ENOENT")throw Error(STORAGE_ERROR);});
