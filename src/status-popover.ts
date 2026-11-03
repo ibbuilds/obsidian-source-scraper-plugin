@@ -3,7 +3,7 @@ import {panelPosition,discoveryState,type PanelSnapshot} from "./panel-model.ts"
 
 export interface PopoverHost {
   snapshot:()=>PanelSnapshot;icon:(root:HTMLElement,name:string)=>void;
-  settings:()=>void;setup:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
+  settings:()=>void;setup:()=>void;filters:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
   importFindings:()=>void;
   disconnect?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
@@ -89,7 +89,7 @@ export class ScraperPopover {
     root.dataset.screen=this.screen;
     const header=this.el(root,"header","ss-popover-header");
     if(this.screen!=="home")this.iconButton(header,"arrow-left",this.screen==="options"?"Volver":"Volver a buscar",()=>this.setScreen(this.screen==="options"?this.returnScreen:"home"));
-    const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Opciones":"Source Scraper");title.tabIndex=-1;
+    const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Opciones":this.screen==="review"?"Recursos":"Source Scraper");title.tabIndex=-1;
     if(this.screen!=="options")this.iconButton(header,"settings-2","Opciones",()=>this.setScreen("options"));
     this.iconButton(header,"x","Cerrar Source Scraper",()=>this.close(true));
     this.resultsCount=undefined;
@@ -113,7 +113,9 @@ export class ScraperPopover {
   private renderHome(body:HTMLElement,snapshot:PanelSnapshot):void{
     body.classList.add("ss-discovery");
     const source=this.el(body,"div","ss-source-line");this.el(source,"strong","","X · Para ti");const status=this.el(source,"span","ss-source-status");
+    this.el(body,"h2","ss-discovery-title","Encuentra enlaces");
     const hint=this.el(body,"p","ss-hint");hint.setAttribute("role","status");
+    const filters=this.button(body,"Filtros de búsqueda",()=>{this.close(false);this.host.filters();},"ss-filter-link");
     const primary=this.button(body,"Conectar X",()=>{
       const state=discoveryState(this.host.snapshot());
       if(state.action==="cancel")this.host.cancel();
@@ -127,13 +129,15 @@ export class ScraperPopover {
       const state=discoveryState(s);body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
       this.resultsCount!.textContent=s.findings+(s.exampleFindings?" de ejemplo":s.findings===1?" disponible":" disponibles");
       complete.setAttribute("aria-label",s.findings?"Ver resultados":"Ver resultados vacíos");
+      filters.disabled=s.running||!s.projects.some(p=>p.isX);
       rootBusy(body,s.running);
     };
-    this.homeUpdate(snapshot);
+    body.appendChild(primary);this.homeUpdate(snapshot);
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
     this.button(options,"Importar resultados",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
+    this.el(options,"h3","ss-section-label","Cuenta de X");
     this.button(options,"Cambiar sesión",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
     const disconnect=this.button(options,"Desconectar X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
     const alternative=this.el(options,"label","ss-project-label","Otras fuentes");
@@ -144,7 +148,7 @@ export class ScraperPopover {
     const advanced=this.el(options,"details","ss-review-tools");this.el(advanced,"summary","","Herramientas avanzadas");
     this.host.renderTools(this.el(advanced,"div","ss-controls"));
     this.button(options,"Configuración del plugin",()=>{this.close(false);this.host.settings();},"ss-button ss-text-action");
-    const diagnostics=this.el(options,"p","ss-diagnostics");
+    const diagnostics=this.el(advanced,"p","ss-diagnostics");
     this.homeUpdate=s=>{
       select.value=s.projectId;select.disabled=s.running;
       alternative.hidden=!s.projects.length;runOther.hidden=!s.projects.length;

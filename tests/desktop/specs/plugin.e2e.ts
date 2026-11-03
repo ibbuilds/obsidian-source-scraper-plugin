@@ -107,7 +107,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
       const first=await browser.executeObsidian(async({plugins,require})=>{const p=(plugins as any).sourceScraper;const raw=JSON.stringify(await p.loadData());const projects=JSON.parse(p.settings.mcpProjectsJson);p.__firstManifest={path:projects[0].configPath,raw:require("node:fs").readFileSync(projects[0].configPath,"utf8")};return {raw,count:projects.length,session:!!p.localSession(),manifest:p.__firstManifest.raw};});
       expect(first.count).toBe(1);expect(first.session).toBe(true);expect(first.raw).not.toContain("synthetic-ui");expect(first.manifest).not.toContain("synthetic-ui");
-      await setup();await browser.$(".ss-session-filters summary").click();await browser.$(".ss-session-filters textarea").setValue("rust, open source");await click("Conectar");await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
+      await overview();await click("Filtros de búsqueda");await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"filters-dark.png"));await browser.$(".ss-filter-form textarea").setValue("rust, open source");await click("Guardar filtros");await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
       const second=await browser.executeObsidian(({plugins,require})=>{const p=(plugins as any).sourceScraper;return {count:JSON.parse(p.settings.mcpProjectsJson).length,preserved:require("node:fs").readFileSync(p.__firstManifest.path,"utf8")===p.__firstManifest.raw};});
       expect(second.count).toBe(2);expect(second.preserved).toBe(true);
     }finally{await browser.executeObsidian(async({plugins})=>{const p=(plugins as any).sourceScraper;await p.sessionStore?.forgetAndCommit(async()=>{});p.memorySession=p.__sessionBefore.memory;p.settings=p.__sessionBefore.settings;await p.savePrefs();delete p.__sessionBefore;delete p.__firstManifest;});}
@@ -155,7 +155,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     try{
       await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:2,mobile:false});await overview();await browser.execute(()=>{document.body.classList.remove("theme-light");document.body.classList.add("theme-dark");});
       await expect(browser.$(".ss-primary")).toHaveText("Conectar X");expect(await browser.$(".ss-source-status").getText()).toBe("Sin conectar");expect(await browser.$(".ss-project-select").isExisting()).toBe(false);
-      expect(await browser.execute(()=>document.querySelector(".ss-popover")!.getBoundingClientRect().height)).toBeLessThan(260);await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"buscar-dark.png"));await browser.saveScreenshot(resolve(screenshots,"contexto-dark.png"));
+      expect(await browser.execute(()=>document.querySelector(".ss-popover")!.getBoundingClientRect().height)).toBe(500);await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"buscar-dark.png"));await browser.saveScreenshot(resolve(screenshots,"contexto-dark.png"));
       await browser.$(".ss-results-link").click();expect(await browser.$(".ss-example-note").getText()).toContain("no es tu feed de X");await browser.$(".ss-record input[type=checkbox]").click();await expect(browser.$(".ss-selection-count")).toHaveText("1 seleccionado");await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"resultados-dark.png"));
       await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:768,height:900,deviceScaleFactor:1,mobile:false});await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"resultados-tablet.png"));await browser.$("button[aria-label='Volver a buscar']").click();await browser.execute(()=>{document.body.classList.remove("theme-dark");document.body.classList.add("theme-light");});await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"buscar-light.png"));
       await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:390,height:600,deviceScaleFactor:1,mobile:false});await browser.$(".ss-results-link").click();
@@ -163,6 +163,52 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       const b=await browser.execute(()=>{const root=document.querySelector(".ss-popover")!,r=root.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight,overflow:root.scrollWidth>root.clientWidth};});expect(b.left).toBeGreaterThanOrEqual(11);expect(b.top).toBeGreaterThanOrEqual(11);expect(b.right).toBeLessThanOrEqual(b.width-11);expect(b.bottom).toBeLessThanOrEqual(b.height-11);expect(b.overflow).toBe(false);await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"resultados-narrow.png"));
       await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;p.imported.records[0].title="Recurso con un nombre muy largo ".repeat(20);p.refresh();});expect(await browser.execute(()=>{const root=document.querySelector(".ss-popover-body")!;return root.scrollWidth<=root.clientWidth;})).toBe(true);
     }finally{await browser.executeObsidian(({plugins},data)=>{const p=(plugins as any).sourceScraper;p.panelSnapshot=p.__snapshotBefore;delete p.__snapshotBefore;p.setImported(data);},fixture);await browser.keys("Escape");await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});}
+    expect(await snapshot()).toEqual(original);
+  });
+  it("keeps dialog actions visible and fields labelled in compact, short and wide viewports",async()=>{
+    mkdirSync(screenshots,{recursive:true});
+    const bounds=()=>browser.execute(()=>{
+      const modal=document.querySelector<HTMLElement>(".ss-dialog")!,body=modal.querySelector<HTMLElement>(".ss-dialog-body")!,footer=modal.querySelector<HTMLElement>(".ss-dialog-footer")!;
+      const r=modal.getBoundingClientRect(),f=footer.getBoundingClientRect();
+      const controls=Array.from(body.querySelectorAll<HTMLInputElement>("input,textarea,select"));
+      return {width:r.width,height:r.height,left:r.left,right:r.right,top:r.top,bottom:r.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,footerInside:f.bottom<=r.bottom&&f.top>=r.top,overflow:body.scrollWidth>body.clientWidth,unnamed:controls.filter(input=>!input.getAttribute("aria-label")&&!input.getAttribute("aria-labelledby")).length,scrollable:body.scrollHeight>body.clientHeight};
+    });
+    for(const [width,height] of [[1440,900],[768,700],[390,480]]){
+      await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
+      await setup();await browser.$(".ss-session-help summary").click();
+      await browser.executeAsync(done=>{requestAnimationFrame(()=>requestAnimationFrame(()=>done(null)));});
+      const b=await bounds();expect(b.left).toBeGreaterThanOrEqual(11);expect(b.right).toBeLessThanOrEqual(width-11);expect(b.top).toBeGreaterThanOrEqual(11);expect(b.bottom).toBeLessThanOrEqual(height-11);expect(b.footerInside).toBe(true);expect(b.overflow).toBe(false);expect(b.unnamed).toBe(0);
+      if(height===480)expect(b.scrollable).toBe(true);
+      await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"session-"+width+".png"));await browser.keys("Escape");
+      await more();await click("Importar resultados");await browser.$(".ss-dialog").waitForDisplayed();const imported=await bounds();expect(imported.footerInside).toBe(true);expect(imported.overflow).toBe(false);expect(imported.unnamed).toBe(0);await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"import-"+width+".png"));await browser.keys("Escape");
+    }
+    await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+    await review();await browser.$(".ss-record-title").click();await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"detail-dark.png"));await browser.keys("Escape");
+    await more();await browser.$(".ss-review-tools summary").click();await click("Formato de borradores");await browser.$(".ss-dialog").saveScreenshot(resolve(screenshots,"mapping-dark.png"));await browser.keys("Escape");
+    const mainWindow=await browser.getWindowHandle(),beforeWindows=await browser.getWindowHandles();
+    await browser.executeObsidian(({app})=>{(app as any).setting.open();(app as any).setting.openTabById("source-scraper");});
+    await browser.waitUntil(async()=>(await browser.$(".ss-settings").isDisplayed())||(await browser.getWindowHandles()).length>beforeWindows.length);
+    const settingsWindow=(await browser.getWindowHandles()).find(id=>!beforeWindows.includes(id));
+    if(settingsWindow)await browser.switchToWindow(settingsWindow);
+    try{
+      await browser.$(".ss-settings").waitForDisplayed();await browser.$(".ss-settings").saveScreenshot(resolve(screenshots,"settings.png"));
+      const beforeValue=await browser.$("input[placeholder='Source Scraper/Imported']").getValue();
+      await browser.$("input[placeholder='Source Scraper/Imported']").setValue("Test draft folder");
+      if(settingsWindow)await browser.switchToWindow(mainWindow);
+      const staged=await browser.executeObsidian(({plugins})=>{
+        const p=(plugins as any).sourceScraper;(globalThis as any).__settingsBefore={...p.settings};
+        const before=p.settings.outputFolder;p.settings.projectFolder="changed-while-settings-open";return before;
+      });expect(staged).toBe(beforeValue);
+      if(settingsWindow)await browser.switchToWindow(settingsWindow);
+      await click("Guardar ajustes");await browser.waitUntil(async()=>(await browser.$(".ss-settings .ss-form-status").getText())==="Ajustes guardados.");
+      if(settingsWindow)await browser.switchToWindow(mainWindow);
+      const saved=await browser.executeObsidian(async({plugins})=>{
+        const p=(plugins as any).sourceScraper,stored=await p.loadData();const result={folder:stored.outputFolder,other:stored.projectFolder};
+        p.settings=(globalThis as any).__settingsBefore;delete (globalThis as any).__settingsBefore;await p.savePrefs();return result;
+      });expect(saved).toEqual({folder:"Test draft folder",other:"changed-while-settings-open"});
+      if(settingsWindow)await browser.switchToWindow(settingsWindow);
+    }
+    finally{if(settingsWindow){await browser.closeWindow();await browser.switchToWindow(mainWindow);}else await browser.executeObsidian(({app})=>{(app as any).setting.close();});}
     expect(await snapshot()).toEqual(original);
   });
   it("stages MCP results passively and releases all UI on unload",async()=>{

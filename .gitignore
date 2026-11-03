@@ -21,3 +21,5 @@ coverage/
 main.js
 .obsidian-cache/
 tests/desktop/artifacts/
+
+.taste-skill/
