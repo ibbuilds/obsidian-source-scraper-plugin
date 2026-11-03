@@ -16,7 +16,7 @@ test("local setup accepts a numeric account ID or twid and versions changed filt
   assert.equal(original.id,"x-for-you-resources");assert.deepEqual(xFeedVariant(changed).outputs,[]);
 });
 
-test("masked local session values are bounded, never saved and only forwarded under a local grant",()=>{
+test("masked local session values are bounded, kept out of preferences and only forwarded under a local grant",()=>{
   const session=validateLocalSession("synthetic-auth-value","synthetic-csrf-value");
   for(const value of ["","has space","newline\n","x".repeat(8193)])assert.throws(()=>validateLocalSession(value,"valid"),/Enter both/);
   assert.deepEqual(xFeedReadiness(session),{csrfConfigured:true,accountSessionConfigured:true});

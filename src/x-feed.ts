@@ -19,7 +19,7 @@ export function xFeedReadiness(session?:XLocalSession){return {
   accountSessionConfigured:Boolean(session?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION)
 };}
 export function validateLocalSession(accountSession:string,csrf:string):XLocalSession{
-  if([accountSession,csrf].some(s=>!s||s.length>8192||/[^\x21-\x7e]/.test(s)))throw Error("Enter both local session values without spaces");
+  if([accountSession,csrf].some(s=>typeof s!=="string"||!s||s.length>8192||/[^\x21-\x7e]/.test(s)))throw Error("Enter both local session values without spaces");
   return {accountSession,csrf};
 }
 /** No credential, endpoint, command or vault path is accepted by this setup contract. */
