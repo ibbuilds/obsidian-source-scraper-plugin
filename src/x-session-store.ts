@@ -9,7 +9,7 @@ import type {XLocalSession} from "./cli-bridge.ts";
 export interface SessionCipher {protect(value:string):Promise<string>;unprotect(value:string):Promise<string>}
 const PROTECT=String.raw`$ErrorActionPreference='Stop'
 [Console]::Error.WriteLine('SS_DPAPI_START')
-Add-Type -AssemblyName System.Security
+[void][Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')
 [Console]::Error.WriteLine('SS_DPAPI_READY')
 $plain=[Text.Encoding]::UTF8.GetBytes([Console]::In.ReadLine())
 [Console]::Error.WriteLine('SS_DPAPI_INPUT')
@@ -17,7 +17,7 @@ try { [Console]::Out.Write([Convert]::ToBase64String([Security.Cryptography.Prot
 finally { [Array]::Clear($plain,0,$plain.Length) }`;
 const UNPROTECT=String.raw`$ErrorActionPreference='Stop'
 [Console]::Error.WriteLine('SS_DPAPI_START')
-Add-Type -AssemblyName System.Security
+[void][Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')
 [Console]::Error.WriteLine('SS_DPAPI_READY')
 $encrypted=[Convert]::FromBase64String([Console]::In.ReadLine().Trim())
 [Console]::Error.WriteLine('SS_DPAPI_INPUT')
