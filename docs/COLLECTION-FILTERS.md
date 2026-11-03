@@ -179,4 +179,4 @@ counts and identities with no external network traffic. It reports every sample,
 machine/runtime, database size and memory. These local measurements do not
 predict X network throughput. For You remains an algorithmic, paginated sample:
 date filtering does not grant exhaustive historical access. The X adapter keeps
-its configured 1–10 page window and preserves cursors between explicit runs.
+its configured 1â€“10 page window and preserves cursors between explicit runs.

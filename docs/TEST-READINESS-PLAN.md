@@ -8,10 +8,10 @@ The header, content and navigation/footer actions use whitespace instead of sepa
 
 ## Main journey
 
-1. Home: X / Para ti, actual connection state, one action (Conectar X, Buscar recursos, Detener or Reintentar), then Recursos with its count. Configured example data must remain labeled de ejemplo. Target height: below 260px in the supplied configured-example state.
-2. Recursos: native search, native selection checkboxes, title opening source evidence, official domain, concise description, selected count and Ver borradores. A back arrow returns home. Scores and full evidence remain in the detail dialog. Non-pending human decisions remain visible.
-3. Opciones: import results, change/disconnect X, other registered sources, collapsed advanced tools, plugin settings and diagnostics. The back arrow returns to the originating screen. All advanced functionality remains available.
-4. Borradores: previews only. Source Scraper never writes notes. ChatGPT uses the existing separate connector only on the user's explicit order.
+1. Home: X / For You, actual connection state, one action (Connect X, Find resources, Stop or Retry), then Resources with its count. Configured example data must remain labeled examples. Fixed panel size: 400 × 500 px, clamped to the viewport.
+2. Resources: native search, native selection checkboxes, title opening source evidence, official domain, concise description, selected count and Preview drafts. A back arrow returns home. Scores and full evidence remain in the detail dialog. Non-pending human decisions remain visible.
+3. Options: import results, change/disconnect X, other registered sources, collapsed advanced tools, plugin settings and diagnostics. The back arrow returns to the originating screen. All advanced functionality remains available.
+4. Drafts: previews only. Source Scraper never writes notes. ChatGPT uses the existing separate connector only on the user's explicit order.
 
 ## Verification
 

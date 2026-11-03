@@ -42,3 +42,7 @@ retains the same input and checkbox nodes.
 The skill's source lint has no failures; its shadow warning is accepted only for
 the real floating popover. The URL-based marketing inspector does not open the
 native app:// Obsidian surface; real-app geometry and screenshot checks cover it.
+
+Product language: English by default across labels, actions, placeholders, help,
+validation, accessibility names, status messages and user documentation. Collected
+titles, evidence and user-authored content retain their original language.

@@ -88,18 +88,18 @@ export class ScraperPopover {
     const snapshot=this.host.snapshot();this.signature=JSON.stringify(snapshot.projects);this.snapshotKey=JSON.stringify(snapshot);
     root.dataset.screen=this.screen;
     const header=this.el(root,"header","ss-popover-header");
-    if(this.screen!=="home")this.iconButton(header,"arrow-left",this.screen==="options"?"Volver":"Volver a buscar",()=>this.setScreen(this.screen==="options"?this.returnScreen:"home"));
-    const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Opciones":this.screen==="review"?"Recursos":"Source Scraper");title.tabIndex=-1;
-    if(this.screen!=="options")this.iconButton(header,"settings-2","Opciones",()=>this.setScreen("options"));
-    this.iconButton(header,"x","Cerrar Source Scraper",()=>this.close(true));
+    if(this.screen!=="home")this.iconButton(header,"arrow-left",this.screen==="options"?"Back":"Back to collection",()=>this.setScreen(this.screen==="options"?this.returnScreen:"home"));
+    const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Options":this.screen==="review"?"Resources":"Source Scraper");title.tabIndex=-1;
+    if(this.screen!=="options")this.iconButton(header,"settings-2","Options",()=>this.setScreen("options"));
+    this.iconButton(header,"x","Close Source Scraper",()=>this.close(true));
     this.resultsCount=undefined;
     this.body=this.el(root,"div","ss-popover-body");this.body.id=root.id+"-content";
     if(this.screen==="review"){
       if(snapshot.findings){this.host.renderReview(this.body);this.resultNotice=this.el(this.body,"p","ss-result-notice");this.updateResultNotice(snapshot);}
       else{
-        this.el(this.body,"p","ss-empty-title","Aún no hay resultados");const hint=this.el(this.body,"p","ss-hint");
-        this.button(this.body,"Ir a Buscar",()=>this.setScreen("home"),"ss-button ss-primary");
-        this.homeUpdate=s=>{hint.textContent=s.running?"La búsqueda está en curso.":s.message==="Búsqueda terminada."?"No se encontraron recursos con estos filtros. Ajusta la búsqueda e inténtalo de nuevo.":"Los recursos que busques o importes aparecerán aquí.";};
+        this.el(this.body,"p","ss-empty-title","No results yet");const hint=this.el(this.body,"p","ss-hint");
+        this.button(this.body,"Start collecting",()=>this.setScreen("home"),"ss-button ss-primary");
+        this.homeUpdate=s=>{hint.textContent=s.running?"Collection is in progress.":s.message==="Collection complete."?"No resources match these filters. Adjust the filters and try again.":"Resources you collect or import will appear here.";};
         this.homeUpdate(snapshot);
       }
     }else if(this.screen==="options")this.renderOptions(this.body,snapshot);else this.renderHome(this.body,snapshot);
@@ -107,28 +107,28 @@ export class ScraperPopover {
   }
   private updateResultNotice(s:PanelSnapshot):void{
     if(!this.resultNotice)return;
-    const text=s.running?"Buscando recursos… Los resultados anteriores siguen disponibles.":s.error?"La búsqueda no terminó. Vuelve a Buscar para reintentar.":"";
+    const text=s.running?"Collecting resources… Previous results remain available.":s.error?"Collection did not finish. Go back and try again.":"";
     this.resultNotice.textContent=text;this.resultNotice.hidden=!text;
   }
   private renderHome(body:HTMLElement,snapshot:PanelSnapshot):void{
     body.classList.add("ss-discovery");
-    const source=this.el(body,"div","ss-source-line");this.el(source,"strong","","X · Para ti");const status=this.el(source,"span","ss-source-status");
-    this.el(body,"h2","ss-discovery-title","Encuentra enlaces");
+    const source=this.el(body,"div","ss-source-line");this.el(source,"strong","","X · For You");const status=this.el(source,"span","ss-source-status");
+    this.el(body,"h2","ss-discovery-title","Find links");
     const hint=this.el(body,"p","ss-hint");hint.setAttribute("role","status");
-    const filters=this.button(body,"Filtros de búsqueda",()=>{this.close(false);this.host.filters();},"ss-filter-link");
-    const primary=this.button(body,"Conectar X",()=>{
+    const filters=this.button(body,"Search filters",()=>{this.close(false);this.host.filters();},"ss-filter-link");
+    const primary=this.button(body,"Connect X",()=>{
       const state=discoveryState(this.host.snapshot());
       if(state.action==="cancel")this.host.cancel();
       else if(state.action==="collect")this.host.collect(state.projectId);
       else{this.close(false);if(state.action==="settings")this.host.settings();else this.host.setup();}
     },"ss-button ss-primary");
     const complete=this.button(body,"",()=>this.setScreen("review"),"ss-results-link");
-    this.el(complete,"span","","Recursos");this.resultsCount=this.el(complete,"span","ss-result-count");
+    this.el(complete,"span","","Resources");this.resultsCount=this.el(complete,"span","ss-result-count");
     this.host.icon(this.el(complete,"span","ss-chevron"),"chevron-right");
     this.homeUpdate=s=>{
       const state=discoveryState(s);body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
-      this.resultsCount!.textContent=s.findings+(s.exampleFindings?" de ejemplo":s.findings===1?" disponible":" disponibles");
-      complete.setAttribute("aria-label",s.findings?"Ver resultados":"Ver resultados vacíos");
+      this.resultsCount!.textContent=s.findings+(s.exampleFindings?" examples":s.findings===1?" available":" available");
+      complete.setAttribute("aria-label",s.findings?"View results":"View empty results");
       filters.disabled=s.running||!s.projects.some(p=>p.isX);
       rootBusy(body,s.running);
     };
@@ -136,18 +136,18 @@ export class ScraperPopover {
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
-    this.button(options,"Importar resultados",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
-    this.el(options,"h3","ss-section-label","Cuenta de X");
-    this.button(options,"Cambiar sesión",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
-    const disconnect=this.button(options,"Desconectar X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
-    const alternative=this.el(options,"label","ss-project-label","Otras fuentes");
+    this.button(options,"Import results",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
+    this.el(options,"h3","ss-section-label","X account");
+    this.button(options,"Change session",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
+    const disconnect=this.button(options,"Disconnect X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
+    const alternative=this.el(options,"label","ss-project-label","Other sources");
     const dropdown=new DropdownComponent(alternative);for(const p of snapshot.projects)dropdown.addOption(p.id,p.name);
-    const select=dropdown.selectEl;select.classList.add("ss-project-select");select.setAttribute("aria-label","Otras fuentes");
+    const select=dropdown.selectEl;select.classList.add("ss-project-select");select.setAttribute("aria-label","Other sources");
     dropdown.onChange(value=>this.host.selectProject(value));
-    const runOther=this.button(options,"Buscar en esta fuente",()=>this.host.collect(select.value),"ss-button ss-secondary");
-    const advanced=this.el(options,"details","ss-review-tools");this.el(advanced,"summary","","Herramientas avanzadas");
+    const runOther=this.button(options,"Collect from this source",()=>this.host.collect(select.value),"ss-button ss-secondary");
+    const advanced=this.el(options,"details","ss-review-tools");this.el(advanced,"summary","","Advanced tools");
     this.host.renderTools(this.el(advanced,"div","ss-controls"));
-    this.button(options,"Configuración del plugin",()=>{this.close(false);this.host.settings();},"ss-button ss-text-action");
+    this.button(options,"Plugin settings",()=>{this.close(false);this.host.settings();},"ss-button ss-text-action");
     const diagnostics=this.el(advanced,"p","ss-diagnostics");
     this.homeUpdate=s=>{
       select.value=s.projectId;select.disabled=s.running;
@@ -155,7 +155,7 @@ export class ScraperPopover {
       const selected=s.projects.find(p=>p.id===select.value);
       runOther.disabled=s.running||!s.engine||!s.mcp||!selected||Boolean(selected.isX&&(!s.session||!s.xAllowed||!s.python));
       disconnect.hidden=!s.session||!s.xAllowed;disconnect.disabled=s.running;
-      diagnostics.textContent=s.error||"Motor: "+(s.engine?"disponible":"sin configurar")+" · MCP: "+(s.mcp?"disponible":"sin conectar")+" · Lector X: "+(s.python?"disponible":"sin preparar");
+      diagnostics.textContent=s.error||"Engine: "+(s.engine?"available":"not configured")+" · MCP: "+(s.mcp?"available":"not connected")+" · X reader: "+(s.python?"available":"not set up");
       rootBusy(options,s.running);
     };
     this.homeUpdate(snapshot);
