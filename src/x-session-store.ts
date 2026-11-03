@@ -86,7 +86,7 @@ export class XSessionStore {
         const decoded=JSON.parse(await this.cipher.unprotect(value)) as {version:number;vaultId:string;session:XLocalSession};
         if(decoded.version!==1||decoded.vaultId!==this.vaultId)throw Error(STORAGE_ERROR);
         return validateLocalSession(decoded.session.accountSession,decoded.session.csrf);
-      }catch{throw Error(STORAGE_ERROR);}
+      }catch(error){throw Error(error instanceof Error&&error.message.startsWith(STORAGE_ERROR)?error.message:STORAGE_ERROR);}
     });
   }
   private mutate(value:XLocalSession|undefined,commit:()=>Promise<void>):Promise<void>{
