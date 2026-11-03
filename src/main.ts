@@ -1,3 +1,4 @@
+import {ReviewIndex} from "./review-index.ts";
 import {XSessionStore} from "./x-session-store.ts";
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
@@ -395,52 +396,59 @@ class ScraperReview {
     const searchBox=root.createDiv({cls:"ss-search"});
     const search=new SearchComponent(searchBox).setPlaceholder("Filtrar recursos").setValue(this.search);
     const input=search.inputEl;input.setAttribute("aria-label","Filtrar recursos");
-    search.onChange(()=>{
-      const cursor=input.selectionStart??input.value.length;this.search=input.value;this.page=0;this.render();
-      const restored=root.querySelector<HTMLInputElement>('input[placeholder="Filtrar recursos"]');
-      if(restored){restored.focus();const position=Math.min(cursor,this.search.length);restored.setSelectionRange(position,position);}
-    });
-    const query=this.search.toLowerCase();
-    const filtered=imported.records.filter(e=>[e.title,e.key,e.type,e.category].some(value=>value.toLowerCase().includes(query)));
-    const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
+    const index=new ReviewIndex(imported.records);
     const list=root.createDiv({cls:"ss-candidate-list"});list.setAttribute("aria-label","Recursos encontrados");
-    const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
-    if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No hay coincidencias"});paragraph(empty,"Prueba otra palabra.");}
-    for(const entity of visible){
-      const item=list.createEl("article",{cls:"ss-record"});
-      const head=item.createDiv({cls:"ss-record-head"});
-      const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Seleccionar "+entity.title}});
-      checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
-      checkbox.addEventListener("change",()=>{
-        if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
-        this.render();Array.from(root.querySelectorAll<HTMLInputElement>(".ss-select-control")).find(node=>node.dataset.key===entity.key)?.focus();
-      });
-      const inspect=new ButtonComponent(head).setButtonText(entity.title).onClick(()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();}).buttonEl;
-      inspect.classList.add("ss-record-title");inspect.type="button";inspect.setAttribute("aria-label","Ver detalle: "+entity.title);
-      const source=item.createDiv({cls:"ss-record-source"});
-      if(entity.url){
-        const link=source.createEl("a",{href:entity.url,text:new URL(entity.url).hostname.replace(/^www\./,""),attr:{target:"_blank",rel:"noopener noreferrer"}});
-        link.setAttribute("aria-label","Abrir recurso: "+entity.title);
-      }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
-      const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
-      if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
-      if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Aprobado":"Descartado"});decision.dataset.review=entity.review;}
-    }
-    const pagination=root.createDiv({cls:"ss-pagination"});pagination.hidden=pageCount===1;
-    const previous=pagination.createEl("button",{text:"Anterior"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;this.render();};
-    pagination.createSpan({text:"Página "+(this.page+1)+" de "+pageCount});
-    const next=pagination.createEl("button",{text:"Siguiente"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;this.render();};
-    const selected=this.plugin.getSelected();
+    const pagination=root.createDiv({cls:"ss-pagination"});
     const draftArea=root.createDiv({cls:"ss-review-footer"});
-    const selection=draftArea.createSpan({cls:"ss-selection-count",text:selected.length+(selected.length===1?" seleccionado":" seleccionados")});selection.setAttribute("role","status");
-    const preview=new ButtonComponent(draftArea).setButtonText("Ver borradores").setTooltip("Vista previa para ChatGPT; no guarda notas").setDisabled(selected.length===0).onClick(()=>{
+    const selection=draftArea.createSpan({cls:"ss-selection-count"});selection.setAttribute("role","status");
+    const preview=new ButtonComponent(draftArea).setButtonText("Ver borradores").setTooltip("Vista previa para ChatGPT; no guarda notas").onClick(()=>{
       try{
+        const selected=this.plugin.getSelected();
         if(!selected.length)throw Error("Selecciona recursos antes de preparar notas.");
         if(selected.length>200)throw Error("Selecciona como máximo 200 recursos.");
         this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
     }).buttonEl;preview.classList.add("ss-preview-action");preview.type="button";
+    const updateSelection=()=>{
+      const count=this.plugin.selected.size;
+      selection.textContent=count+(count===1?" seleccionado":" seleccionados");preview.disabled=count===0;
+    };
+    const renderResults=()=>{
+      if(this.root!==root||!root.isConnected)return;
+      list.empty();pagination.empty();
+      const filtered=index.filter(this.search);
+      const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
+      const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
+      if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No hay coincidencias"});paragraph(empty,"Prueba otra palabra.");}
+      for(const entity of visible){
+        const item=list.createEl("article",{cls:"ss-record"});
+        const head=item.createDiv({cls:"ss-record-head"});
+        const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Seleccionar "+entity.title}});
+        checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
+        checkbox.addEventListener("change",()=>{
+          if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
+          updateSelection();
+        });
+        const inspect=new ButtonComponent(head).setButtonText(entity.title).onClick(()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();}).buttonEl;
+        inspect.classList.add("ss-record-title");inspect.type="button";inspect.setAttribute("aria-label","Ver detalle: "+entity.title);
+        const source=item.createDiv({cls:"ss-record-source"});
+        if(entity.url){
+          const link=source.createEl("a",{href:entity.url,text:new URL(entity.url).hostname.replace(/^www\./,""),attr:{target:"_blank",rel:"noopener noreferrer"}});
+          link.setAttribute("aria-label","Abrir recurso: "+entity.title);
+        }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
+        const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
+        if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
+        if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Aprobado":"Descartado"});decision.dataset.review=entity.review;}
+      }
+      pagination.hidden=pageCount===1;
+      const previous=pagination.createEl("button",{text:"Anterior"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;renderResults();};
+      pagination.createSpan({text:"Página "+(this.page+1)+" de "+pageCount});
+      const next=pagination.createEl("button",{text:"Siguiente"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;renderResults();};
+    };
+    search.onChange(()=>{this.search=input.value;this.page=0;renderResults();});
+    renderResults();updateSelection();
   }
+
   renderTools(controls:HTMLElement):void{
     const action=(text:string,click:()=>void)=>{new ButtonComponent(controls).setButtonText(text).onClick(()=>{this.plugin.closePopover();click();});};
     action("Editar proyecto",()=>new ProjectModal(this.app,this.plugin).open());
