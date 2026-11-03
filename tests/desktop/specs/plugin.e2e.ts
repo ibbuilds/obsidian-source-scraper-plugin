@@ -88,8 +88,27 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       await setup();await browser.$(".ss-session-filters summary").click();await browser.$(".ss-session-filters textarea").setValue("rust, open source");await click("Conectar");await browser.$(".ss-popover[data-screen=home]").waitForDisplayed();
       const second=await browser.executeObsidian(({plugins,require})=>{const p=(plugins as any).sourceScraper;return {count:JSON.parse(p.settings.mcpProjectsJson).length,preserved:require("node:fs").readFileSync(p.__firstManifest.path,"utf8")===p.__firstManifest.raw};});
       expect(second.count).toBe(2);expect(second.preserved).toBe(true);
-    }finally{await browser.executeObsidian(async({plugins})=>{const p=(plugins as any).sourceScraper;p.memorySession=p.__sessionBefore.memory;p.settings=p.__sessionBefore.settings;await p.savePrefs();delete p.__sessionBefore;delete p.__firstManifest;});}
+    }finally{await browser.executeObsidian(async({plugins})=>{const p=(plugins as any).sourceScraper;await p.sessionStore?.forgetAndCommit(async()=>{});p.memorySession=p.__sessionBefore.memory;p.settings=p.__sessionBefore.settings;await p.savePrefs();delete p.__sessionBefore;delete p.__firstManifest;});}
     await browser.keys("Escape");expect(await snapshot()).toEqual(original);
+  });
+  it("restores the encrypted Windows session after a genuine plugin reload",async function(){
+    if(await browser.executeObsidian(({require})=>require("node:process").platform)!=="win32"){this.skip();return;}
+    try{
+      const result=await browser.executeObsidian(async({app,plugins})=>{
+        const p=(plugins as any).sourceScraper;(globalThis as any).__ssRestartBefore={settings:{...p.settings},imported:p.imported,selected:[...p.selected]};
+        await p.useLocalSession({accountSession:"synthetic-reload-auth",csrf:"synthetic-reload-csrf"});
+        const manager=(app as any).plugins;await manager.disablePlugin("source-scraper");await manager.enablePlugin("source-scraper");
+        const fresh=manager.plugins["source-scraper"];
+        return {newInstance:fresh!==p,restored:fresh.localSession()?.accountSession==="synthetic-reload-auth",preferencesClean:!JSON.stringify(await fresh.loadData()).includes("synthetic-reload")};
+      });
+      expect(result).toEqual({newInstance:true,restored:true,preferencesClean:true});
+    }finally{
+      await browser.executeObsidian(async({app})=>{
+        const p=(app as any).plugins.plugins["source-scraper"],before=(globalThis as any).__ssRestartBefore;
+        if(before){await p.forgetLocalSession();p.settings=before.settings;if(before.imported)p.setImported(before.imported);p.selected=new Set(before.selected);await p.savePrefs();delete (globalThis as any).__ssRestartBefore;}
+      });
+    }
+    expect(await snapshot()).toEqual(original);
   });
   it("rejects an incompatible import without losing previous results",async()=>{
     await importFixture({...fixture,schemaVersion:2});await browser.keys("Escape");await review();expect((await browser.$$(".ss-record")).length).toBe(2);expect(await snapshot()).toEqual(original);

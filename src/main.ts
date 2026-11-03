@@ -1,3 +1,4 @@
+import {XSessionStore} from "./x-session-store.ts";
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
   Setting,TFile,setIcon,ButtonComponent,SearchComponent
@@ -337,7 +338,7 @@ class XFeedSetupModal extends Modal {
       new Setting(root).setName(label).addText(t=>{t.inputEl.type="password";t.inputEl.autocomplete="off";t.inputEl.spellcheck=false;t.inputEl.setAttribute("aria-label",label);secretInputs.push(t.inputEl);t.onChange(value=>{if(key==="session")accountSession=value;else csrf=value;});});
     }
     if(existingSession)paragraph(root,"Ya hay una sesión cargada. Deja auth_token y ct0 vacíos para conservarla.");
-    paragraph(root,"La sesión se mantiene en memoria hasta desconectar X o cerrar Obsidian. No se guarda en ajustes ni en notas.");
+    paragraph(root,this.plugin.canRememberSession()?"La sesión se guarda cifrada para tu usuario de Windows y se restaura al abrir Obsidian. Desconectar X borra la sesión guardada.":"En este sistema la sesión se mantiene en memoria hasta cerrar Obsidian. No se guarda en ajustes ni en notas.");
     const filters=root.createEl("details",{cls:"ss-session-filters"});filters.createEl("summary",{text:"Filtros de búsqueda"});
     new Setting(filters).setName("Incluir palabras").addTextArea(t=>t.setValue(include).onChange(value=>{include=value;}));
     new Setting(filters).setName("Excluir palabras").addTextArea(t=>t.setValue(exclude).onChange(value=>{exclude=value;}));
@@ -510,6 +511,8 @@ export default class ScraperPlugin extends Plugin {
   private popover?:ScraperPopover;
   private review?:ScraperReview;
   private memorySession?:XLocalSession;
+  private sessionStore?:XSessionStore;
+  private sessionChange:Promise<void>=Promise.resolve();
   private unloaded=false;
   private uiJobId?:string;
   private uiPolling=false;
@@ -527,6 +530,10 @@ export default class ScraperPlugin extends Plugin {
       for(const key of Object.keys(defaults) as (keyof Preferences)[]){
         if(typeof stored[key]==="string")this.settings[key]=stored[key];
       }
+    }
+    if(this.app.vault.adapter instanceof FileSystemAdapter){
+      const vaultId=createHash("sha256").update(this.app.vault.adapter.getBasePath()).digest("hex").slice(0,24);
+      this.sessionStore=new XSessionStore({vaultId});await this.restoreLocalSession();
     }
     this.registerView(VIEW_TYPE,leaf=>new LegacyScraperView(leaf));
     this.statusItem=this.addStatusBarItem();this.statusItem.addClass("mod-clickable","ss-status");
@@ -552,13 +559,35 @@ export default class ScraperPlugin extends Plugin {
   onunload():void{this.unloaded=true;this.closePopover();this.memorySession=undefined;this.disposeProvider?.();this.provider?.dispose();this.cli.cancel();}
   async savePrefs():Promise<void>{await this.saveData(this.settings);this.projectCache=undefined;this.connectMcp();this.updateStatus();}
   localSession():XLocalSession|undefined{return this.memorySession;}
-  async forgetLocalSession():Promise<void>{this.memorySession=undefined;this.settings.xProviderEnabled="false";this.uiMessage="Local X session disconnected.";await this.savePrefs();}
-  async useLocalSession(session:XLocalSession):Promise<void>{
-    const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
-    this.memorySession={...session};this.settings.xProviderEnabled="true";
-    try{await this.savePrefs();this.uiError="";this.uiMessage="Local X session loaded. Collect a small sample to verify the feed.";}
-    catch(error){this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
-    this.updateStatus();
+  canRememberSession():boolean{return this.sessionStore?.supported===true;}
+  async restoreLocalSession():Promise<void>{
+    if(this.settings.xProviderEnabled!=="true")return;
+    try{const saved=await this.sessionStore?.load();if(!this.unloaded&&saved){this.memorySession=saved;this.uiMessage="Sesión de X restaurada. Puedes buscar recursos.";}}
+    catch{this.uiError="No se pudo restaurar la sesión cifrada de X. Pulsa Conectar X para renovarla.";}
+  }
+  private changeSession(operation:()=>Promise<void>):Promise<void>{
+    const pending=this.sessionChange.then(operation);this.sessionChange=pending.catch(()=>{});return pending;
+  }
+  async forgetLocalSession():Promise<void>{
+    return this.changeSession(async()=>{
+      const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
+      this.memorySession=undefined;this.settings.xProviderEnabled="false";
+      try{if(this.sessionStore)await this.sessionStore.forgetAndCommit(()=>this.savePrefs());else await this.savePrefs();this.uiMessage="Sesión de X desconectada y borrada de este equipo.";}
+      catch(error){if(!this.unloaded)this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
+    });
+  }
+  async useLocalSession(value:XLocalSession):Promise<void>{
+    const session=validateLocalSession(value.accountSession,value.csrf);
+    return this.changeSession(async()=>{
+      if(this.unloaded)throw Error("Source Scraper ya está cerrado.");
+      const previous=this.memorySession,allowed=this.settings.xProviderEnabled;
+      this.memorySession={...session};this.settings.xProviderEnabled="true";
+      try{
+        if(this.sessionStore)await this.sessionStore.saveAndCommit(session,()=>this.savePrefs());else await this.savePrefs();
+        this.uiError="";this.uiMessage=this.canRememberSession()?"Sesión de X guardada y cargada. Haz una búsqueda para verificar acceso.":"Sesión de X cargada. Haz una búsqueda para verificar acceso.";
+      }catch(error){if(!this.unloaded)this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
+      this.updateStatus();
+    });
   }
   registeredProjects():RegisteredProject[]{
     if(this.provider)return this.provider.localProjects();

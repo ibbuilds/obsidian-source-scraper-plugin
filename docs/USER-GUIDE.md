@@ -18,7 +18,7 @@ La importación explícita lleva directamente a Resultados. Los resultados que l
 3. Ajusta **Filtros de búsqueda** si lo necesitas. Empieza con una página. Cambiar filtros conserva la configuración y los datos anteriores en otro perfil externo; no modifica notas.
 4. Pulsa **Buscar recursos**. La primera muestra real debe confirmar acceso, procedencia y utilidad. No hay API de pago ni alternativa comercial automática.
 
-La sesión se elimina al desconectar X o descargar el plugin/cerrar Obsidian. Si ya está cargada, deja los campos de cookies vacíos para conservarla al editar filtros. Consulta [X-FEED](X-FEED.md) para límites y detalles del lector local.
+En Windows, la sesión se guarda cifrada con DPAPI para tu usuario, fuera de la bóveda, y se restaura automáticamente al abrir Obsidian o recargar el plugin. **Desconectar X** elimina la copia guardada. No se guarda en notas, proyectos ni preferencias. Si X vence o revoca la sesión, hay que renovarla. Si ya está cargada, deja los campos de cookies vacíos para conservarla al editar filtros. En otros sistemas se mantiene el modo en memoria. Consulta [X-FEED](X-FEED.md) para límites y detalles del lector local.
 
 ## Usar desde ChatGPT
 

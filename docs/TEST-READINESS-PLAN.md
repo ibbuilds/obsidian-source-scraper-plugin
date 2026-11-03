@@ -16,7 +16,7 @@ The header, content and navigation/footer actions use whitespace instead of sepa
 ## Verification
 
 - Typecheck, unit tests and build.
-- Genuine isolated Obsidian Desktop: status ordering and fixed label width; keyboard activation, back navigation, focus restoration, Escape/outside click; no idle DOM rewrites; import and invalid-import recovery; native filtering and clear button; native selection and preview; evidence; advanced tools; masked session setup and no persisted secrets; explicit collection/cancel/no duplicate runs; completed empty results; light/dark and narrow layout, including long names; passive MCP arrivals and cleanup on unload.
+- Genuine isolated Obsidian Desktop: status ordering and fixed label width; keyboard activation, back navigation, focus restoration, Escape/outside click; no idle DOM rewrites; import and invalid-import recovery; native filtering and clear button; native selection and preview; evidence; advanced tools; masked session setup, no plaintext preferences and Windows DPAPI restore across a genuine plugin reload; explicit collection/cancel/no duplicate runs; completed empty results; light/dark and narrow layout, including long names; passive MCP arrivals and cleanup on unload.
 - Existing isolated-vault files remain byte-for-byte unchanged throughout all scenarios.
 - Screenshots come from the genuine running plugin, with illustrative fixtures explicitly marked. They are not stand-alone HTML mockups.
 - Remaining external gate: load the owner's X session locally and inspect a real For You sample. Neither fixture success nor loading a local session certifies live feed access or quality.

@@ -1,15 +1,21 @@
 import {resolve} from "node:path";
 import {parseObsidianVersions} from "wdio-obsidian-service";
+import ObsidianLauncher from "obsidian-launcher";
 const cacheDir=resolve(".obsidian-cache");
-const versions=await parseObsidianVersions(
-  process.env.OBSIDIAN_VERSIONS||"latest/latest",{cacheDir});
+const versionsUrl=process.env.OBSIDIAN_VERSIONS_URL;
+async function versionsForRun(){
+  const requested=process.env.OBSIDIAN_VERSIONS||"latest/latest";
+  if(versionsUrl)return new ObsidianLauncher({cacheDir,versionsUrl}).parseVersions(requested);
+  return parseObsidianVersions(requested,{cacheDir});
+}
+const versions=await versionsForRun();
 export const config:WebdriverIO.Config={
   runner:"local",framework:"mocha",specs:["./specs/plugin.e2e.ts"],maxInstances:1,
   capabilities:versions.map(([appVersion,installerVersion])=>({
     browserName:"obsidian",
     "wdio:obsidianOptions":{appVersion,installerVersion,plugins:["../../"],vault:"vault"}
   })),
-  services:["obsidian"],reporters:["spec"],mochaOpts:{ui:"bdd",timeout:90000},
+  services:versionsUrl?[["obsidian",{versionsUrl}]]:["obsidian"],reporters:["spec"],mochaOpts:{ui:"bdd",timeout:90000},
   waitforInterval:350,waitforTimeout:30000,logLevel:"warn",cacheDir,
   injectGlobals:false
 };
