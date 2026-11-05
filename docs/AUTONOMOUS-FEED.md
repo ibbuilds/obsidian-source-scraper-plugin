@@ -1,6 +1,6 @@
 # Background feed collection and controlled feedback
 
-The existing Source Scraper provider exposes 22 MCP tools. No second server,
+The existing Source Scraper provider exposes 26 MCP tools. No second server,
 repository, paid X API or extra model is needed. Users can review resources directly in the plugin. AI evaluation is optional
 through the existing MCP connection. Collection and already-evaluated like actions
 can continue with the chat closed while Obsidian and the computer remain open.
@@ -120,3 +120,6 @@ Public metadata fetches are not a claim that X recorded an outbound click.
 Private resources.json and cycle.json live beside the existing provider state,
 outside vault notes. Engine evidence and progress remain in the project SQLite
 store. Source Scraper never creates, edits, moves, renames or deletes vault notes.
+
+
+The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for filter-wide actions and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.

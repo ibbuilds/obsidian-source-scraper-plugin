@@ -21,9 +21,9 @@ export class CliBridge {
   private controller?:AbortController;
   get running():boolean{return Boolean(this.controller);}
   cancel():void{this.controller?.abort();}
-  private async command(config:CliConfig,command:string,args:string[],timeout=90000):Promise<unknown>{
+  private async command(config:CliConfig,command:string,args:string[],timeout=90000,input?:string):Promise<unknown>{
     if(this.running)throw new Error("Another Source Scraper command is running");
-    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress"]);
+    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress","resource-batch"]);
     if(!cmd.has(command))throw new Error("Command not allowed");
     const script=realpathSync(config.cliPath);
     const node=config.nodeExecutable.trim()||"node";
@@ -35,7 +35,7 @@ export class CliBridge {
       return await new Promise<unknown>((resolve,reject)=>{
         let closed=false;
         const child=spawn(node,[script,command,...args],{
-          shell:false,windowsHide:true,stdio:["ignore","pipe","pipe"],
+          shell:false,windowsHide:true,stdio:[input===undefined?"ignore":"pipe","pipe","pipe"],
           signal:abort.signal,env:cliEnvironment(config.allowXProvider===true,config.xPythonPath,config.xSession,config.allowXLikes)
         });
         const timer=setTimeout(()=>abort.abort(),timeout);
@@ -49,8 +49,8 @@ export class CliBridge {
           // On cancellation, detach our readers only once that exit is real;
           // waiting for a descendant's EOF must not keep this command locked.
           if(abort.signal.aborted&&(child.exitCode!==null||child.signalCode!==null)){
-            child.stdout.destroy();
-            child.stderr.destroy();
+            child.stdout!.destroy();
+            child.stderr!.destroy();
           }
         };
         const stop=()=>{
@@ -83,8 +83,8 @@ export class CliBridge {
           closed=true;clearTimeout(timer);
           if(forceTimer)clearTimeout(forceTimer);
           abort.signal.removeEventListener("abort",stop);
-          child.stdout.off("data",onStdout);
-          child.stderr.off("data",onStderr);
+          child.stdout!.off("data",onStdout);
+          child.stderr!.off("data",onStderr);
           child.off("error",onError);
           child.off("exit",closeCancelledPipes);
           // Even AbortError arrives before the child has actually exited.
@@ -101,14 +101,19 @@ export class CliBridge {
             catch{reject(new Error("CLI did not produce valid JSON"));}
           }
         };
-        child.stdout.on("data",onStdout);
-        child.stderr.on("data",onStderr);
+        if(input!==undefined){child.stdin!.on("error",onError);child.stdin!.end(input);}
+        child.stdout!.on("data",onStdout);
+        child.stderr!.on("data",onStderr);
         child.on("error",onError);
         child.once("exit",closeCancelledPipes);
         child.once("close",onClose);
         abort.signal.addEventListener("abort",stop,{once:true});
       });
     }finally{this.controller=undefined;}
+  }
+  async resourceBatch(config:CliConfig,request:unknown):Promise<any>{
+    const raw=JSON.stringify(request);if(Buffer.byteLength(raw)>8_000_000)throw Error("Resource request exceeds 8 MB");
+    return this.command(config,"resource-batch",["--config",config.configPath],120000,raw);
   }
   /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
   async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review",args:string[]=[]):Promise<unknown>{

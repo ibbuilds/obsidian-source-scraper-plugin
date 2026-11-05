@@ -22,6 +22,8 @@ type State={version:1;aliases:Record<string,string>;rejections:Rejection[];histo
 export class ResourceMemory{
   private data:State;
   private busy=false;
+  private batchDepth=0;
+  private rejectionIndex?:Map<string,Rejection[]>;
   private closed=false;
   private file:string;
   constructor(file:string){
@@ -33,14 +35,28 @@ export class ResourceMemory{
     this.save();
   }
   close(){this.closed=true;}
-  private save(){if(this.closed)return;mkdirSync(dirname(this.file),{recursive:true,mode:0o700});const raw=JSON.stringify(this.data);if(Buffer.byteLength(raw)>32_000_000)throw Error("RESOURCE_MEMORY_LIMIT");const tmp=this.file+"."+randomUUID()+".tmp";writeFileSync(tmp,raw,{flag:"wx",mode:0o600});renameSync(tmp,this.file);}
+  private save(){if(this.closed||this.batchDepth)return;mkdirSync(dirname(this.file),{recursive:true,mode:0o700});const raw=JSON.stringify(this.data);if(Buffer.byteLength(raw)>32_000_000)throw Error("RESOURCE_MEMORY_LIMIT");const tmp=this.file+"."+randomUUID()+".tmp";writeFileSync(tmp,raw,{flag:"wx",mode:0o600});renameSync(tmp,this.file);}
   identity(scope:string,url:string){let id=resourceIdentity(url);const seen=new Set<string>();while(this.data.aliases[scope+"|"+id]){if(seen.has(id))throw Error("ALIAS_CYCLE");seen.add(id);id=this.data.aliases[scope+"|"+id];}return id;}
-  hasDecision(scope:string,url:string){const id=this.identity(scope,url);return this.data.rejections.some(r=>r.scope===scope&&this.identity(scope,r.resource)===id);}
-  rejected(scope:string,url:string){const id=this.identity(scope,url);return this.data.rejections.some(r=>r.scope===scope&&r.active&&this.identity(scope,r.resource)===id);}
-  reject(scope:string,url:string,reason="",origin="user"){const resource=this.identity(scope,url),at=new Date().toISOString();if(reason.length>1000)throw Error("REASON_LIMIT");if(this.data.rejections.some(r=>r.scope===scope&&r.active&&this.identity(scope,r.resource)===resource&&r.reason===reason&&r.origin===origin))return;for(const r of this.data.rejections)if(r.scope===scope&&this.identity(scope,r.resource)===resource)r.active=false;this.data.rejections.push({scope,resource,reason,at,origin,active:true});const previousHuman=this.data.humanReviews[scope+"|"+resource];if(previousHuman)this.data.humanReviews[scope+"|"+resource]={...previousHuman,decision:"rejected",reason,postSuitable:false,verifiedUsefulFreeAndQuality:false,at};this.data.history.push({kind:"reject",scope,resource,reason,at,origin});for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.state==="pending"){a.state="cancelled";a.updatedAt=at;}this.save();}
-  restore(scope:string,url:string){const resource=this.identity(scope,url);for(const r of this.data.rejections)if(r.scope===scope&&this.identity(scope,r.resource)===resource)r.active=false;const old=this.humanReview(scope,resource);if(old?.decision==="rejected")this.data.humanReviews[scope+"|"+resource]={...old,decision:"pending",postSuitable:false,verifiedUsefulFreeAndQuality:false,at:new Date().toISOString()};this.data.history.push({kind:"restore",scope,resource,at:new Date().toISOString()});this.save();}
+  private rejectionRows(scope:string,url:string){if(!this.rejectionIndex){this.rejectionIndex=new Map();for(const r of this.data.rejections){const key=r.scope+"|"+this.identity(r.scope,r.resource),rows=this.rejectionIndex.get(key)??[];rows.push(r);this.rejectionIndex.set(key,rows);}}return this.rejectionIndex.get(scope+"|"+this.identity(scope,url))??[];}
+  hasDecision(scope:string,url:string){return this.rejectionRows(scope,url).length>0;}
+  rejected(scope:string,url:string){return this.rejectionRows(scope,url).some(r=>r.active);}
+  reject(scope:string,url:string,reason="",origin="user"){
+    const resource=this.identity(scope,url),at=new Date().toISOString();if(reason.length>1000)throw Error("REASON_LIMIT");const rows=this.rejectionRows(scope,resource);if(rows.some(r=>r.active&&r.reason===reason&&r.origin===origin))return;for(const r of rows)r.active=false;
+    const row={scope,resource,reason,at,origin,active:true};this.data.rejections.push(row);rows.push(row);this.rejectionIndex!.set(scope+"|"+resource,rows);
+    const previousHuman=this.data.humanReviews[scope+"|"+resource];if(previousHuman)this.data.humanReviews[scope+"|"+resource]={...previousHuman,decision:"rejected",reason,postSuitable:false,verifiedUsefulFreeAndQuality:false,at};this.data.history.push({kind:"reject",scope,resource,reason,at,origin});for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.state==="pending"){a.state="cancelled";a.updatedAt=at;}this.save();
+  }
+  restore(scope:string,url:string){const resource=this.identity(scope,url);for(const r of this.rejectionRows(scope,resource))r.active=false;const old=this.humanReview(scope,resource);if(old?.decision==="rejected")this.data.humanReviews[scope+"|"+resource]={...old,decision:"pending",postSuitable:false,verifiedUsefulFreeAndQuality:false,at:new Date().toISOString()};this.data.history.push({kind:"restore",scope,resource,at:new Date().toISOString()});this.save();}
+  transaction<T>(work:()=>T):T{if(this.batchDepth)return work();const before=structuredClone(this.data);this.batchDepth++;try{const result=work();this.batchDepth--;this.save();return result;}catch(e){this.batchDepth=0;this.data=before;this.rejectionIndex=undefined;throw e;}}
+  queryContext(scope="user"){
+    const prefix=scope+"|",aliases=Object.fromEntries(Object.entries(this.data.aliases).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[k.slice(prefix.length),v]));
+    const reviews:Record<string,"pending"|"approved"|"rejected">={};for(const r of this.data.rejections)if(r.scope===scope&&!r.active)reviews[this.identity(scope,r.resource)]="pending";
+    for(const [k,v] of Object.entries(this.data.humanReviews))if(k.startsWith(prefix))reviews[this.identity(scope,k.slice(prefix.length))]=v.decision;
+    for(const r of this.listRejected(scope))reviews[this.identity(scope,r.resource)]="rejected";
+    const assessments=Object.fromEntries(Object.entries(this.data.assessments).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[this.identity(scope,k.slice(prefix.length)),{decision:v.decision,at:v.at,utility:v.utility.slice(0,400)}]));
+    return {aliases,rejected:this.listRejected(scope).map(r=>this.identity(scope,r.resource)),reviews,assessments};
+  }
   listRejected(scope:string){return this.data.rejections.filter(r=>r.scope===scope&&r.active);}
-  alias(scope:string,alias:string,target:string){const a=this.identity(scope,alias),b=this.identity(scope,target);if(a===b)return;this.data.aliases[scope+"|"+a]=b;for(const action of this.data.actions)if(action.scope===scope&&action.state==="pending"&&this.rejected(scope,action.resource))action.state="cancelled";this.data.history.push({kind:"alias",scope,alias:a,target:b,at:new Date().toISOString()});this.save();}
+  alias(scope:string,alias:string,target:string){const a=this.identity(scope,alias),b=this.identity(scope,target);if(a===b)return;this.data.aliases[scope+"|"+a]=b;this.rejectionIndex=undefined;for(const action of this.data.actions)if(action.scope===scope&&action.state==="pending"&&this.rejected(scope,action.resource))action.state="cancelled";this.data.history.push({kind:"alias",scope,alias:a,target:b,at:new Date().toISOString()});this.save();}
   assess(scope:string,url:string,input:unknown){
     const x=input as Recommendation;
     if(!x||!["recommended","pending","discarded"].includes(x.decision)||!/^([a-f0-9]{64})$/.test(x.fingerprint))throw Error("INVALID_RESOURCE_ASSESSMENT");

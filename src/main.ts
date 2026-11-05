@@ -1,3 +1,4 @@
+import {ResourceInbox} from "./resource-inbox.ts";
 import {dialog,action,formStatus,labelFields} from "./form-ui.ts";
 import {feedFilterForm,applyFeedFilterForm} from "./filter-form.ts";
 import {ReviewIndex} from "./review-index.ts";
@@ -443,15 +444,21 @@ class LegacyScraperView extends ItemView {
   getDisplayText():string{return "Source Scraper";}
 }
 class ScraperReview {
+  private inbox?:ResourceInbox;
   private page=0;
   private search="";
   private reviewFilter="all";
   constructor(private root:HTMLElement|undefined,private plugin:ScraperPlugin){}
   private get app():Plugin["app"]{return this.plugin.app;}
   mount(root:HTMLElement):void{this.root=root;this.render();}
-  unmount():void{this.root=undefined;}
+  unmount():void{this.inbox?.unmount();this.root=undefined;}
   render():void{
     const root=this.root;if(!root||!root.isConnected)return;
+    if(this.plugin.resourceInboxReady()){
+      this.inbox?.unmount();this.inbox=new ResourceInbox({projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
+        detail:e=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,e).open();},drafts:records=>{this.plugin.closePopover();new ExportModal(this.app,this.plugin,records).open();}});
+      this.inbox.mount(root);return;
+    }
     root.empty();root.addClass("source-scraper-view");
     const imported=this.plugin.imported;
     if(!imported){paragraph(root,"No results yet. Collect sources or import a results file.");return;}
@@ -821,6 +828,10 @@ export default class ScraperPlugin extends Plugin {
       if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
     }else{const s=this.settings;await this.cli.review({cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable},entity.projectId,entity.key,decision,reason.trim()||`User marked this resource ${decision}.`);}
   }
+  resourceInboxReady(){const entries=this.registeredProjects();return Boolean(this.provider&&entries.length&&(!this.imported||entries.some(p=>p.id===this.imported!.projectId)));}
+  resourceInboxProject(){const id=this.imported?.projectId;return this.registeredProjects().some(p=>p.id===id)?id!:this.panelSnapshot().projectId;}
+  async queryResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");return this.provider.getResources(args);}
+  async reviewResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");this.reviewRequest++;const result=await this.provider.reviewResources(args,"user-interface");if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));for(const e of this.imported.records)if(e.url){const human=this.provider.memory.humanReview("user",e.url);if(human)e.review=human.decision;}}return result;}
   private batchSaving=false;
   async saveReviewBatch(changes:ReviewChange[],reason:string,stopped:()=>boolean,progress:(results:ReviewResult[])=>void){
     if(this.batchSaving)throw Error("A review batch is still saving. Try again when it finishes.");
@@ -833,8 +844,9 @@ export default class ScraperPlugin extends Plugin {
   }
   private reviewRequest=0;
   reviewTruncated=false;
-  async refreshResources(){
+  async refreshResources(force=false){
     if(!this.provider||this.batchSaving)return;
+    if(this.resourceInboxReady()){if(force)this.refresh();return;}
     const entries=this.registeredProjects(),id=entries.some(p=>p.id===this.imported?.projectId)?this.imported!.projectId:this.panelSnapshot().projectId;
     if(!id||this.imported&&!entries.some(p=>p.id===this.imported!.projectId))return;
     const request=++this.reviewRequest,records:EntityRecord[]=[];
@@ -854,7 +866,7 @@ export default class ScraperPlugin extends Plugin {
   async openView(showResults=false):Promise<void>{
     if(this.unloaded||!this.statusItem)return;
     if(!this.popover)this.popover=new ScraperPopover(this.statusItem,{
-      refreshResults:()=>this.refreshResources(),
+      hasReviewInbox:()=>this.resourceInboxReady(),reviewInboxKey:()=>this.resourceInboxProject(),refreshResults:force=>this.refreshResources(force),
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
       setup:()=>new XFeedSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
