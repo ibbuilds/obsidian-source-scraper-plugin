@@ -267,6 +267,46 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
         if(b.imported)p.setImported(b.imported);p.selected=new Set(b.selected);p.updateStatus();delete p.__manualBefore;});
     }
   });
+  it("selects pages, compares resources and saves mixed manual reviews without AI",async()=>{
+    await browser.executeObsidian(({plugins,require},data)=>{const p=(plugins as any).sourceScraper;
+      p.__batchBefore={settings:p.settings,imported:p.imported,selected:[...p.selected],save:p.saveHumanReview,connect:p.connectMcp,provider:p.provider,review:p.review};
+      p.settings={...p.settings,cliPath:require("node:process").execPath,configPath:"batch-fixture-no-execution"};p.provider=undefined;p.connectMcp=()=>{};p.review=undefined;
+      (globalThis as any).__batchWrites=[];p.saveHumanReview=async(e:any,decision:string,reason:string,queueLike:boolean)=>{(globalThis as any).__batchWrites.push({key:e.key,decision,reason,queueLike});};
+      p.setImported({...data,records:Array.from({length:45},(_,i)=>({...data.records[1],key:"batch-"+i,title:"Batch resource "+i,type:"web-resource",review:"pending",attributes:{description:"Reusable UI tooling "+i,access:"open_source",license:"MIT"}}))});
+    },fixture);
+    try{
+      await review();await browser.$('input[aria-label="Select this page"]').click();await expect(browser.$('.ss-selection-count')).toHaveText('40 selected');
+      await click('Next');await browser.$('input[aria-label="Select this page"]').click();await expect(browser.$('.ss-selection-count')).toHaveText('45 selected');await click('Clear selection');await expect(browser.$('.ss-selection-count')).toHaveText('0 selected');
+      await browser.$('input[aria-label="Select this page"]').click();await click('Review selected');await browser.$('.ss-batch-grid').waitForDisplayed();expect(await browser.$$('.ss-batch-card')).toHaveLength(5);expect(await browser.$('.ss-batch-grid').getText()).toContain('Access: open source · License: MIT');
+      await browser.$('.ss-batch-controls select').selectByAttribute('value','approved');await browser.$('.ss-batch-card select').selectByAttribute('value','rejected');await browser.$('.ss-batch-reason summary').click();await browser.$('.ss-batch-controls input').setValue('Checked the available source');
+      await click('Save 5 reviews');await browser.waitUntil(async()=>(await browser.$('.ss-batch-status').getText()).includes('5 saved'));
+      const writes=await browser.execute(()=>(globalThis as any).__batchWrites);expect(writes).toHaveLength(5);expect(writes[0]).toEqual({key:'batch-40',decision:'rejected',reason:'Checked the available source',queueLike:false});expect(writes.slice(1).every((w:any)=>w.decision==='approved'&&w.queueLike===false)).toBe(true);
+      await browser.$('.ss-batch-reason summary').click();await browser.waitUntil(async()=>!(await browser.$('.notice').isExisting()),{timeout:15000});
+      for(const [width,height] of [[1440,900],[390,480]]){await browser.sendCommand('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await browser.executeAsync(done=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(null))));
+        const b=await browser.execute(()=>{const root=document.querySelector<HTMLElement>('.ss-dialog')!,body=root.querySelector<HTMLElement>('.ss-dialog-body')!,r=root.getBoundingClientRect(),f=root.querySelector('.ss-dialog-footer')!.getBoundingClientRect();return {inside:r.left>=11&&r.right<=innerWidth-11&&r.top>=11&&r.bottom<=innerHeight-11,overflow:body.scrollWidth>body.clientWidth,footer:f.bottom<=r.bottom&&f.top>=r.top};});expect(b).toEqual({inside:true,overflow:false,footer:true});await browser.$('.ss-dialog').saveScreenshot(resolve(screenshots,'batch-review-'+width+'.png'));
+      }
+      await browser.sendCommand('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await click('Close');expect(await snapshot()).toEqual(original);
+    }finally{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__batchBefore;p.settings=b.settings;p.saveHumanReview=b.save;p.connectMcp=b.connect;p.provider=b.provider;p.review=b.review;if(b.imported)p.setImported(b.imported);p.selected=new Set(b.selected);p.updateStatus();delete p.__batchBefore;});}
+  });
+  it("reports a failed batch entry and retries it without resaving successful reviews",async()=>{
+    await browser.executeObsidian(({plugins,require},data)=>{const p=(plugins as any).sourceScraper;
+      p.__retryBefore={settings:p.settings,imported:p.imported,save:p.saveHumanReview,connect:p.connectMcp,provider:p.provider,review:p.review};
+      p.settings={...p.settings,cliPath:require("node:process").execPath,configPath:"retry-fixture"};p.provider=undefined;p.connectMcp=()=>{};p.review=undefined;(globalThis as any).__retryWrites=[];
+      p.saveHumanReview=async(e:any)=>{const writes=(globalThis as any).__retryWrites;writes.push(e.key);if(e.key==='retry-1'&&writes.filter((k:string)=>k==='retry-1').length===1)throw Error('Fixture unavailable');};
+      p.setImported({...data,records:[0,1].map(i=>({...data.records[1],key:'retry-'+i,title:'Retry resource '+i,type:'web-resource',review:'pending'}))});
+    },fixture);
+    try{await review();await browser.$('input[aria-label="Select this page"]').click();await click('Review selected');await browser.$('.ss-batch-controls select').selectByAttribute('value','approved');await click('Save 2 reviews');await browser.waitUntil(async()=>(await browser.$('.ss-batch-status').getText()).includes('1 failed'));expect(await browser.$('.ss-batch-grid').getText()).toContain('Fixture unavailable');await click('Save 1 review');await browser.waitUntil(async()=>(await browser.$('.ss-batch-status').getText()).includes('0 failed'));expect(await browser.execute(()=>(globalThis as any).__retryWrites)).toEqual(['retry-0','retry-1','retry-1']);await click('Close');expect(await snapshot()).toEqual(original);
+    }finally{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__retryBefore;p.settings=b.settings;p.saveHumanReview=b.save;p.connectMcp=b.connect;p.provider=b.provider;p.review=b.review;if(b.imported)p.setImported(b.imported);p.updateStatus();delete p.__retryBefore;});}
+  });
+  it("stops a saving batch after the in-flight review and resumes only unprocessed decisions",async()=>{
+    await browser.executeObsidian(({plugins,require},data)=>{const p=(plugins as any).sourceScraper;
+      p.__stopBefore={settings:p.settings,imported:p.imported,save:p.saveHumanReview,connect:p.connectMcp,provider:p.provider,review:p.review};p.settings={...p.settings,cliPath:require("node:process").execPath,configPath:"stop-fixture"};p.provider=undefined;p.connectMcp=()=>{};p.review=undefined;(globalThis as any).__stopWrites=[];
+      p.saveHumanReview=async(e:any)=>{(globalThis as any).__stopWrites.push(e.key);if(e.key==='stop-0')await new Promise<void>(resolve=>{p.__releaseReview=resolve;});};
+      p.setImported({...data,records:[0,1].map(i=>({...data.records[1],key:'stop-'+i,title:'Stop resource '+i,type:'web-resource',review:'pending'}))});
+    },fixture);
+    try{await review();await browser.$('input[aria-label="Select this page"]').click();await click('Review selected');await browser.$('.ss-batch-controls select').selectByAttribute('value','approved');await click('Save 2 reviews');await browser.waitUntil(()=>browser.execute(()=>(globalThis as any).__stopWrites.length===1));await click('Stop saving');await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__releaseReview());await browser.waitUntil(async()=>(await browser.$('.ss-batch-status').getText()).includes('1 not processed'));expect(await browser.execute(()=>(globalThis as any).__stopWrites)).toEqual(['stop-0']);await click('Save 1 review');await browser.waitUntil(async()=>(await browser.$('.ss-batch-status').getText()).includes('0 not processed'));expect(await browser.execute(()=>(globalThis as any).__stopWrites)).toEqual(['stop-0','stop-1']);await click('Close');expect(await snapshot()).toEqual(original);
+    }finally{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__stopBefore;p.settings=b.settings;p.saveHumanReview=b.save;p.connectMcp=b.connect;p.provider=b.provider;p.review=b.review;if(b.imported)p.setImported(b.imported);p.updateStatus();delete p.__stopBefore;delete p.__releaseReview;});}
+  });
   it("stages MCP results passively and releases all UI on unload",async()=>{
     await browser.executeObsidian(({plugins},data)=>{(plugins as any).sourceScraper.setImported(data);},fixture);expect(await browser.$(".ss-popover").isExisting()).toBe(false);await overview();await browser.executeObsidian(async({app})=>{await (app as any).plugins.disablePlugin("source-scraper");});expect(await browser.$(".ss-popover").isExisting()).toBe(false);expect(await browser.$(".ss-status").isExisting()).toBe(false);expect(await snapshot()).toEqual(original);
   });
