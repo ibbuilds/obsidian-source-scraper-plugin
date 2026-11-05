@@ -16,6 +16,7 @@ export interface EntityRecord {
   review:"pending"|"approved"|"rejected";
   updatedAt:string;
   observationCount:number;
+  resourceAssessment?:{decision:"recommended"|"pending"|"discarded";at:string;utility:string;stale?:boolean};
   provenance?:{
     mentions:Record<string,unknown>[];
     reviews:Record<string,unknown>[];
@@ -130,7 +131,9 @@ function readEntity(raw:unknown,projectId:string):EntityRecord{
       assessmentHistory:recordsArray(p.assessmentHistory,"assessment history",30),
       mentionsTruncated:p.mentionsTruncated};
   }
-  return {projectId,key,type,title,url,attributes,category,score,confidence,
+  let resourceAssessment:EntityRecord["resourceAssessment"];
+  if(value.resourceAssessment!==undefined){const a=object(value.resourceAssessment,"resource assessment");if(!["recommended","pending","discarded"].includes(String(a.decision)))fail("invalid resource assessment");resourceAssessment={decision:a.decision as "recommended"|"pending"|"discarded",at:str(a.at,"assessment date",100),utility:str(a.utility||"Awaiting evidence","utility",4000),stale:a.stale===true};}
+  return {projectId,key,type,title,url,attributes,category,score,confidence,resourceAssessment,
     reasons:reasons as string[],review:review as EntityRecord["review"],
     updatedAt,observationCount:count as number,provenance};
 }

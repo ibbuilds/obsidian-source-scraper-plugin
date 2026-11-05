@@ -6,6 +6,8 @@ export interface PopoverHost {
   settings:()=>void;setup:()=>void;filters:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
   importFindings:()=>void;
   disconnect?:()=>void;
+  refreshResults?:()=>Promise<void>;
+  cycle?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
 }
 let sequence=0;
@@ -73,6 +75,7 @@ export class ScraperPopover {
   }
   private button(parent:HTMLElement,label:string,action:()=>void,cls="ss-button"):HTMLButtonElement{
     const button=new ButtonComponent(parent).setButtonText(label).onClick(action).buttonEl;
+    if(cls.split(" ").includes("ss-primary"))button.classList.add("mod-cta");
     button.classList.add(...cls.split(" "));button.type="button";return button;
   }
   private iconButton(parent:HTMLElement,name:string,label:string,action:()=>void):void{
@@ -90,6 +93,7 @@ export class ScraperPopover {
     const header=this.el(root,"header","ss-popover-header");
     if(this.screen!=="home")this.iconButton(header,"arrow-left",this.screen==="options"?"Back":"Back to collection",()=>this.setScreen(this.screen==="options"?this.returnScreen:"home"));
     const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Options":this.screen==="review"?"Resources":"Source Scraper");title.tabIndex=-1;
+    if(this.screen==="review"&&this.host.refreshResults)this.iconButton(header,"refresh-cw","Refresh resources",()=>{void this.host.refreshResults?.();});
     if(this.screen!=="options")this.iconButton(header,"settings-2","Options",()=>this.setScreen("options"));
     this.iconButton(header,"x","Close Source Scraper",()=>this.close(true));
     this.resultsCount=undefined;
@@ -122,7 +126,7 @@ export class ScraperPopover {
       else if(state.action==="collect")this.host.collect(state.projectId);
       else{this.close(false);if(state.action==="settings")this.host.settings();else this.host.setup();}
     },"ss-button ss-primary");
-    const complete=this.button(body,"",()=>this.setScreen("review"),"ss-results-link");
+    const complete=this.button(body,"",()=>{this.setScreen("review");void this.host.refreshResults?.();},"ss-results-link");
     this.el(complete,"span","","Resources");this.resultsCount=this.el(complete,"span","ss-result-count");
     this.host.icon(this.el(complete,"span","ss-chevron"),"chevron-right");
     this.homeUpdate=s=>{
@@ -132,10 +136,11 @@ export class ScraperPopover {
       filters.disabled=s.running||!s.projects.some(p=>p.isX);
       rootBusy(body,s.running);
     };
-    body.appendChild(primary);this.homeUpdate(snapshot);
+    const footer=this.el(body.parentElement!,"footer","ss-home-footer");footer.appendChild(primary);this.homeUpdate(snapshot);
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
+    if(this.host.cycle)this.button(options,"Collection and feedback",()=>{this.close(false);this.host.cycle?.();},"ss-button ss-secondary");
     this.button(options,"Import results",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
     this.el(options,"h3","ss-section-label","X account");
     this.button(options,"Change session",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");

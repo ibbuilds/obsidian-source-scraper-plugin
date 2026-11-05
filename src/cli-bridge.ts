@@ -11,7 +11,7 @@ function safe(s:string):string{
     .slice(0,400);
 }
 export interface XLocalSession {accountSession:string;csrf:string}
-export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string;allowXProvider?:boolean;xPythonPath?:string;xSession?:XLocalSession}
+export interface CliConfig {nodeExecutable:string;cliPath:string;configPath:string;allowXProvider?:boolean;allowXLikes?:boolean;xPythonPath?:string;xSession?:XLocalSession}
 export class CliCommandError extends Error {
   readonly output:unknown;
   readonly exitCode:number|null;
@@ -23,7 +23,7 @@ export class CliBridge {
   cancel():void{this.controller?.abort();}
   private async command(config:CliConfig,command:string,args:string[],timeout=90000):Promise<unknown>{
     if(this.running)throw new Error("Another Source Scraper command is running");
-    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list"]);
+    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress"]);
     if(!cmd.has(command))throw new Error("Command not allowed");
     const script=realpathSync(config.cliPath);
     const node=config.nodeExecutable.trim()||"node";
@@ -36,7 +36,7 @@ export class CliBridge {
         let closed=false;
         const child=spawn(node,[script,command,...args],{
           shell:false,windowsHide:true,stdio:["ignore","pipe","pipe"],
-          signal:abort.signal,env:cliEnvironment(config.allowXProvider===true,config.xPythonPath,config.xSession)
+          signal:abort.signal,env:cliEnvironment(config.allowXProvider===true,config.xPythonPath,config.xSession,config.allowXLikes)
         });
         const timer=setTimeout(()=>abort.abort(),timeout);
         let forceTimer:ReturnType<typeof setTimeout>|undefined;
@@ -111,7 +111,7 @@ export class CliBridge {
     }finally{this.controller=undefined;}
   }
   /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
-  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list",args:string[]=[]):Promise<unknown>{
+  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review",args:string[]=[]):Promise<unknown>{
     return this.command(config,command,args,120000);
   }
   async checkVersion(config:CliConfig):Promise<string>{
@@ -157,11 +157,13 @@ export class CliBridge {
   }
 }
 /** Only a local UI grant may authorize free first-party X reads. No paid-provider fallback. */
-export function cliEnvironment(allowXProvider:boolean,xPythonPath?:string,session?:XLocalSession):NodeJS.ProcessEnv{
+export function cliEnvironment(allowXProvider:boolean,xPythonPath?:string,session?:XLocalSession,allowXLikes=false):NodeJS.ProcessEnv{
   const env={...process.env};
   delete env.SOURCE_SCRAPER_X_PROVIDER_APPROVED;
   delete env.SOURCE_SCRAPER_GETXAPI_API_KEY;
   delete env.SOURCE_SCRAPER_X_LOCAL_APPROVED;
+  delete env.SOURCE_SCRAPER_X_LIKES_APPROVED;
+  if(allowXProvider&&allowXLikes)env.SOURCE_SCRAPER_X_LIKES_APPROVED="local-likes-only";
   if(allowXProvider){
     env.SOURCE_SCRAPER_X_LOCAL_APPROVED="local-read-only";if(xPythonPath)env.SOURCE_SCRAPER_X_PYTHON=xPythonPath;
     if(session){env.SOURCE_SCRAPER_X_ACCOUNT_SESSION=session.accountSession;env.SOURCE_SCRAPER_X_CSRF=session.csrf;}

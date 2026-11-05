@@ -61,7 +61,7 @@ session or format changes made meanwhile in other screens.
 
 ## Use from ChatGPT
 
-The existing connector exposes 15 Source Scraper tools to validate sources,
+The optional connector exposes 22 Source Scraper tools to validate sources,
 start bounded jobs, read findings, record AI recommendations separately from
 human decisions and maintain a persistent selection. Recommendations include
 evidence and references; they are not independent verification or permission to
@@ -74,3 +74,8 @@ Imports: 5,000 records / 8 MB. MCP queries: up to 500 records per page.
 Selections: 1–200 keys. One engine command runs at a time. Cancellation retains
 committed work. Interrupted jobs do not restart automatically. Review queues
 persist without collecting sources again.
+
+
+Background cycles, persistent rejections and the separate like permission are
+documented in [AUTONOMOUS-FEED](AUTONOMOUS-FEED.md). Review resources directly in the plugin, or use a compatible AI through MCP.
+MCP access is optional; no additional model is installed.

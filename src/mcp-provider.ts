@@ -1,3 +1,5 @@
+import {ResourceMemory,type Recommendation} from "./resource-memory.ts";
+import {FeedCycle} from "./feed-cycle.ts";
 import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
@@ -12,10 +14,12 @@ const hash=(value:unknown)=>createHash("sha256").update(typeof value==="string"?
 export interface RegisteredProject {id:string;configPath:string;manifestHash:string}
 export interface ProviderOptions {
   allowXProvider?:boolean;
+  allowXLikes?:()=>boolean;
   xPythonPath?:string;
   getXSession?:()=>XLocalSession|undefined;
   cliPath:string;cliHash:string;nodeExecutable:string;projects:RegisteredProject[];
   workspacePath:string;statePath:string;vaultPath:string;
+  stageAuto?:(value:EntityExport)=>void;
   mapping:()=>string;pathExists:(path:string)=>boolean;stage:(value:EntityExport)=>void;
   checkRead:(path:string)=>void;
   readReference:(path:string)=>Promise<string>;
@@ -29,6 +33,13 @@ const keys={type:"array",items:string,minItems:1,maxItems:200,uniqueItems:true};
 const number={type:"integer",minimum:0,maximum:1000000};
 type Definition={name:string;description:string;inputSchema:{type:"object";properties:Record<string,unknown>;required:string[];additionalProperties:false};annotations:{readOnlyHint:boolean;destructiveHint:boolean;openWorldHint:boolean}};
 const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>=[
+  ["cycle_status","Read collection progress, budget and waiting reason; no chat is needed for collection.",{},[],true],
+  ["control_cycle","Start, resume, pause or stop a bounded background collection cycle. Users can review resources directly without AI.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
+  ["resource_decision","Persist an explicit user review, rejection, restoration or alias. Approve only on user instruction; automatic evaluations use assess_resource.",{projectId:string,key:string,action:{type:"string",enum:["reject","restore","alias","approve","pending"]},queueLike:{type:"boolean"},reason:{type:"string",maxLength:1000},alias:string},["projectId","key","action"],false],
+  ["list_rejected","Read persistent rejected resources without recommending them.",{projectId:string},["projectId"],true],
+  ["assess_resource","Record an AI's evidence-based resource evaluation, separate from human decisions. Recommended posts may enter the like queue; never approve by keywords or counters.",{projectId:string,key:string,postId:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
+  ["feedback_status","Read persistent like requests, confirmations, errors and separate local permission.",{},[],true],
+  ["control_feedback","Stop feedback, or enable it only when the separate local like permission is already granted.",{enabled:{type:"boolean"}},["enabled"],false],
   ["capabilities","Read installed integration versions and locally granted capabilities.",{},[],true],
   ["list_projects","List locally registered projects; paths are not executable arguments.",{},[],true],
   ["validate_project","Validate a registered project without running sources.",{projectId:string},["projectId"],true],
@@ -36,14 +47,14 @@ const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>
   ["run_project","Run authorized sources into engine SQLite only; never creates notes.",{projectId:string,requestId:string,pageSize:{...number,minimum:1,maximum:500},maxPages:{...number,minimum:1,maximum:1000},sourceIds:COLLECTION_FILTER_SCHEMA.properties.sourceIds},["projectId","requestId"],false],
   ["get_run_status","Read a job status without starting or retrying it.",{jobId:string},["jobId"],true],
   ["cancel_run","Cancel the owned active job; preserve committed checkpoints.",{jobId:string},["jobId"],false],
-  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,minScore:{...number,maximum:100},filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
+  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,evaluation:{type:"string",enum:["all","recommended","pending","discarded"]},minScore:{...number,maximum:100},filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
   ["inspect_finding","Read entity evidence, human reviews, evaluator history and evidence fingerprint.",{projectId:string,key:string},["projectId","key"],true],
   ["reprocess_project","Explicit offline reassessment; preserves human reviews and writes no notes.",{projectId:string,requestId:string},["projectId","requestId"],false],
   ["record_ai_assessment","Record an agent recommendation, never a human approval. Read selected references first.",{projectId:string,key:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
   ["list_assessments","Read separate agent recommendations and their evidence freshness.",{projectId:string,key:string,limit:{...number,minimum:1,maximum:200},offset:number},["projectId","key"],true],
   ["stage_findings","Show selected candidates in the Obsidian review view, without creating notes.",{projectId:string,keys},["projectId","keys"],false],
   ["get_review_queue","Reload persistent candidate references and current evidence without collection.",{projectId:string},["projectId"],true],
-  ["preview_selected_notes","Prepare Markdown drafts for ChatGPT. This project never writes vault notes; only the separate connector can write on user instruction.",{projectId:string,keys,folder:string},["projectId","keys","folder"],true]
+  ["preview_selected_notes","Prepare Markdown drafts for manual use or optional AI assistance. This project never writes vault notes; only the separate connector can write on user instruction.",{projectId:string,keys,folder:string},["projectId","keys","folder"],true]
 ];
 function text(value:unknown,name:string,max=4000):string{
   if(typeof value!=="string"||!value.trim()||value.length>max)throw Error("INVALID_INPUT: "+name);
@@ -96,7 +107,11 @@ export class SourceScraperProvider {
     annotations:{readOnlyHint,destructiveHint:false,openWorldHint:name==="run_project"}
   }));
   private state:State;
+  readonly memory:ResourceMemory;
+  readonly cycle:FeedCycle;
+  private feedbackTimer?:ReturnType<typeof setInterval>;
   private bridge=new CliBridge();
+  private collectionBridge=new CliBridge();
   private activeJob?:Job;
   private engineChecked=false;
   private engineCapabilities:string[]=[];
@@ -112,7 +127,25 @@ export class SourceScraperProvider {
       if(value.version!==1||![value.projects,value.jobs,value.queues].every(Array.isArray))throw Error("STATE_UNSUPPORTED");
       this.state=value;
       for(const job of value.jobs)if(["queued","running","cancelling"].includes(job.state))job.state="interrupted";
-    }
+    }    this.memory=new ResourceMemory(join(dirname(options.statePath),"resources.json"));
+    this.cycle=new FeedCycle(join(dirname(options.statePath),"cycle.json"),async cycle=>{
+      if(this.activeJob||this.collectionBridge.running)throw Error("COLLECTOR_BUSY: retry after the current command");
+      const manifest=parseProjectManifest(readFileSync(this.project(cycle.projectId).project.configPath,"utf8"));
+      const xSources=manifest.sources.filter(s=>s.adapter==="x-for-you-local");if(!xSources.length||!this.options.allowXProvider)throw Error("X_LOCAL_APPROVAL_REQUIRED");
+      let response:any;
+      try{response=await this.invoke(cycle.projectId,"run",["--cycle-id",cycle.cycleId,"--max-pages",String(cycle.pagesPerBatch),"--page-size","100","--x-cycle","true","--source-ids-json",JSON.stringify(xSources.map(s=>s.id))],this.collectionBridge);}
+      catch(error){if(error instanceof CliCommandError&&error.output)response=error.output;else throw error;}
+      const runs=response?.result?.runs;if(!Array.isArray(runs))throw Error("INVALID_CYCLE_RESULT");
+      if(runs.some(r=>r.endReason==="error"))throw Object.assign(Error(runs.find(r=>r.endReason==="error").error||"Feed failed"),{progress:{pages:runs.reduce((n,r)=>n+(r.pages||0),0),observations:response.result.observations,duplicates:response.result.duplicates}});
+      if(!this.bridge.running&&this.options.stageAuto){try{const data=await this.execute("source_scraper_list_findings",{projectId:cycle.projectId,limit:100});this.options.stageAuto(parseExport(JSON.stringify(data)));}catch{/* Collection is committed; a busy review refresh can wait for the next batch. */}}
+      return {pages:runs.reduce((n,r)=>n+(r.pages||0),0),observations:response.result.observations,duplicates:response.result.duplicates,endReason:runs.every(r=>r.endReason==="end-of-window"||r.endReason==="no-new-items")?(runs.some(r=>r.endReason==="no-new-items")?"no-new-items":"end-of-window"):"work-limit"};
+    },()=>this.collectionBridge.cancel(),async state=>{
+      const {config}=this.project(state.projectId);
+      if(!existsSync(join(dirname(config.configPath),".source-scraper.sqlite")))return {pages:0,observations:0,duplicates:0};
+      return this.invoke(state.projectId,"cycle-progress",["--cycle-id",state.cycleId],this.collectionBridge);
+    });
+    this.cycle.attach();
+    this.feedbackTimer=setInterval(()=>{void this.dispatchFeedback();},10000);this.feedbackTimer.unref?.();
   }
   private persist():void{
     const raw=JSON.stringify(this.state);
@@ -121,11 +154,11 @@ export class SourceScraperProvider {
     const tmp=this.options.statePath+"."+randomUUID()+".tmp";
     writeFileSync(tmp,raw,{flag:"wx",mode:0o600});renameSync(tmp,this.options.statePath);
   }
-  dispose():void{this.closed=true;this.bridge.cancel();}
+  dispose():void{this.closed=true;this.memory.close();this.cycle.dispose();this.collectionBridge.cancel();if(this.feedbackTimer)clearInterval(this.feedbackTimer);this.bridge.cancel();}
   private projects():RegisteredProject[]{return [...this.options.projects,...this.state.projects];}
   localProjects():RegisteredProject[]{return this.projects().map(p=>({...p}));}
   activity():{running:boolean;jobId?:string;lastState?:string;error?:string}{
-    const last=this.state.jobs.at(-1);return {running:Boolean(this.activeJob),jobId:this.activeJob?.id,lastState:last?.state,error:last?.error};
+    const last=this.state.jobs.at(-1);return {running:Boolean(this.activeJob)||Boolean(this.cycle.snapshot().active),jobId:this.activeJob?.id,lastState:last?.state,error:last?.error};
   }
   private project(id:unknown):{project:RegisteredProject;config:CliConfig}{
     const project=this.projects().find(p=>p.id===text(id,"projectId"));
@@ -144,12 +177,12 @@ export class SourceScraperProvider {
     }
     if(!isAbsolute(this.options.nodeExecutable)||hash(readFileSync(this.options.cliPath,"utf8"))!==this.options.cliHash)
       throw Error("CLI_NOT_TRUSTED: verify and register the CLI locally");
-    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,xPythonPath:this.options.xPythonPath,xSession:this.options.getXSession?.()}};
+    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,allowXLikes:this.options.allowXLikes?.()===true&&this.memory.enabled,xPythonPath:this.options.xPythonPath,xSession:this.options.getXSession?.()}};
   }
-  private async invoke(id:unknown,command:Parameters<CliBridge["invoke"]>[1],args:string[]=[]):Promise<any>{
+  private async invoke(id:unknown,command:Parameters<CliBridge["invoke"]>[1],args:string[]=[],lane:CliBridge=this.bridge):Promise<any>{
     const {config}=this.project(id);
     if(!this.engineChecked){
-      const version=await this.bridge.invoke(config,"version") as {name?:string;jsonSchemaVersion?:number;capabilities?:string[]};
+      const version=await lane.invoke(config,"version") as {name?:string;jsonSchemaVersion?:number;capabilities?:string[]};
       if(version.name!=="source-scraper"||version.jsonSchemaVersion!==1||
         !["agent-assessments-v1","selected-entity-export-v1"].every(c=>version.capabilities?.includes(c)))
         throw Error("SCHEMA_UNSUPPORTED: this provider requires agent-assessments-v1 and selected-entity-export-v1 CLI capabilities");
@@ -166,14 +199,57 @@ export class SourceScraperProvider {
     const sourceFlag=args.indexOf("--source-ids-json");
     const sources=compileCollectionFilters(manifest.sources.map(s=>s.id),manifest.filters,
       sourceFlag<0?undefined:{version:1,sourceIds:JSON.parse(args[sourceFlag+1])}).sourceIds;
+    if((args.includes("--x-cycle")||command==="x-feedback")&&!this.engineCapabilities.includes(command==="x-feedback"?"x-likes-v1":"x-cycle-v1"))throw Error("SCHEMA_UNSUPPORTED: update the trusted engine before using cycles or likes");
     if(command==="run"&&manifest.sources.some(s=>sources.includes(s.id)&&s.adapter==="x-for-you-local")&&
       !this.engineCapabilities.includes("x-for-you-local-v1"))throw Error("SCHEMA_UNSUPPORTED: X feed collection requires x-for-you-local-v1");
-    return this.bridge.invoke(config,command,["--config",config.configPath,...args]);
+    return lane.invoke(config,command,["--config",config.configPath,...args]);
   }
-  private async entities(projectId:unknown,selected:string[]):Promise<EntityExport>{
+  private eligible(entity:{type:string;url?:string;review?:string},verifiedXPipeline=false){if(entity.type==="x-inspiration")return false;
+    if(!entity.url)return entity.review!=="rejected";
+    if(entity.review==="rejected"&&!this.memory.hasDecision("user",entity.url))this.memory.reject("user",entity.url,"Imported explicit stored human rejection","legacy-human-review");
+    return !this.memory.rejected("user",entity.url);}
+  private async matchesProfile(projectId:unknown,key:string){
+    const {project}=this.project(projectId),manifest=parseProjectManifest(readFileSync(project.configPath,"utf8"));
+    const result=await this.invoke(projectId,"query",["--filters-json",JSON.stringify({version:1,entity:{fields:["key"],includeTerms:[key],matchMode:"substring"}}),"--limit","500"]);
+    return result.records.some((e:EntityExport["records"][number])=>e.key===key&&this.eligible(e,manifest.pipeline.includes("x-discovery")));
+  }
+  async saveHumanReview(projectId:string,key:string,decision:"pending"|"approved"|"rejected",reason="",queueLike=false,origin:"user-interface"|"user-mcp"="user-interface"){
+    if(!["pending","approved","rejected"].includes(decision)||typeof reason!=="string"||reason.length>1000||typeof queueLike!=="boolean"||queueLike&&decision!=="approved")throw Error("INVALID_HUMAN_REVIEW");
+    const before=await this.invoke(projectId,"inspect",["--key",key]);
+    if(!before.entity.url||before.entity.type!=="web-resource")throw Error("RESOURCE_LINK_REQUIRED");
+    if(queueLike&&(!before.entity.attributes.discoveryPost||!await this.matchesProfile(projectId,key)))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
+    if(decision==="rejected")this.memory.reject("user",before.entity.url,reason,origin);
+    await this.invoke(projectId,"review",["--key",key,"--decision",decision,"--reason",reason.trim()||`User marked this resource ${decision}.`]);
+    const data=await this.invoke(projectId,"inspect",["--key",key]);
+    const review=this.memory.recordHumanReview("user",data.entity.url,{decision,reason,fingerprint:data.fingerprint,postSuitable:queueLike,verifiedUsefulFreeAndQuality:queueLike,origin});
+    const action=queueLike?this.queueResourcePost(projectId,key,data):undefined;
+    return {review,action,notesCreated:0};
+  }
+  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string){
+    const postUrl=data.entity.attributes.discoveryPost,postId=typeof postUrl==="string"?/\/status\/(\d+)$/.exec(postUrl)?.[1]:undefined;
+    if(!postId||requestedPostId!==undefined&&requestedPostId!==postId||!data.mentions.some((m:{active:boolean;itemId:string;url:string})=>m.active&&m.itemId===postId&&m.url===postUrl))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
+    const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),source=manifest.sources.find(s=>s.adapter==="x-for-you-local");
+    if(!source||typeof source.config.accountId!=="string")throw Error("X_ACCOUNT_REQUIRED");
+    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId:source.config.accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+  }
+  private async dispatchFeedback(){
+    if(this.closed||this.bridge.running||this.collectionBridge.running||this.activeJob||!this.options.allowXLikes?.())return;
+    await this.memory.dispatch({
+      stillValid:async a=>{const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);return inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
+      verify:async a=>{const r=await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","inspect_x_like"]);if(r.postTextHash!==a.postTextHash||r.postUrl!==a.postUrl||!Array.isArray(r.urls)||!r.urls.some((url:string)=>this.memory.identity("user",url)===a.resource))throw Error("X_POST_CHANGED_OR_LINK_NOT_EXPOSED: re-evaluate the original post");a.directUrl=r.urls.find((url:string)=>this.memory.identity("user",url)===a.resource);return r.favorited===true;},
+      send:async a=>{await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","like_x_post","--post-text-hash",a.postTextHash,"--direct-url",a.directUrl||"","--resource-memory",join(dirname(this.options.statePath),"resources.json"),"--resource-url",a.resource]);}
+    });
+  }
+  async localFeedback(enabled:boolean){if(enabled&&!this.options.allowXLikes?.())throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");this.memory.setFeedback(enabled);return this.feedbackStatus();}
+  private feedbackStatus(){return {enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true,actions:this.memory.actions(),limits:{maxPerHour:5,minIntervalSeconds:60},algorithmEffect:"Not guaranteed"};}
+  private async entities(projectId:unknown,selected:string[],excludeRejected=false):Promise<EntityExport>{
     const value=await this.invoke(projectId,"export",["--keys-json",JSON.stringify(selected)]);
     const exported=parseExport(JSON.stringify(value));
     if(exported.projectId!==projectId||exported.records.length!==selected.length)throw Error("PROJECT_MISMATCH");
+    if(excludeRejected)exported.records=exported.records.filter(e=>this.eligible(e));
+    else if(exported.records.some(e=>!this.eligible(e)))throw Error("RESOURCE_REJECTED_OR_NOT_A_LINK");
+    const identities=new Set<string>();exported.records=exported.records.filter(e=>{if(e.type!=="web-resource"||!e.url)return true;const id=this.memory.identity("user",e.url);if(identities.has(id))return false;identities.add(id);return true;});
+    for(const e of exported.records)if(e.url){e.resourceAssessment=this.memory.assessment("user",e.url);const human=this.memory.humanReview("user",e.url);if(human)e.review=human.decision;}
     return exported;
   }
   private async start(args:Record<string,unknown>,command:"run"|"reprocess"):Promise<Job>{
@@ -190,7 +266,7 @@ export class SourceScraperProvider {
     const signature=hash({projectId,command,limits});
     const prior=this.state.jobs.find(j=>j.requestId===requestId);
     if(prior){if(prior.signature!==signature)throw Error("REQUEST_CONFLICT");return prior;}
-    if(this.bridge.running||this.activeJob)throw Error("BUSY");
+    if(this.bridge.running||this.collectionBridge.running||this.activeJob)throw Error("BUSY");
     const job:Job={id:randomUUID(),requestId,signature,projectId,state:"running",startedAt:new Date().toISOString()};
     this.state.jobs.push(job);this.activeJob=job;this.persist();
     void this.invoke(projectId,command,limits).then(result=>{
@@ -214,9 +290,39 @@ export class SourceScraperProvider {
       definition.inputSchema.required.some(k=>!Object.hasOwn(args,k)))throw Error("INVALID_INPUT");
     const operation=name.slice("source_scraper_".length);
     switch(operation){
+      case "cycle_status":return this.cycle.snapshot();
+      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000));}
+      case "feedback_status":return this.feedbackStatus();
+      case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
+      case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
+      case "resource_decision":{
+        if(["approve","pending"].includes(String(args.action)))return this.saveHumanReview(text(args.projectId,"projectId"),text(args.key,"key"),args.action==="approve"?"approved":"pending",typeof args.reason==="string"?args.reason:"",args.queueLike===true,"user-mcp");
+        const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);const entity=data.entity;
+        if(entity.type!=="web-resource"||!entity.url)throw Error("RESOURCE_LINK_REQUIRED");
+        if(args.action==="reject")this.memory.reject("user",entity.url,typeof args.reason==="string"?args.reason:"","user-mcp");
+        else if(args.action==="restore")this.memory.restore("user",entity.url);
+        else if(args.action==="alias")this.memory.alias("user",text(args.alias,"alias"),entity.url);
+        else throw Error("INVALID_RESOURCE_DECISION");
+        for(const q of this.state.queues){if(!q.keys.length)continue;const visible=await this.invoke(q.projectId,"export",["--keys-json",JSON.stringify(q.keys)]);q.keys=visible.records.filter((e:EntityExport["records"][number])=>this.eligible(e)).map((e:EntityExport["records"][number])=>e.key);}
+        this.persist();return {resource:entity.url,rejected:this.memory.rejected("user",entity.url),notesCreated:0};
+      }
+      case "assess_resource":{
+        const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);
+        if(data.entity.type!=="web-resource"||!data.entity.url||!this.eligible(data.entity))throw Error("RESOURCE_REJECTED_OR_NOT_A_LINK");
+        if((args.assessment as Recommendation)?.fingerprint!==data.fingerprint)throw Error("STALE_RESOURCE_ASSESSMENT");
+        if(!await this.matchesProfile(args.projectId,data.entity.key))throw Error("RESOURCE_OUTSIDE_CONFIGURED_FILTERS");
+        const record=this.memory.assess("user",data.entity.url,args.assessment);
+        let action:unknown;
+        if(record.decision==="recommended"&&record.postSuitable&&args.postId!==undefined){
+          action=this.queueResourcePost(text(args.projectId,"projectId"),text(args.key,"key"),data,text(args.postId,"postId"));
+        }
+        return {record,action,humanReviewChanged:false,evaluationOwner:"AI via MCP"};
+      }
       case "capabilities":return {apiVersion:1,entitySchemaVersion:1,projects:this.projects().length,noteWritesSupported:false,
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
+        cycle:this.cycle.snapshot(),feedback:{enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true},
+        evaluation:{owner:"User review or optional AI via MCP",backgroundModel:false,whenChatClosed:"Collection continues; users can review resources in the plugin without AI",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence","postSuitable"]},
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},
@@ -248,9 +354,13 @@ export class SourceScraperProvider {
         for(const field of ["search","type"])if(args[field]!==undefined)flags.push("--"+field,text(args[field],field));
         if(args.minScore!==undefined)flags.push("--min-score",String(integer(args.minScore,0,0,100)));
         if(filters)flags.push("--filters-json",JSON.stringify(filters));
-        return this.invoke(args.projectId,"query",flags);
+        // Exclude before pagination: rejected aliases never leak into later pages.
+        const wanted=integer(args.limit,100,1,500),skip=integer(args.offset,0,0,1000000),records:any[]=[];let visible=0,offset=0;let metadata:Record<string,unknown>={};const identities=new Set<string>();
+        const base=flags.filter((_v,i)=>![0,1,2,3].includes(i));
+        for(;;){const page=await this.invoke(args.projectId,"query",["--limit","500","--offset",String(offset),...base]);if(offset===0)metadata=page;for(const e of page.records){if(args.type!=="x-inspiration"&&!this.eligible(e,manifest.pipeline.includes("x-discovery")))continue;const saved=e.url?this.memory.assessment("user",e.url):undefined;const assessment=saved&&e.updatedAt>saved.at?{...saved,decision:"pending",stale:true}:saved;const human=e.url?this.memory.humanReview("user",e.url):undefined;const decision=assessment?.decision??"pending";if(args.evaluation&&args.evaluation!=="all"?decision!==args.evaluation:!args.evaluation&&decision==="discarded"&&human?.decision!=="approved")continue;if(e.type==="web-resource"&&e.url){const id=this.memory.identity("user",e.url);if(identities.has(id))continue;identities.add(id);}if(visible++<skip)continue;records.push({...e,review:e.url?this.memory.humanReview("user",e.url)?.decision??(e.review==="rejected"&&this.memory.hasDecision("user",e.url)?"pending":e.review):e.review,resourceAssessment:assessment});if(records.length===wanted)break;}if(records.length===wanted||page.records.length<500)break;offset+=500;}
+        return {...metadata,schemaVersion:1,dataset:"entities",projectId:args.projectId,limit:wanted,offset:skip,count:records.length,records};
       }
-      case "inspect_finding":return this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);
+      case "inspect_finding":{const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);const human=data.entity.url?this.memory.humanReview("user",data.entity.url):undefined;return {...data,humanReview:human,storedProjectReview:data.entity.review,entity:{...data.entity,review:human?.decision??data.entity.review}};}
       case "record_ai_assessment":{
         if(!args.assessment||typeof args.assessment!=="object"||Array.isArray(args.assessment))throw Error("INVALID_ASSESSMENT");
         const record=structuredClone(args.assessment) as Record<string,unknown>;
@@ -286,7 +396,7 @@ export class SourceScraperProvider {
       case "get_review_queue":{
         const projectId=text(args.projectId,"projectId");this.project(projectId);
         const queue=this.state.queues.find(q=>q.projectId===projectId);
-        return queue?this.entities(projectId,queue.keys):{projectId,records:[]};
+        return queue?this.entities(projectId,queue.keys,true):{projectId,records:[]};
       }
       case "preview_selected_notes":{
         const selected=selection(args.keys),value=await this.entities(args.projectId,selected),folder=text(args.folder,"folder"),mapping=this.options.mapping();
@@ -302,6 +412,6 @@ export class SourceScraperProvider {
   }
   async restoreQueue():Promise<void>{
     const queue=this.state.queues.at(-1);if(!queue)return;
-    this.options.stage(await this.entities(queue.projectId,queue.keys));
+    this.options.stage(await this.entities(queue.projectId,queue.keys,true));
   }
 }

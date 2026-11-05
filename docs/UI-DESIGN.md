@@ -9,8 +9,8 @@ want to inspect?”; setup, filters and technical settings each have their own f
 Direction: True-black flat, seed 349720834. Obsidian owns the palette, typography,
 native settings window and status bar shell. We retain those instead of adding
 a dashboard sidebar or loading a different font. Source Scraper's scan icon,
-X feed scope and link/evidence rows identify the product. One inverted primary
-action, quiet section rules, no decorative cards or imagery.
+X feed scope and link/evidence rows identify the product. Primary actions use Obsidian's native CTA accent and contrast tokens, with quiet
+section rules and no decorative cards or imagery.
 
 Geometry: the anchored panel is 400 × 500 px. Ordinary dialogs are 560 × 600 px;
 code/preview editors are 720 × 640 px. Each clamps to the viewport minus 24 px.
@@ -46,3 +46,35 @@ native app:// Obsidian surface; real-app geometry and screenshot checks cover it
 Product language: English by default across labels, actions, placeholders, help,
 validation, accessibility names, status messages and user documentation. Collected
 titles, evidence and user-authored content retain their original language.
+
+
+## Shared ChatGPT contract
+
+Both popovers use the same marked CSS contract: 400 x 500 px, clamped to the
+viewport minus 24 px; matching headers and 32 px icon targets; a central scroll
+region and fixed primary-action footer; 38 px inputs and 36 px buttons. Interface
+font, surfaces, borders, radii, focus and CTA colours come from Obsidian tokens.
+All UI copy is English. Collected content retains its original language.
+
+The joint audit checks 22 screens/states at 1440 x 900, 768 x 700 and 390 x 480,
+in light and dark themes (132 combinations). It verifies viewport bounds,
+horizontal overflow, visible non-overlapping footers, field labels and identical
+computed native header/button metrics. The real ChatGPT controller uses actual
+Obsidian controls; network/process state is simulated. No credentials or account
+requests are used. The Source Scraper desktop suite separately checks interactions.
+
+Reproduce from the plugin repository:
+
+```powershell
+node scripts/build-native-parity.mjs <path-to-obsidian-chatgpt-mcp-tunnel>
+Set-Location tests/desktop
+$env:OBSIDIAN_VERSIONS='1.14.5/1.14.5'
+$env:OBSIDIAN_VERSIONS_URL=([Uri](Join-Path $PWD '.obsidian-cache/obsidian-versions.json')).AbsoluteUri
+node node_modules/@wdio/cli/bin/wdio.js run wdio.parity.conf.mts
+```
+
+The normal desktop runner provisions its cached Obsidian installation first.
+Joint-audit screenshots and detailed measurements are generated under the ignored
+`tests/desktop/artifacts` directory. Last run: all 132 combinations passed;
+Source Scraper 63 unit checks passed (2 platform skips) and 19 desktop scenarios;
+ChatGPT 73 unit checks and 48 browser interaction checks passed.

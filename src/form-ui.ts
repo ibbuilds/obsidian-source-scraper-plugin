@@ -10,7 +10,7 @@ export function dialog(modal:Modal,title:string,wide=false){
 }
 export function action(root:HTMLElement,label:string,run:()=>void,primary=false){
   const button=new ButtonComponent(root).setButtonText(label).onClick(run);
-  if(primary)button.buttonEl.addClass("ss-primary");
+  if(primary){button.setCta();button.buttonEl.addClass("ss-primary");}
   button.buttonEl.type="button";return button;
 }
 export function formStatus(root:HTMLElement){
