@@ -204,3 +204,7 @@
   .ss-settings-body .setting-item:has(.checkbox-container) .setting-item-info { flex:1; }
   .ss-settings-body .setting-item:has(.checkbox-container) .setting-item-control { flex:none; }
 }
+
+.ss-review-filter { width:100%; min-width:0; flex:none; height:36px; margin-bottom:8px; font:inherit; }
+
+.ss-detail-links { display:flex; flex-wrap:wrap; gap:8px 16px; margin-bottom:16px; }

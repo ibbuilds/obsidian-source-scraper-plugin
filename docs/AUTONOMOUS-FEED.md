@@ -1,10 +1,10 @@
 # Background feed collection and controlled feedback
 
 The existing Source Scraper provider exposes 22 MCP tools. No second server,
-repository, paid X API or extra model is needed. ChatGPT is the semantic evaluator
+repository, paid X API or extra model is needed. Users can review resources directly in the plugin. AI evaluation is optional
 through the existing MCP connection. Collection and already-evaluated like actions
 can continue with the chat closed while Obsidian and the computer remain open.
-New resources wait for ChatGPT evaluation when it is not running. This is not an
+New resources remain available for manual review even when no AI is running. This is not an
 unattended background ChatGPT inference service.
 
 ## Daily use
@@ -31,7 +31,31 @@ pages without new post identities end a no-new-items window. Work limits,
 window endings and access errors are distinct. 401/403/429 block collection;
 credentials are retained and no challenge or access restriction is bypassed.
 
-## Evaluation through ChatGPT
+The local runtime remains available when MCP access is disabled or the optional
+Vault as MCP host is absent. Disabling MCP only unregisters remote tools; it does
+not disable local collection, review or draft copying.
+
+## Manual management (no AI required)
+
+Resources refreshes the saved inventory without recollecting the feed. Use the
+review-status selector and text search, open a resource or its source post, and
+save My review as Pending, Approved or Rejected. The reason is optional. Rejected
+resources can be restored from Collection and feedback. Human decisions are
+stored separately from AI recommendations and survive restarting Obsidian.
+
+Approval alone never queues a like. For an approved resource, Like the source
+post explicitly confirms that you checked its usefulness, quality, usable free
+access and the source post. This prepares the same persistent, checked like
+queue without requiring an AI assessment. The separate Automatic likes switch
+must also be enabled before anything can be sent.
+
+Copy links copies selected URLs. Preview drafts lets you inspect each full draft,
+Copy Markdown copies the current draft and Copy all drafts copies the selection.
+Paste them yourself wherever you choose; the plugin never writes vault notes.
+Up to 5,000 resources load in the compact review view, with an explicit notice at
+that bound. Engine storage retains the remaining inventory.
+
+## Optional AI evaluation through MCP
 
 Ask ChatGPT to control_cycle(action=start), then query list_findings with
 `evaluation: pending`, inspect_finding and verify the resource's actual output,

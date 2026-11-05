@@ -15,7 +15,7 @@ export class FeedCycle{
     this.value.budgetStartPages??=0;this.value.cycleId??=randomUUID();
     if(this.value.version!==1||!["stopped","running","paused","waiting","blocked"].includes(this.value.state)||!Number.isInteger(this.value.maxPages)||this.value.maxPages<1||this.value.maxPages>1000)throw Error("INVALID_CYCLE_STATE");
   }
-  snapshot(){return {...this.value,active:this.active,execution:"Runs while Obsidian and this computer are open; resumes saved checkpoints after restart",evaluation:"ChatGPT via MCP; new candidates wait when ChatGPT is not running"};}
+  snapshot(){return {...this.value,active:this.active,execution:"Runs while Obsidian and this computer are open; resumes saved checkpoints after restart",evaluation:"Review resources directly in the plugin, or use an AI through MCP"};}
   private save(){mkdirSync(dirname(this.path),{recursive:true,mode:0o700});const tmp=this.path+"."+randomUUID()+".tmp";writeFileSync(tmp,JSON.stringify(this.value),{flag:"wx",mode:0o600});renameSync(tmp,this.path);}
   attach(){if(this.timer)return;this.timer=setInterval(()=>{void this.tick();},5000);this.timer.unref?.();}
   start(projectId:string,maxPages=100){if(!Number.isInteger(maxPages)||maxPages<1||maxPages>1000)throw Error("INVALID_CYCLE_BUDGET");if(this.active&&this.value.projectId!==projectId)throw Error("CYCLE_BUSY");const restart=this.value.projectId!==projectId||this.value.state==="stopped";Object.assign(this.value,{projectId,maxPages,state:"running",nextAt:0,reason:"Collecting direct resource links",budgetStartPages:restart?0:this.value.pages,...(restart?{cycleId:randomUUID(),pages:0,observations:0,duplicates:0,cycles:0}:{})});this.save();this.attach();void this.tick();return this.snapshot();}

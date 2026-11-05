@@ -111,7 +111,7 @@ export class CliBridge {
     }finally{this.controller=undefined;}
   }
   /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
-  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress",args:string[]=[]):Promise<unknown>{
+  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review",args:string[]=[]):Promise<unknown>{
     return this.command(config,command,args,120000);
   }
   async checkVersion(config:CliConfig):Promise<string>{

@@ -205,13 +205,17 @@ class DetailModal extends Modal {
   private decision:"approved"|"rejected"|"pending";
   private reason="";
   private busy=false;
+  private queueLike=false;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin,private entity:EntityRecord){
     super(app);
     this.decision=entity.review;
   }
   onOpen():void{
     const {body:root,footer}=dialog(this,this.entity.title);action(footer,"Close",()=>this.close());
-    if(this.entity.url)root.createEl("a",{text:"Open resource ↗",href:this.entity.url,attr:{target:"_blank",rel:"noopener noreferrer"}});
+    const links=root.createDiv({cls:"ss-detail-links"});
+    if(this.entity.url)links.createEl("a",{text:"Open resource ↗",href:this.entity.url,attr:{target:"_blank",rel:"noopener noreferrer"}});
+    const post=this.entity.attributes.discoveryPost;
+    if(typeof post==="string"&&/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/.test(post))links.createEl("a",{text:"Open source post ↗",href:post,attr:{target:"_blank",rel:"noopener noreferrer"}});
     const description=this.entity.attributes.description;
     if(typeof description==="string")paragraph(root,description.slice(0,1500));
     root.createEl("h4",{text:"Why it appears"});
@@ -232,25 +236,25 @@ class DetailModal extends Modal {
 
       return;
     }
-    const reviewControls=root.createEl("details");reviewControls.createEl("summary",{text:"My review"});
+    const reviewControls=root.createDiv();reviewControls.createEl("h4",{text:"My review"});let likeSetting:Setting|undefined;
     new Setting(reviewControls).setName("Decision").addDropdown(d=>d.addOptions({
       pending:"Pending",approved:"Approved",rejected:"Rejected"
     }).setValue(this.decision).onChange(value=>{
-      this.decision=value as "pending"|"approved"|"rejected";
+      this.decision=value as "pending"|"approved"|"rejected";if(likeSetting)likeSetting.settingEl.hidden=this.decision!=="approved";
     }));
-    new Setting(reviewControls).setName("Reason").addTextArea(t=>
+    new Setting(reviewControls).setName("Reason (optional)").addTextArea(t=>
       t.setPlaceholder("What did you verify?")
         .onChange(value=>{this.reason=value;}));
-    new Setting(reviewControls).addButton(b=>b.setButtonText("Save review")
+    if(this.entity.type==="web-resource"&&typeof post==="string"){
+      likeSetting=new Setting(reviewControls).setName("Like the source post").setDesc("I checked usefulness, quality, usable free access and the whole source post. Queued likes require Automatic likes to be enabled in Collection and feedback.").addToggle(t=>t.setValue(false).onChange(v=>{this.queueLike=v;}));
+      likeSetting.settingEl.hidden=this.decision!=="approved";
+    }
+    new Setting(footer).addButton(b=>b.setButtonText("Save review").setCta()
       .onClick(async()=>{
         if(this.busy)return;
         this.busy=true;
         try{
-          const s=this.plugin.settings;
-          await this.plugin.cli.review({
-            cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable
-          },this.entity.projectId,this.entity.key,this.decision,this.reason);
-          await this.plugin.persistResourceDecision(this.entity,this.decision,this.reason);
+          await this.plugin.saveHumanReview(this.entity,this.decision,this.reason,this.decision==="approved"&&this.queueLike);
           this.entity.review=this.decision;
           this.plugin.refresh();
           this.close();
@@ -272,21 +276,25 @@ class ExportModal extends Modal {
     const {body:root,footer}=dialog(this,"Drafts",true);
     action(footer,"Close",()=>this.close());
     paragraph(root,"Preview the draft. This panel does not write notes.");
-    const preview=root.createEl("pre",{cls:"ss-preview"});
+    const preview=root.createEl("pre",{cls:"ss-preview"});let previewIndex=0;
     const refresh=()=>{
       try{
         const mapping=parseNoteMapping(this.plugin.settings.noteMappingJson);
         const plans=selectedPlans(this.folder,this.records,mapping);
-        preview.setText(plans.map(x=>x.path).join("\n")+
-          (plans.length?"\n\nFirst draft:\n\n"+plans[0].content.slice(0,3500):""));
+        const plan=plans[previewIndex];preview.setText(plan?plan.path+"\n\n"+plan.content:"No draft selected.");
       }catch(error){preview.setText(errorMessage(error));}
     };
     new Setting(root).setName("Destination folder")
       .setDesc("Suggested vault path for the drafts.")
       .addText(t=>t.setPlaceholder("Source Scraper/Imported")
         .setValue(this.folder).onChange(value=>{this.folder=value;refresh();}));
+    if(this.records.length>1)new Setting(root).setName("Preview resource").addDropdown(d=>{this.records.forEach((r,i)=>d.addOption(String(i),r.title));d.onChange(v=>{previewIndex=Number(v);refresh();});});
     root.appendChild(preview);refresh();
-    paragraph(root,"Ask ChatGPT to save drafts through your Obsidian connector.");
+    const plans=()=>selectedPlans(this.folder,this.records,parseNoteMapping(this.plugin.settings.noteMappingJson));
+        const copy=async(all:boolean)=>{try{const drafts=plans();await navigator.clipboard.writeText(all?drafts.map(p=>p.content).join("\n\n---\n\n"):drafts[previewIndex]?.content||"");new Notice("Markdown copied. Paste it wherever you choose.");}catch(error){notify(error);}};
+    if(this.records.length>1)action(footer,"Copy all drafts",()=>{void copy(true);});
+    action(footer,"Copy Markdown",()=>{void copy(false);},true);
+    paragraph(root,"Copy the Markdown to use it yourself, or ask an AI through your separate connector. This plugin never writes notes.");
     labelFields(root);
   }
   onClose():void{this.contentEl.empty();}
@@ -435,6 +443,7 @@ class LegacyScraperView extends ItemView {
 class ScraperReview {
   private page=0;
   private search="";
+  private reviewFilter="all";
   constructor(private root:HTMLElement|undefined,private plugin:ScraperPlugin){}
   private get app():Plugin["app"]{return this.plugin.app;}
   mount(root:HTMLElement):void{this.root=root;this.render();}
@@ -446,16 +455,20 @@ class ScraperReview {
     if(!imported){paragraph(root,"No results yet. Collect sources or import a results file.");return;}
     const summary=root.createDiv({cls:"ss-review-summary"});
     summary.createEl("p",{cls:"ss-count",text:imported.records.length+(imported.records.length===1?" resource":" resources")});
+    if(this.plugin.reviewTruncated)paragraph(summary,"Showing the first 5,000 resources. Narrow the collection filters for a smaller set.");
     if(imported.projectId==="starter-project")summary.createEl("p",{cls:"ss-example-note",text:"Local example · this is not your X feed."});
     const searchBox=root.createDiv({cls:"ss-search"});
     const search=new SearchComponent(searchBox).setPlaceholder("Filter resources").setValue(this.search);
     const input=search.inputEl;input.setAttribute("aria-label","Filter resources");
+    const filter=root.createEl("select",{cls:"ss-review-filter",attr:{"aria-label":"Review status"}});
+    for(const [value,label] of [["all","All resources"],["pending","Needs review"],["approved","Approved by me"],["recommended","AI recommended"],["discarded","AI discarded"]])filter.createEl("option",{value,text:label});
+    filter.value=this.reviewFilter;
     const index=new ReviewIndex(imported.records);
     const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0"}});list.setAttribute("aria-label","Found resources");
     const pagination=root.createDiv({cls:"ss-pagination"});
     const draftArea=root.createDiv({cls:"ss-review-footer"});
     const selection=draftArea.createSpan({cls:"ss-selection-count"});selection.setAttribute("role","status");
-    const preview=new ButtonComponent(draftArea).setButtonText("Preview drafts").setTooltip("Preview for ChatGPT; no notes are written").onClick(()=>{
+    const preview=new ButtonComponent(draftArea).setButtonText("Preview drafts").setTooltip("Preview and copy Markdown; no notes are written").onClick(()=>{
       try{
         const selected=this.plugin.getSelected();
         if(!selected.length)throw Error("Select resources before previewing drafts.");
@@ -463,14 +476,15 @@ class ScraperReview {
         this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
     }).buttonEl;preview.classList.add("ss-preview-action");preview.type="button";
+    const copyLinks=new ButtonComponent(draftArea).setButtonText("Copy links").onClick(async()=>{try{await navigator.clipboard.writeText(this.plugin.getSelected().map(e=>e.url).filter(Boolean).join("\n"));new Notice("Selected links copied.");}catch(error){notify(error);}}).buttonEl;
     const updateSelection=()=>{
       const count=this.plugin.selected.size;
-      selection.textContent=count+(count===1?" selected":" selected");preview.disabled=count===0;
+      selection.textContent=count+(count===1?" selected":" selected");preview.disabled=count===0;copyLinks.disabled=!this.plugin.getSelected().some(e=>e.url);
     };
     const renderResults=()=>{
       if(this.root!==root||!root.isConnected)return;
       list.empty();pagination.empty();
-      const filtered=index.filter(this.search);
+      const filtered=index.filter(this.search).filter(e=>this.reviewFilter==="all"||this.reviewFilter==="pending"&&e.review==="pending"||this.reviewFilter==="approved"&&e.review==="approved"||["recommended","discarded"].includes(this.reviewFilter)&&e.resourceAssessment?.decision===this.reviewFilter);
       const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
       const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
       if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No matches"});paragraph(empty,"Try another search term.");}
@@ -492,7 +506,7 @@ class ScraperReview {
         }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
         const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
         if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
-        const evaluation=entity.resourceAssessment?.decision??"pending";item.createSpan({cls:"ss-review-decision",text:evaluation==="recommended"?"ChatGPT recommended":evaluation==="discarded"?"Automatically discarded":"Awaiting ChatGPT"});
+        const evaluation=entity.resourceAssessment?.decision??"pending";if(entity.review==="pending")item.createSpan({cls:"ss-review-decision",text:evaluation==="recommended"?"AI recommended":evaluation==="discarded"?"AI discarded":"Needs review"});
         if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Approved":"Rejected"});decision.dataset.review=entity.review;}
       }
       pagination.hidden=pageCount===1;
@@ -500,6 +514,7 @@ class ScraperReview {
       pagination.createSpan({text:filtered.length?((this.page*pageSize+1)+"–"+Math.min((this.page+1)*pageSize,filtered.length)+" of "+filtered.length):"0 resources"});
       const next=pagination.createEl("button",{text:"Next"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;renderResults();};
     };
+    filter.onchange=()=>{this.reviewFilter=filter.value;this.page=0;renderResults();};
     search.onChange(()=>{this.search=input.value;this.page=0;renderResults();});
     renderResults();updateSelection();
   }
@@ -517,7 +532,7 @@ class CycleControlsModal extends Modal {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen(){
     const {body,footer}=dialog(this,"Collection and feedback");action(footer,"Close",()=>this.close());
-    paragraph(body,"Collection runs while Obsidian and this computer are open. ChatGPT evaluates new links through MCP; candidates wait when ChatGPT is not running.");
+    paragraph(body,"Collection runs while Obsidian and this computer are open. Review resources directly in this plugin, or use an AI through MCP. AI is optional.");
     const status=body.createEl("p",{attr:{role:"status"}});let maxPages=100;
     new Setting(body).setName("Page budget").setDesc("Maximum pages for this collection cycle (1–1000). Progress is saved after each page.").addText(t=>t.setValue("100").onChange(v=>{maxPages=Number(v);}));
     const controls=body.createDiv({cls:"ss-controls"});
@@ -545,7 +560,7 @@ class ScraperSettings extends PluginSettingTab {
     const connection=section("Connection");
     new Setting(connection).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
     new Setting(connection).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
-    new Setting(connection).setName("ChatGPT tools").setDesc("Connect the engine through Vault as MCP.").addToggle(t=>t.setValue(draft.mcpEnabled==="true").onChange(v=>{change("mcpEnabled",String(v));}));
+    new Setting(connection).setName("MCP access").setDesc("Optional AI connection through Vault as MCP. Manual controls work without it.").addToggle(t=>t.setValue(draft.mcpEnabled==="true").onChange(v=>{change("mcpEnabled",String(v));}));
     const notes=section("Drafts");
     new Setting(notes).setName("Suggested folder").setDesc("Drafts are previews. The plugin does not create notes.").addText(t=>t.setPlaceholder("Source Scraper/Imported").setValue(draft.outputFolder).onChange(v=>{change("outputFolder",v);}));
     new Setting(notes).setName("Properties and content").addButton(b=>b.setButtonText("Edit format").onClick(()=>new NoteMappingModal(this.app,this.plugin).open()));
@@ -734,11 +749,13 @@ export default class ScraperPlugin extends Plugin {
   private connectMcp():void{
     const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
     const signature=JSON.stringify(this.settings);
-    if(host===this.providerHost&&signature===this.providerSignature&&this.provider)return;
+    if(host===this.providerHost&&signature===this.providerSignature&&this.provider){
+      if(this.settings.mcpEnabled==="true"&&host?.toolProviderApiVersion===1&&!this.disposeProvider){try{this.disposeProvider=host.registerToolProvider(this.provider);this.mcpStatus="Local tools ready; MCP access connected";}catch(error){this.mcpStatus="Local tools ready; MCP access: "+errorMessage(error);}}
+      return;
+    }
     this.disposeProvider?.();this.provider?.dispose();this.provider=undefined;this.disposeProvider=undefined;
     this.providerHost=host;this.providerSignature=signature;
-    if(this.settings.mcpEnabled!=="true"){this.mcpStatus="disabled";return;}
-    if(host?.toolProviderApiVersion!==1){this.mcpStatus="compatible Vault as MCP provider API required";return;}
+    if(!this.settings.cliPath||!this.settings.mcpWorkspacePath){this.mcpStatus="Local engine setup required";return;}
     try{
       if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error("Desktop filesystem vault required");
       const projects=JSON.parse(this.settings.mcpProjectsJson) as RegisteredProject[];
@@ -754,13 +771,15 @@ export default class ScraperPlugin extends Plugin {
         nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
         statePath:join(process.env.LOCALAPPDATA||join(homedir(),".local","share"),"SourceScraper",vaultId,"state.json"),
         vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
-        checkRead:path=>host.checkToolReadAccess(path),
+        checkRead:path=>{if(this.settings.mcpEnabled!=="true"||host?.toolProviderApiVersion!==1)throw Error("MCP reference access is disabled");host.checkToolReadAccess(path);},
         stage:value=>{this.setImported(value);},
         stageAuto:value=>{const visible=new Set(value.records.map(e=>e.key));this.imported=value;for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);this.refresh();},
         readReference:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile))throw Error("Reference note missing");return this.app.vault.read(file);}
       });
-      this.disposeProvider=host.registerToolProvider(provider);this.provider=provider;this.mcpStatus="connected; "+provider.tools.length+" tools registered; vault notes read-only";
-      void provider.restoreQueue().catch(()=>{this.mcpStatus="connected; prior queue needs explicit reload (missing or changed project)";});
+      this.provider=provider;
+      if(this.settings.mcpEnabled==="true"&&host?.toolProviderApiVersion===1){try{this.disposeProvider=host.registerToolProvider(provider);this.mcpStatus="Local tools ready; "+provider.tools.length+" MCP tools connected";}catch(error){this.mcpStatus="Local tools ready; MCP access: "+errorMessage(error);}}
+      else this.mcpStatus=this.settings.mcpEnabled==="true"?"Local tools ready; compatible Vault as MCP is needed only for AI access":"Local tools ready; MCP access disabled";
+      void provider.restoreQueue().catch(()=>{this.mcpStatus+="; saved selection needs explicit refresh";});
     }catch(error){this.mcpStatus=errorMessage(error);}
   }
   async showAgentAssessments(entity:EntityRecord,root:HTMLElement):Promise<void>{
@@ -782,13 +801,27 @@ export default class ScraperPlugin extends Plugin {
     const value=await this.provider.execute("source_scraper_control_cycle",{projectId,action,maxPages});this.updateStatus();return value;
   }
   openCycleControls(){this.closePopover();new CycleControlsModal(this.app,this).open();}
-  async persistResourceDecision(entity:EntityRecord,decision:"pending"|"approved"|"rejected",reason:string){
-    if(!this.provider||entity.type!=="web-resource"||!entity.url)return;
-    if(decision==="rejected")this.provider.memory.reject("user",entity.url,reason,"user-interface");
-    else if(decision==="pending")this.provider.memory.restore("user",entity.url);
-    if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
+  async saveHumanReview(entity:EntityRecord,decision:"pending"|"approved"|"rejected",reason:string,queueLike=false){
+    if(this.provider&&entity.type==="web-resource"&&entity.url){
+      if(decision==="rejected")this.provider.memory.reject("user",entity.url,reason,"user-interface");
+      await this.provider.saveHumanReview(entity.projectId,entity.key,decision,reason,queueLike);
+      if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
+    }else{const s=this.settings;await this.cli.review({cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable},entity.projectId,entity.key,decision,reason.trim()||`User marked this resource ${decision}.`);}
   }
-  setImported(data:EntityExport):void{this.imported=data;this.selected.clear();this.refresh();}
+  private reviewRequest=0;
+  reviewTruncated=false;
+  async refreshResources(){
+    if(!this.provider)return;
+    const entries=this.registeredProjects(),id=entries.some(p=>p.id===this.imported?.projectId)?this.imported!.projectId:this.panelSnapshot().projectId;
+    if(!id||this.imported&&!entries.some(p=>p.id===this.imported!.projectId))return;
+    const request=++this.reviewRequest,records:EntityRecord[]=[];
+    try{
+      while(records.length<5000){const page=await this.provider.execute("source_scraper_list_findings",{projectId:id,limit:500,offset:records.length,evaluation:"all"}) as {records:EntityRecord[]};if(request!==this.reviewRequest||this.unloaded)return;records.push(...page.records);if(page.records.length<500)break;}
+      if(request!==this.reviewRequest||this.unloaded)return;
+      this.reviewTruncated=records.length===5000;this.imported={schemaVersion:1,dataset:"entities",projectId:id,records};const keys=new Set(records.map(e=>e.key));for(const key of this.selected)if(!keys.has(key))this.selected.delete(key);this.refresh();
+    }catch(error){if(request===this.reviewRequest&&!this.unloaded)new Notice("Resources could not refresh: "+errorMessage(error));}
+  }
+  setImported(data:EntityExport):void{this.reviewRequest++;this.reviewTruncated=false;this.imported=data;this.selected.clear();this.refresh();}
   getSelected():EntityRecord[]{
     return (this.imported?.records??[]).filter(x=>this.selected.has(x.key));
   }
@@ -798,6 +831,7 @@ export default class ScraperPlugin extends Plugin {
   async openView(showResults=false):Promise<void>{
     if(this.unloaded||!this.statusItem)return;
     if(!this.popover)this.popover=new ScraperPopover(this.statusItem,{
+      refreshResults:()=>this.refreshResources(),
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
       setup:()=>new XFeedSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),

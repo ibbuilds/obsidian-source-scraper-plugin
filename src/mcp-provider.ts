@@ -34,10 +34,10 @@ const number={type:"integer",minimum:0,maximum:1000000};
 type Definition={name:string;description:string;inputSchema:{type:"object";properties:Record<string,unknown>;required:string[];additionalProperties:false};annotations:{readOnlyHint:boolean;destructiveHint:boolean;openWorldHint:boolean}};
 const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>=[
   ["cycle_status","Read collection progress, budget and waiting reason; no chat is needed for collection.",{},[],true],
-  ["control_cycle","Start, resume, pause or stop a bounded background collection cycle. Evaluation waits for ChatGPT.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
-  ["resource_decision","Persist an explicit USER rejection or restoration across projects; alias joins specific resources, never domains.",{projectId:string,key:string,action:{type:"string",enum:["reject","restore","alias"]},reason:{type:"string",maxLength:1000},alias:string},["projectId","key","action"],false],
+  ["control_cycle","Start, resume, pause or stop a bounded background collection cycle. Users can review resources directly without AI.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
+  ["resource_decision","Persist an explicit user review, rejection, restoration or alias. Approve only on user instruction; automatic evaluations use assess_resource.",{projectId:string,key:string,action:{type:"string",enum:["reject","restore","alias","approve","pending"]},queueLike:{type:"boolean"},reason:{type:"string",maxLength:1000},alias:string},["projectId","key","action"],false],
   ["list_rejected","Read persistent rejected resources without recommending them.",{projectId:string},["projectId"],true],
-  ["assess_resource","Record ChatGPT's evidence-based resource evaluation, separate from human decisions. Recommended posts may enter the like queue; never approve by keywords or counters.",{projectId:string,key:string,postId:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
+  ["assess_resource","Record an AI's evidence-based resource evaluation, separate from human decisions. Recommended posts may enter the like queue; never approve by keywords or counters.",{projectId:string,key:string,postId:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
   ["feedback_status","Read persistent like requests, confirmations, errors and separate local permission.",{},[],true],
   ["control_feedback","Stop feedback, or enable it only when the separate local like permission is already granted.",{enabled:{type:"boolean"}},["enabled"],false],
   ["capabilities","Read installed integration versions and locally granted capabilities.",{},[],true],
@@ -47,14 +47,14 @@ const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>
   ["run_project","Run authorized sources into engine SQLite only; never creates notes.",{projectId:string,requestId:string,pageSize:{...number,minimum:1,maximum:500},maxPages:{...number,minimum:1,maximum:1000},sourceIds:COLLECTION_FILTER_SCHEMA.properties.sourceIds},["projectId","requestId"],false],
   ["get_run_status","Read a job status without starting or retrying it.",{jobId:string},["jobId"],true],
   ["cancel_run","Cancel the owned active job; preserve committed checkpoints.",{jobId:string},["jobId"],false],
-  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,evaluation:{type:"string",enum:["recommended","pending","discarded"]},minScore:{...number,maximum:100},filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
+  ["list_findings","Page registered project entities in engine score/key order. Filters apply before pagination.",{projectId:string,limit:{...number,minimum:1,maximum:500},offset:number,search:string,type:string,evaluation:{type:"string",enum:["all","recommended","pending","discarded"]},minScore:{...number,maximum:100},filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
   ["inspect_finding","Read entity evidence, human reviews, evaluator history and evidence fingerprint.",{projectId:string,key:string},["projectId","key"],true],
   ["reprocess_project","Explicit offline reassessment; preserves human reviews and writes no notes.",{projectId:string,requestId:string},["projectId","requestId"],false],
   ["record_ai_assessment","Record an agent recommendation, never a human approval. Read selected references first.",{projectId:string,key:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
   ["list_assessments","Read separate agent recommendations and their evidence freshness.",{projectId:string,key:string,limit:{...number,minimum:1,maximum:200},offset:number},["projectId","key"],true],
   ["stage_findings","Show selected candidates in the Obsidian review view, without creating notes.",{projectId:string,keys},["projectId","keys"],false],
   ["get_review_queue","Reload persistent candidate references and current evidence without collection.",{projectId:string},["projectId"],true],
-  ["preview_selected_notes","Prepare Markdown drafts for ChatGPT. This project never writes vault notes; only the separate connector can write on user instruction.",{projectId:string,keys,folder:string},["projectId","keys","folder"],true]
+  ["preview_selected_notes","Prepare Markdown drafts for manual use or optional AI assistance. This project never writes vault notes; only the separate connector can write on user instruction.",{projectId:string,keys,folder:string},["projectId","keys","folder"],true]
 ];
 function text(value:unknown,name:string,max=4000):string{
   if(typeof value!=="string"||!value.trim()||value.length>max)throw Error("INVALID_INPUT: "+name);
@@ -213,6 +213,25 @@ export class SourceScraperProvider {
     const result=await this.invoke(projectId,"query",["--filters-json",JSON.stringify({version:1,entity:{fields:["key"],includeTerms:[key],matchMode:"substring"}}),"--limit","500"]);
     return result.records.some((e:EntityExport["records"][number])=>e.key===key&&this.eligible(e,manifest.pipeline.includes("x-discovery")));
   }
+  async saveHumanReview(projectId:string,key:string,decision:"pending"|"approved"|"rejected",reason="",queueLike=false,origin:"user-interface"|"user-mcp"="user-interface"){
+    if(!["pending","approved","rejected"].includes(decision)||typeof reason!=="string"||reason.length>1000||typeof queueLike!=="boolean"||queueLike&&decision!=="approved")throw Error("INVALID_HUMAN_REVIEW");
+    const before=await this.invoke(projectId,"inspect",["--key",key]);
+    if(!before.entity.url||before.entity.type!=="web-resource")throw Error("RESOURCE_LINK_REQUIRED");
+    if(queueLike&&(!before.entity.attributes.discoveryPost||!await this.matchesProfile(projectId,key)))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
+    if(decision==="rejected")this.memory.reject("user",before.entity.url,reason,origin);
+    await this.invoke(projectId,"review",["--key",key,"--decision",decision,"--reason",reason.trim()||`User marked this resource ${decision}.`]);
+    const data=await this.invoke(projectId,"inspect",["--key",key]);
+    const review=this.memory.recordHumanReview("user",data.entity.url,{decision,reason,fingerprint:data.fingerprint,postSuitable:queueLike,verifiedUsefulFreeAndQuality:queueLike,origin});
+    const action=queueLike?this.queueResourcePost(projectId,key,data):undefined;
+    return {review,action,notesCreated:0};
+  }
+  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string){
+    const postUrl=data.entity.attributes.discoveryPost,postId=typeof postUrl==="string"?/\/status\/(\d+)$/.exec(postUrl)?.[1]:undefined;
+    if(!postId||requestedPostId!==undefined&&requestedPostId!==postId||!data.mentions.some((m:{active:boolean;itemId:string;url:string})=>m.active&&m.itemId===postId&&m.url===postUrl))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
+    const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),source=manifest.sources.find(s=>s.adapter==="x-for-you-local");
+    if(!source||typeof source.config.accountId!=="string")throw Error("X_ACCOUNT_REQUIRED");
+    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId:source.config.accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+  }
   private async dispatchFeedback(){
     if(this.closed||this.bridge.running||this.collectionBridge.running||this.activeJob||!this.options.allowXLikes?.())return;
     await this.memory.dispatch({
@@ -230,7 +249,7 @@ export class SourceScraperProvider {
     if(excludeRejected)exported.records=exported.records.filter(e=>this.eligible(e));
     else if(exported.records.some(e=>!this.eligible(e)))throw Error("RESOURCE_REJECTED_OR_NOT_A_LINK");
     const identities=new Set<string>();exported.records=exported.records.filter(e=>{if(e.type!=="web-resource"||!e.url)return true;const id=this.memory.identity("user",e.url);if(identities.has(id))return false;identities.add(id);return true;});
-    for(const e of exported.records)if(e.url)e.resourceAssessment=this.memory.assessment("user",e.url);
+    for(const e of exported.records)if(e.url){e.resourceAssessment=this.memory.assessment("user",e.url);const human=this.memory.humanReview("user",e.url);if(human)e.review=human.decision;}
     return exported;
   }
   private async start(args:Record<string,unknown>,command:"run"|"reprocess"):Promise<Job>{
@@ -277,6 +296,7 @@ export class SourceScraperProvider {
       case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
       case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
       case "resource_decision":{
+        if(["approve","pending"].includes(String(args.action)))return this.saveHumanReview(text(args.projectId,"projectId"),text(args.key,"key"),args.action==="approve"?"approved":"pending",typeof args.reason==="string"?args.reason:"",args.queueLike===true,"user-mcp");
         const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);const entity=data.entity;
         if(entity.type!=="web-resource"||!entity.url)throw Error("RESOURCE_LINK_REQUIRED");
         if(args.action==="reject")this.memory.reject("user",entity.url,typeof args.reason==="string"?args.reason:"","user-mcp");
@@ -294,19 +314,15 @@ export class SourceScraperProvider {
         const record=this.memory.assess("user",data.entity.url,args.assessment);
         let action:unknown;
         if(record.decision==="recommended"&&record.postSuitable&&args.postId!==undefined){
-          const postId=text(args.postId,"postId"),postUrl=data.entity.attributes.discoveryPost;
-          if(typeof postUrl!=="string"||!postUrl.endsWith("/status/"+postId)||!data.mentions.some((m:{active:boolean;itemId:string;url:string})=>m.active&&m.itemId===postId&&m.url===postUrl))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
-          const manifest=parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8"));
-          const source=manifest.sources.find(s=>s.adapter==="x-for-you-local");if(!source||typeof source.config.accountId!=="string")throw Error("X_ACCOUNT_REQUIRED");
-          action=this.memory.queue("user",{resource:data.entity.url,projectId:text(args.projectId,"projectId"),key:text(args.key,"key"),postId,postUrl,accountId:source.config.accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+          action=this.queueResourcePost(text(args.projectId,"projectId"),text(args.key,"key"),data,text(args.postId,"postId"));
         }
-        return {record,action,humanReviewChanged:false,evaluationOwner:"ChatGPT via MCP"};
+        return {record,action,humanReviewChanged:false,evaluationOwner:"AI via MCP"};
       }
       case "capabilities":return {apiVersion:1,entitySchemaVersion:1,projects:this.projects().length,noteWritesSupported:false,
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         cycle:this.cycle.snapshot(),feedback:{enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true},
-        evaluation:{owner:"ChatGPT via existing MCP",backgroundModel:false,whenChatClosed:"Collection continues; new resources await ChatGPT evaluation",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence","postSuitable"]},
+        evaluation:{owner:"User review or optional AI via MCP",backgroundModel:false,whenChatClosed:"Collection continues; users can review resources in the plugin without AI",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence","postSuitable"]},
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},
@@ -341,10 +357,10 @@ export class SourceScraperProvider {
         // Exclude before pagination: rejected aliases never leak into later pages.
         const wanted=integer(args.limit,100,1,500),skip=integer(args.offset,0,0,1000000),records:any[]=[];let visible=0,offset=0;let metadata:Record<string,unknown>={};const identities=new Set<string>();
         const base=flags.filter((_v,i)=>![0,1,2,3].includes(i));
-        for(;;){const page=await this.invoke(args.projectId,"query",["--limit","500","--offset",String(offset),...base]);if(offset===0)metadata=page;for(const e of page.records){if(args.type!=="x-inspiration"&&!this.eligible(e,manifest.pipeline.includes("x-discovery")))continue;const saved=e.url?this.memory.assessment("user",e.url):undefined;const assessment=saved&&e.updatedAt>saved.at?{...saved,decision:"pending",stale:true}:saved;const decision=assessment?.decision??"pending";if(args.evaluation?decision!==args.evaluation:decision==="discarded")continue;if(e.type==="web-resource"&&e.url){const id=this.memory.identity("user",e.url);if(identities.has(id))continue;identities.add(id);}if(visible++<skip)continue;records.push({...e,resourceAssessment:assessment});if(records.length===wanted)break;}if(records.length===wanted||page.records.length<500)break;offset+=500;}
+        for(;;){const page=await this.invoke(args.projectId,"query",["--limit","500","--offset",String(offset),...base]);if(offset===0)metadata=page;for(const e of page.records){if(args.type!=="x-inspiration"&&!this.eligible(e,manifest.pipeline.includes("x-discovery")))continue;const saved=e.url?this.memory.assessment("user",e.url):undefined;const assessment=saved&&e.updatedAt>saved.at?{...saved,decision:"pending",stale:true}:saved;const human=e.url?this.memory.humanReview("user",e.url):undefined;const decision=assessment?.decision??"pending";if(args.evaluation&&args.evaluation!=="all"?decision!==args.evaluation:!args.evaluation&&decision==="discarded"&&human?.decision!=="approved")continue;if(e.type==="web-resource"&&e.url){const id=this.memory.identity("user",e.url);if(identities.has(id))continue;identities.add(id);}if(visible++<skip)continue;records.push({...e,review:e.url?this.memory.humanReview("user",e.url)?.decision??(e.review==="rejected"&&this.memory.hasDecision("user",e.url)?"pending":e.review):e.review,resourceAssessment:assessment});if(records.length===wanted)break;}if(records.length===wanted||page.records.length<500)break;offset+=500;}
         return {...metadata,schemaVersion:1,dataset:"entities",projectId:args.projectId,limit:wanted,offset:skip,count:records.length,records};
       }
-      case "inspect_finding":return this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);
+      case "inspect_finding":{const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);const human=data.entity.url?this.memory.humanReview("user",data.entity.url):undefined;return {...data,humanReview:human,storedProjectReview:data.entity.review,entity:{...data.entity,review:human?.decision??data.entity.review}};}
       case "record_ai_assessment":{
         if(!args.assessment||typeof args.assessment!=="object"||Array.isArray(args.assessment))throw Error("INVALID_ASSESSMENT");
         const record=structuredClone(args.assessment) as Record<string,unknown>;
