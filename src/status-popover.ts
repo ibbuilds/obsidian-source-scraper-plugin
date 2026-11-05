@@ -6,7 +6,9 @@ export interface PopoverHost {
   settings:()=>void;setup:()=>void;filters:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
   importFindings:()=>void;
   disconnect?:()=>void;
-  refreshResults?:()=>Promise<void>;
+  refreshResults?:(force?:boolean)=>Promise<void>;
+  hasReviewInbox?:()=>boolean;
+  reviewInboxKey?:()=>string;
   cycle?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
 }
@@ -22,6 +24,7 @@ export class ScraperPopover {
   private frame?:number;
   private homeUpdate?:(snapshot:PanelSnapshot)=>void;
   private signature="";
+  private inboxKey="";
   private snapshotKey="";
   private focusPending=false;
   private returnScreen:"home"|"review"="home";
@@ -67,7 +70,7 @@ export class ScraperPopover {
     if(!dataChanged&&key===this.snapshotKey)return;
     this.snapshotKey=key;
     this.updateResultNotice(s);
-    if(JSON.stringify(s.projects)!==this.signature||(dataChanged&&this.screen==="review"))this.render();else this.homeUpdate?.(s);
+    if(JSON.stringify(s.projects)!==this.signature||(dataChanged&&this.screen==="review"&&(!this.root?.querySelector(".ss-inbox")||!this.host.hasReviewInbox?.()||this.inboxKey!==this.host.reviewInboxKey?.())))this.render();else this.homeUpdate?.(s);
     this.position();
   }
   private el<K extends keyof HTMLElementTagNameMap>(parent:HTMLElement,tag:K,cls:string,text?:string):HTMLElementTagNameMap[K]{
@@ -89,17 +92,17 @@ export class ScraperPopover {
   private render():void{
     const root=this.root;if(!root)return;root.replaceChildren();this.homeUpdate=undefined;this.resultNotice=undefined;this.host.unmountReview?.();
     const snapshot=this.host.snapshot();this.signature=JSON.stringify(snapshot.projects);this.snapshotKey=JSON.stringify(snapshot);
-    root.dataset.screen=this.screen;
+    root.dataset.screen=this.screen;this.inboxKey=this.host.reviewInboxKey?.()??"";
     const header=this.el(root,"header","ss-popover-header");
     if(this.screen!=="home")this.iconButton(header,"arrow-left",this.screen==="options"?"Back":"Back to collection",()=>this.setScreen(this.screen==="options"?this.returnScreen:"home"));
     const title=this.el(header,"strong","ss-brand",this.screen==="options"?"Options":this.screen==="review"?"Resources":"Source Scraper");title.tabIndex=-1;
-    if(this.screen==="review"&&this.host.refreshResults)this.iconButton(header,"refresh-cw","Refresh resources",()=>{void this.host.refreshResults?.();});
+    if(this.screen==="review"&&this.host.refreshResults)this.iconButton(header,"refresh-cw","Refresh resources",()=>{void this.host.refreshResults?.(true);});
     if(this.screen!=="options")this.iconButton(header,"settings-2","Options",()=>this.setScreen("options"));
     this.iconButton(header,"x","Close Source Scraper",()=>this.close(true));
     this.resultsCount=undefined;
     this.body=this.el(root,"div","ss-popover-body");this.body.id=root.id+"-content";
     if(this.screen==="review"){
-      if(snapshot.findings){this.host.renderReview(this.body);this.resultNotice=this.el(this.body,"p","ss-result-notice");this.updateResultNotice(snapshot);}
+      if(snapshot.findings||this.host.hasReviewInbox?.()){this.host.renderReview(this.body);this.resultNotice=this.el(this.body,"p","ss-result-notice");this.updateResultNotice(snapshot);}
       else{
         this.el(this.body,"p","ss-empty-title","No results yet");const hint=this.el(this.body,"p","ss-hint");
         this.button(this.body,"Start collecting",()=>this.setScreen("home"),"ss-button ss-primary");

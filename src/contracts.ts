@@ -14,6 +14,7 @@ export interface EntityRecord {
   confidence:number;
   reasons:string[];
   review:"pending"|"approved"|"rejected";
+  revision?:string;
   updatedAt:string;
   observationCount:number;
   resourceAssessment?:{decision:"recommended"|"pending"|"discarded";at:string;utility:string;stale?:boolean};

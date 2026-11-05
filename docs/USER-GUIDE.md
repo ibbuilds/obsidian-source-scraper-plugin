@@ -10,8 +10,10 @@ The home screen shows the X connection, **Search filters**, **Resources** and on
 primary action: connect, collect, stop or retry. Missing engine/reader setup links
 to settings. Loading a session is not itself a live access verification.
 
-Open **Resources** to filter and select results. Select a resource title to inspect
-its provenance. **Preview drafts** shows previews without writing files. Ask
+Open **Resources** to filter the review inbox. **Approve N** and **Reject N**
+apply to all matching resources; check rows to act on specific resources instead.
+The count states the scope. No selection or comparison dialog is required.
+Select a resource title to inspect its provenance. **Preview drafts** shows previews without writing files. Ask
 ChatGPT to evaluate the selection or save notes through your separate Obsidian
 connector when you want it to. The back arrow returns to collection.
 
@@ -61,7 +63,7 @@ session or format changes made meanwhile in other screens.
 
 ## Use from ChatGPT
 
-The optional connector exposes 22 Source Scraper tools to validate sources,
+The optional connector exposes 26 Source Scraper tools to validate sources,
 start bounded jobs, read findings, record AI recommendations separately from
 human decisions and maintain a persistent selection. Recommendations include
 evidence and references; they are not independent verification or permission to
@@ -81,7 +83,7 @@ documented in [AUTONOMOUS-FEED](AUTONOMOUS-FEED.md). Review resources directly i
 MCP access is optional; no additional model is installed.
 
 
-## Review several resources without AI
+## Imported results and comparison without AI
 
 In Resources, use Select page to select the visible page of up to 40 resources.
 Selections stay checked across pages and filters, up to 200 per batch. Clear selection
@@ -99,3 +101,6 @@ resource and leaves the rest unprocessed; closing while saving has the same effe
 Saved reviews are retained. Retry saves only failed or unprocessed decisions.
 Batch approval never queues a like. Selected links and full Markdown drafts remain
 available through Copy links and Preview drafts. No AI calls or note writes are needed.
+
+
+The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for filter-wide actions and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.

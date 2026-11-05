@@ -10,6 +10,7 @@ import {parseProjectManifest} from "./project-manifest.ts";
 import {parseNoteMapping} from "./note-mapping.ts";
 import {selectedPlans} from "./vault-writer.ts";
 
+const canonical=(v:any):any=>Array.isArray(v)?v.map(canonical):v&&typeof v==="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const hash=(value:unknown)=>createHash("sha256").update(typeof value==="string"?value:JSON.stringify(value)).digest("hex");
 export interface RegisteredProject {id:string;configPath:string;manifestHash:string}
 export interface ProviderOptions {
@@ -26,13 +27,19 @@ export interface ProviderOptions {
 }
 type Job={id:string;requestId:string;signature:string;projectId:string;state:string;startedAt:string;endedAt?:string;result?:unknown;error?:string};
 type Queue={projectId:string;keys:string[]};
-type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[]};
+type ResourceRequest={requestId:string;projectId:string;signature:string;input:any;origin:"user-interface"|"user-mcp";result?:any;error?:string;terminal?:boolean};
+type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[];resourceRequests?:ResourceRequest[]};
 const empty=():State=>({version:1,projects:[],jobs:[],queues:[]});
 const string={type:"string",minLength:1,maxLength:4000};
 const keys={type:"array",items:string,minItems:1,maxItems:200,uniqueItems:true};
 const number={type:"integer",minimum:0,maximum:1000000};
 type Definition={name:string;description:string;inputSchema:{type:"object";properties:Record<string,unknown>;required:string[];additionalProperties:false};annotations:{readOnlyHint:boolean;destructiveHint:boolean;openWorldHint:boolean}};
 const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>=[
+  ["get_resources","Start here: query a compact review inbox. Returns total, stable selectionId and a page. Reuse selectionId for subsequent pages; use inspect_resources for evidence.",{projectId:string,selectionId:string,search:{type:"string",maxLength:1000},review:{type:"string",enum:["all","pending","approved","rejected"]},evaluation:{type:"string",enum:["all","recommended","pending","discarded"]},limit:{...number,minimum:1,maximum:500},offset:number,filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
+  ["inspect_resources","Read evidence and fingerprints for up to 50 resource keys in one call. No collection or evaluation is started.",{projectId:string,keys:{...keys,maxItems:50}},["projectId","keys"],true],
+  ["review_resources","Save explicit USER decisions in one durable, replay-safe batch. Use selectionId + decision for all matching resources, or changes for mixed decisions. To reconcile, resend projectId and requestId only. AI evaluations must use assess_resources. Never queues likes.",{projectId:string,requestId:string,selectionId:string,decision:{type:"string",enum:["pending","approved","rejected"]},reason:{type:"string",maxLength:1000},changes:{type:"array",minItems:1,maxItems:5000,items:{type:"object",additionalProperties:false,properties:{key:string,revision:string,decision:{type:"string",enum:["pending","approved","rejected"]},reason:{type:"string",maxLength:1000}},required:["key","decision"]}}},["projectId","requestId"],false],
+  ["assess_resources","Record up to 50 evidence-based AI evaluations in one call, separate from human decisions. First inspect_resources and supply each current fingerprint. Optional postId follows the existing guarded like policy.",{projectId:string,items:{type:"array",minItems:1,maxItems:50,items:{type:"object",properties:{key:string,postId:string,assessment:{type:"object"}},required:["key","assessment"],additionalProperties:false}}},["projectId","items"],false],
+
   ["cycle_status","Read collection progress, budget and waiting reason; no chat is needed for collection.",{},[],true],
   ["control_cycle","Start, resume, pause or stop a bounded background collection cycle. Users can review resources directly without AI.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
   ["resource_decision","Persist an explicit user review, rejection, restoration or alias. Approve only on user instruction; automatic evaluations use assess_resource.",{projectId:string,key:string,action:{type:"string",enum:["reject","restore","alias","approve","pending"]},queueLike:{type:"boolean"},reason:{type:"string",maxLength:1000},alias:string},["projectId","key","action"],false],
@@ -241,6 +248,40 @@ export class SourceScraperProvider {
     });
   }
   async localFeedback(enabled:boolean){if(enabled&&!this.options.allowXLikes?.())throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");this.memory.setFeedback(enabled);return this.feedbackStatus();}
+  private resourceLane:Promise<unknown>=Promise.resolve();
+  private resourceCommand(projectId:string,input:any){
+    const next=this.resourceLane.then(()=>this.runResourceCommand(projectId,input));this.resourceLane=next.catch(()=>{});return next;
+  }
+  private async runResourceCommand(projectId:string,input:any){
+    if(this.closed)throw Error("PROVIDER_UNLOADED");
+    const {config}=this.project(projectId);if(!this.engineChecked)await this.invoke(projectId,"validate");
+    if(!this.engineCapabilities.includes("resource-batch-v1"))throw Error("RESOURCE_BATCH_UNAVAILABLE: update the trusted engine");
+    return this.bridge.resourceBatch(config,input);
+  }
+  async getResources(args:any){await this.recoverResourceReviews();const result=await this.resourceCommand(text(args.projectId,"projectId"),{...args,operation:"query",context:this.memory.queryContext()});return {...result,recovery:(this.state.resourceRequests??[]).filter(r=>!r.result&&!r.terminal).map(r=>({projectId:r.projectId,requestId:r.requestId,error:r.error??"Review needs reconciliation"}))};}
+  async inspectResources(projectId:string,keys:string[]){const value=await this.resourceCommand(projectId,{operation:"inspect",keys});for(const r of value.records){if(r.entity?.url){r.humanReview=this.memory.humanReview("user",r.entity.url);const saved=this.memory.assessment("user",r.entity.url);r.resourceAssessment=saved?{...saved,stale:saved.fingerprint!==r.fingerprint}:undefined;r.rejected=this.memory.rejected("user",r.entity.url);}}return value;}
+  async reviewResources(args:any,origin:"user-interface"|"user-mcp"="user-interface"){
+    const projectId=text(args.projectId,"projectId"),requestId=text(args.requestId,"requestId",100),signature=hash(canonical(args));this.project(projectId);
+    this.state.resourceRequests??=[];let job=this.state.resourceRequests.find(r=>r.projectId===projectId&&r.requestId===requestId);
+    if(job&&job.signature!==signature&&Object.keys(args).some(k=>!["projectId","requestId"].includes(k)))throw Error("REQUEST_CONFLICT");
+    if(job?.terminal)throw Error(job.error||"Review request was rejected; query current resources and use a new requestId");
+    if(job?.result)return job.result;
+    if(!job){if(Boolean(args.selectionId)===Boolean(args.changes))throw Error("Choose a selectionId or changes");
+      if(args.reason!==undefined&&(typeof args.reason!=="string"||args.reason.length>1000))throw Error("INVALID_REVIEW_REASON");
+      if(args.selectionId&&(typeof args.selectionId!=="string"||!["pending","approved","rejected"].includes(args.decision)))throw Error("INVALID_SELECTION_DECISION");
+      if(args.changes&&(!Array.isArray(args.changes)||!args.changes.length||args.changes.length>5000||new Set(args.changes.map((c:any)=>c?.key)).size!==args.changes.length||args.changes.some((c:any)=>!c||typeof c.key!=="string"||!c.key||c.key.length>4000||!["pending","approved","rejected"].includes(c.decision)||c.reason!==undefined&&(typeof c.reason!=="string"||c.reason.length>1000))))throw Error("INVALID_BATCH_REVIEW");
+      job={projectId,requestId,signature,origin,input:{operation:"review",requestId,selectionId:args.selectionId,decision:args.decision,reason:args.reason,changes:args.changes,context:this.memory.queryContext()}};this.state.resourceRequests.push(job);this.persist();}
+    job.error=undefined;try{return await this.finishResourceReview(job);}catch(e){this.recoveryTried.add(projectId+"|"+requestId);this.recordReviewError(job,e);throw e;}
+  }
+  private async finishResourceReview(job:ResourceRequest){
+    const response=await this.resourceCommand(job.projectId,job.input);
+    this.memory.transaction(()=>{for(const r of response.records)if(!r.error&&!(response.committedAt&&String(this.memory.humanReview("user",r.url)?.at??"")>response.committedAt)){this.memory.recordHumanReview("user",r.url,{decision:r.decision,reason:job.input.reason??job.input.changes?.find((c:any)=>c.key===r.key)?.reason??"",fingerprint:r.fingerprint,postSuitable:false,verifiedUsefulFreeAndQuality:false,origin:job.origin});}});
+    job.result={projectId:job.projectId,requestId:job.requestId,saved:response.saved,failed:response.failed,errors:response.records.filter((r:any)=>r.error).map((r:any)=>({key:r.key,error:r.error})),notesCreated:0,likesQueued:0};
+    const completed=this.state.resourceRequests!.filter(r=>r.result);if(completed.length>100)this.state.resourceRequests=this.state.resourceRequests!.filter(r=>!r.result||completed.slice(-100).includes(r));job.input={};this.persist();return job.result;
+  }
+  private recoveryTried=new Set<string>();
+  private recordReviewError(job:ResourceRequest,error:unknown){job.error=error instanceof Error?error.message:"Review needs reconciliation";job.terminal=error instanceof CliCommandError&&error.exitCode===1&&/SELECTION_CHANGED|SELECTION_EXPIRED|INVALID_|REQUEST_CONFLICT|REQUEST_ID_REQUIRED|REQUEST_LIMIT|Select 1/.test(job.error);if(job.terminal)job.input={};this.persist();}
+  private async recoverResourceReviews(){for(const job of this.state.resourceRequests??[]){const key=job.projectId+"|"+job.requestId;if(!job.result&&!job.terminal&&!this.recoveryTried.has(key)){this.recoveryTried.add(key);try{await this.finishResourceReview(job);}catch(e){this.recordReviewError(job,e);}}}}
   private feedbackStatus(){return {enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true,actions:this.memory.actions(),limits:{maxPerHour:5,minIntervalSeconds:60},algorithmEffect:"Not guaranteed"};}
   private async entities(projectId:unknown,selected:string[],excludeRejected=false):Promise<EntityExport>{
     const value=await this.invoke(projectId,"export",["--keys-json",JSON.stringify(selected)]);
@@ -290,6 +331,15 @@ export class SourceScraperProvider {
       definition.inputSchema.required.some(k=>!Object.hasOwn(args,k)))throw Error("INVALID_INPUT");
     const operation=name.slice("source_scraper_".length);
     switch(operation){
+      case "get_resources":return this.getResources(args);
+      case "inspect_resources":return this.inspectResources(text(args.projectId,"projectId"),selection(args.keys));
+      case "review_resources":return this.reviewResources(args);
+      case "assess_resources":{
+        if(!Array.isArray(args.items)||!args.items.length||args.items.length>50||new Set(args.items.map(x=>x.key)).size!==args.items.length)throw Error("Select 1–50 distinct assessments");
+        const projectId=text(args.projectId,"projectId"),details=await this.inspectResources(projectId,args.items.map(x=>text(x.key,"key")));
+        const records=this.memory.transaction(()=>(args.items as any[]).map((item:any)=>{try{const d=details.records.find((r:any)=>r.key===item.key);if(!d?.entity||d.rejected||!d.profileMatched)throw Error("RESOURCE_REJECTED_OR_OUTSIDE_FILTERS");if(item.assessment?.fingerprint!==d.fingerprint)throw Error("STALE_RESOURCE_ASSESSMENT");const record=this.memory.assess("user",d.entity.url,item.assessment);const action=record.decision==="recommended"&&record.postSuitable&&item.postId?this.queueResourcePost(projectId,item.key,d,text(item.postId,"postId")):undefined;return {key:item.key,decision:record.decision,action};}catch(e){return {key:item.key,error:e instanceof Error?e.message:"Assessment failed"};}}));
+        return {projectId,records,humanReviewChanged:false};
+      }
       case "cycle_status":return this.cycle.snapshot();
       case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000));}
       case "feedback_status":return this.feedbackStatus();

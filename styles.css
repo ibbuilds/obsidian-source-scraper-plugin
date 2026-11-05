@@ -243,3 +243,18 @@
 .ss-batch-reason summary { font-size:12px; cursor:pointer; }
 .ss-batch-reason[open] summary { margin-bottom:12px; }
 .ss-batch-status { font-size:12px; }
+
+/* Inbox: one query, one scope, one decision. Only the current page is rendered. */
+.ss-inbox-filters { display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:8px; flex:none; }
+.ss-inbox-filters .search-input-container,.ss-inbox-filters input,.ss-inbox-filters select { width:100%; min-width:0; height:36px; font:inherit; }
+.ss-inbox-summary,.ss-inbox-scope { display:flex; align-items:center; gap:8px; flex:none; }
+.ss-inbox-scope { justify-content:space-between; font-size:12px; color:var(--text-muted); }
+.ss-inbox .ss-inbox-scope button,.ss-inbox-utility button { min-height:28px; padding:2px 6px; box-shadow:none; background:transparent; font-size:12px; }
+.ss-inbox-footer { flex:none; padding-top:12px; border-top:1px solid var(--background-modifier-border); }
+.ss-inbox-actions { display:flex; gap:8px; }
+.ss-inbox-actions button { flex:1; min-width:0; }
+.ss-inbox-utility { display:flex; gap:8px; margin-top:8px; }
+.ss-inbox-status { flex:none; max-height:60px; overflow:auto; font-size:12px; color:var(--text-muted); }
+.ss-inbox-status:empty { display:none; }
+.ss-inbox .ss-record-description { -webkit-line-clamp:2; }
+@media(max-width:390px){ .ss-inbox-filters { grid-template-columns:minmax(0,1fr) 125px; } }
