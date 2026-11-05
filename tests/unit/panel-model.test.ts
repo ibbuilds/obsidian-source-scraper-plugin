@@ -4,9 +4,11 @@ import {panelPosition,panelState,discoveryState,type PanelSnapshot} from "../../
 
 const connected:PanelSnapshot={engine:true,mcp:true,python:true,session:true,xAllowed:true,
   projects:[{id:"x",name:"X feed",isX:true,minimumScore:50}],projectId:"x",findings:0,findingProject:"",running:false};
-test("the normal journey requires X even with public demo findings and healthy local tools",()=>{
+test("the selected generic source does not inherit X requirements",()=>{
   const sample={...connected,session:false,xAllowed:false,findings:4,exampleFindings:true,projects:[{id:"starter-project",name:"Offline starter",isX:false,minimumScore:0}],projectId:"starter-project"};
-  assert.equal(discoveryState(sample).button,"Connect X");assert.equal(discoveryState(sample).status,"Not connected");
+  assert.equal(discoveryState(sample).button,"Find resources");assert.equal(discoveryState(sample).status,"Ready");
+  assert.equal(discoveryState({...sample,python:false,projects:[...connected.projects,...sample.projects]}).projectId,"starter-project");
+  assert.equal(discoveryState({...sample,projects:[]}).button,"Configure sources");
   assert.equal(discoveryState(connected).button,"Find resources");
   assert.equal(discoveryState({...connected,running:true}).action,"cancel");
   assert.equal(discoveryState({...connected,error:"401"}).button,"Retry");
@@ -35,4 +37,9 @@ test("the floating panel stays above its status anchor and within narrow or shor
   assert.deepEqual(panelPosition({right:300,top:8,bottom:28},280,200,320,640),{left:20,top:36});
   const result=panelPosition({right:150,top:180,bottom:200},420,680,280,240);
   assert.deepEqual(result,{left:12,top:12});
+});
+
+test("mixed projects keep generic collection while requiring the included X connection",()=>{
+ const mixed={...connected,projectId:"mixed",projects:[{id:"mixed",name:"Mixed sources",isX:false,hasX:true,minimumScore:0}]};
+ assert.equal(discoveryState(mixed).projectId,"mixed");assert.equal(discoveryState(mixed).status,"Ready");assert.equal(discoveryState({...mixed,session:false}).button,"Connect X");
 });

@@ -1,18 +1,25 @@
-export interface PanelProject {id:string;name:string;isX:boolean;minimumScore:number}
+export interface PanelProject {id:string;name:string;isX:boolean;hasX?:boolean;minimumScore:number}
 export interface PanelSnapshot {
   engine:boolean;mcp:boolean;python:boolean;session:boolean;xAllowed:boolean;
   projects:PanelProject[];projectId:string;findings:number;findingProject:string;
   cycle?:{state:string;pages:number;observations:number;reason:string};
   running:boolean;error?:string;message?:string;exampleFindings?:boolean;
 }
-/** The normal user journey is the personalized X feed; other adapters stay in advanced options. */
+/** A selected project owns its requirements. X is only the fallback when none is selected. */
+export function selectedProject(s:PanelSnapshot){return s.projects.find(p=>p.id===s.projectId)||s.projects.find(p=>p.isX)||s.projects[0];}
 export function discoveryState(s:PanelSnapshot){
-  const project=s.projects.find(p=>p.isX&&p.id===s.projectId)||s.projects.find(p=>p.isX);
+  const project=selectedProject(s);
   if(s.running)return {state:"running",status:s.cycle?.state==="waiting"?"Waiting for new posts":"Collecting…",hint:s.cycle?`${s.cycle.pages} pages · ${s.cycle.observations} posts. ${s.cycle.reason}.`:"You can close this panel. Collection continues.",action:"cancel",button:s.cycle?"Stop cycle":"Stop",projectId:project?.id};
   if(!s.engine||!s.mcp)return {state:"setup",status:"Setup required",hint:"Set up the local connection to start collecting.",action:"settings",button:"Set up Source Scraper",projectId:project?.id};
+  if(!project)return {state:"setup",status:"No source configured",hint:"Register a project or import collected resources.",action:"settings",button:"Configure sources",projectId:undefined};
+  if(!project.isX&&!project.hasX){
+    if(s.error)return {state:"error",status:"Collection failed",hint:"Check the source configuration and try again.",action:"collect",button:"Retry",projectId:project.id};
+    return {state:"ready",status:"Ready",hint:s.message==="Collection complete."?"Collection complete. Browse the matching resources.":"Collect links from this source, then inspect and choose what to keep.",action:"collect",button:"Find resources",projectId:project.id};
+  }
   if(!s.python)return {state:"setup",status:"X setup required",hint:"Configure the local X reader to continue.",action:"settings",button:"Set up connection",projectId:project?.id};
   if(!project||!s.session||!s.xAllowed)return {state:"setup",status:"Not connected",hint:"Find tools and resources in your feed.",action:"connect",button:"Connect X",projectId:project?.id};
   if(s.error)return {state:"error",status:"Collection failed",hint:"Check your X session and try again.",action:"collect",button:"Retry",projectId:project.id};
+  if(!project.isX)return {state:"ready",status:"Ready",hint:"Collect from all sources in this project. X permissions apply only to its X connection.",action:"collect",button:"Find resources",projectId:project.id};
   return {state:"ready",status:"Session loaded",hint:s.message==="Collection complete."?(s.findings?"Collection complete. Review the resources.":"No resources found. Try different filters."):"Collect resources and review them here. AI assistance is optional.",action:"collect",button:"Find resources",projectId:project.id};
 }
 export function panelState(s:PanelSnapshot){

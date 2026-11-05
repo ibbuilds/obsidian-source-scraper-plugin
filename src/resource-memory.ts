@@ -61,11 +61,11 @@ export class ResourceMemory{
     const x=input as Recommendation;
     if(!x||!["recommended","pending","discarded"].includes(x.decision)||!/^([a-f0-9]{64})$/.test(x.fingerprint))throw Error("INVALID_RESOURCE_ASSESSMENT");
     for(const k of ["utility","reuse","quality","freeAccess","usableOutput"] as const)if(typeof x[k]!=="string"||x[k].length>4000||(x.decision==="recommended"&&x[k].trim().length<20))throw Error("ASSESSMENT_EVIDENCE_REQUIRED: "+k);
-    if(!Array.isArray(x.unknowns)||x.unknowns.length>30||x.unknowns.some(s=>typeof s!=="string"||s.length>1000)||typeof x.postSuitable!=="boolean")throw Error("INVALID_RESOURCE_ASSESSMENT");
+    if(!Array.isArray(x.unknowns)||x.unknowns.length>30||x.unknowns.some(s=>typeof s!=="string"||s.length>1000)||x.postSuitable!==undefined&&typeof x.postSuitable!=="boolean")throw Error("INVALID_RESOURCE_ASSESSMENT");
     if(!Array.isArray(x.evidence)||x.evidence.length>20||x.evidence.some(e=>!e||typeof e.url!=="string"||typeof e.quote!=="string"||e.quote.length>4000||(x.decision==="recommended"&&e.quote.trim().length<20)))throw Error("INVALID_RESOURCE_EVIDENCE");
     for(const e of x.evidence)resourceIdentity(e.url);
     if(x.decision==="recommended"&&(!x.evidence.length||x.unknowns.length))throw Error("UNRESOLVED_RECOMMENDATION");
-    const record={...structuredClone(x),at:new Date().toISOString()};this.data.assessments[scope+"|"+this.identity(scope,url)]=record;this.data.history.push({kind:"assessment",scope,resource:this.identity(scope,url),record});this.save();return record;
+    const record={...structuredClone(x),postSuitable:x.postSuitable===true,at:new Date().toISOString()};this.data.assessments[scope+"|"+this.identity(scope,url)]=record;this.data.history.push({kind:"assessment",scope,resource:this.identity(scope,url),record});this.save();return record;
   }
   recordHumanReview(scope:string,url:string,review:Omit<HumanReview,"at">){
     if(!["pending","approved","rejected"].includes(review.decision)||typeof review.reason!=="string"||review.reason.length>1000||!/^[a-f0-9]{64}$/.test(review.fingerprint)||typeof review.postSuitable!=="boolean"||typeof review.verifiedUsefulFreeAndQuality!=="boolean"||!["user-interface","user-mcp"].includes(review.origin))throw Error("INVALID_HUMAN_REVIEW");

@@ -1,3 +1,6 @@
+import {buildPublicSource} from "./source-project.ts";
+import {xPostContext,hasXSource,isXOnlyProject} from "./adapter-policy.ts";
+import {sourceProfile} from "./source-profile.ts";
 import {ResourceInbox,type ResourceViewState} from "./resource-inbox.ts";
 import {resourceAccess} from "./resource-actions.ts";
 import {dialog,action,formStatus,labelFields,externalLink} from "./form-ui.ts";
@@ -16,7 +19,7 @@ import {CliBridge,type XLocalSession} from "./cli-bridge.ts";
 import {SourceScraperProvider,writeWorkspaceProject,type RegisteredProject} from "./mcp-provider.ts";
 import {buildXFeedProject,xFeedReadiness,validateLocalSession,normalizeXAccountId,xFeedVariant} from "./x-feed.ts";
 import {ScraperPopover} from "./status-popover.ts";
-import {discoveryState,type PanelSnapshot,type PanelProject} from "./panel-model.ts";
+import {discoveryState,selectedProject,type PanelSnapshot,type PanelProject} from "./panel-model.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {homedir} from "node:os";
 import {join} from "node:path";
@@ -205,6 +208,24 @@ class NoteMappingModal extends Modal {
   }
   onClose():void{this.contentEl.empty();}
 }
+class SourceSetupModal extends Modal {
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
+  onOpen(){
+    const {body,footer}=dialog(this,"Add source");action(footer,"Cancel",()=>this.close());
+    paragraph(body,"Choose a public source. Adding it saves the configuration; collection starts only when you choose Find resources.");
+    let adapter="rss",url="",name="",busy=false;
+    new Setting(body).setName("Source type").addDropdown(d=>d.addOptions({rss:"RSS feed","public-product":"Product page"}).onChange(v=>{adapter=v;}));
+    new Setting(body).setName("URL").setDesc("A feed URL, or an HTTPS product page with structured product data.").addText(t=>t.setPlaceholder("https://example.org/feed.xml").onChange(v=>{url=v;}));
+    new Setting(body).setName("Name (optional)").addText(t=>t.setPlaceholder("Use the source domain").onChange(v=>{name=v;}));
+    const status=formStatus(body);const save=action(footer,"Add source",()=>{void(async()=>{
+      if(busy)return;busy=true;save.setDisabled(true);for(const field of Array.from(body.querySelectorAll<HTMLInputElement>("input,select")))field.disabled=true;
+      try{await this.plugin.addSourceProject(buildPublicSource(adapter,url,name));this.close();await this.plugin.openView();new Notice("Source added. Set filters, then find resources.");}
+      catch(error){status.setText(errorMessage(error));}
+      finally{busy=false;save.setDisabled(false);for(const field of Array.from(body.querySelectorAll<HTMLInputElement>("input,select")))field.disabled=false;}
+    })();},true);labelFields(body);
+  }
+  onClose(){this.contentEl.empty();}
+}
 class DetailModal extends Modal {
   private decision:"approved"|"rejected"|"pending";
   private reason="";
@@ -259,7 +280,7 @@ class DetailModal extends Modal {
     new Setting(reviewControls).setName("Reason (optional)").addTextArea(t=>
       t.setPlaceholder("What did you verify?")
         .onChange(value=>{this.reason=value;}));
-    if(this.entity.type==="web-resource"&&typeof post==="string"){
+    if(this.plugin.canLikeResource(this.entity)){
       likeSetting=new Setting(reviewControls).setName("Like the source post").setDesc("I checked usefulness, quality, usable free access and the whole source post. Queued likes require Automatic likes to be enabled in Collection and feedback.").addToggle(t=>t.setValue(false).onChange(v=>{this.queueLike=v;}));
       likeSetting.settingEl.hidden=this.decision!=="approved";
     }
@@ -406,26 +427,26 @@ class FeedFiltersModal extends Modal {
     try{
       const entries=this.plugin.registeredProjects();
       const ordered=[...entries].sort((a,b)=>Number(b.configPath===this.plugin.settings.configPath)-Number(a.configPath===this.plugin.settings.configPath));
-      const entry=ordered.find(p=>{try{return parseProjectManifest(readFileSync(p.configPath,"utf8")).sources.some(source=>source.adapter==="x-for-you-local");}catch{return false;}});
-      if(!entry)throw Error("Connect X before configuring its filters.");
+      const entry=ordered[0];
+      if(!entry)throw Error("Register a source project before configuring its filters.");
       const raw=readFileSync(entry.configPath,"utf8");
       if(createHash("sha256").update(raw).digest("hex")!==entry.manifestHash)throw Error("The configuration changed. Review the project in settings.");
       const project=parseProjectManifest(raw);
-      if(!project.sources.some(source=>source.adapter==="x-for-you-local"))throw Error("Select your X source to edit these filters.");
+      const isX=isXOnlyProject(project);
       const values=feedFilterForm(project);
       paragraph(root,"Only links that meet every condition pass. Empty fields add no restriction.");
-      new Setting(root).setName("Include terms").setDesc("Separate terms with commas. Match them against the original post.").addTextArea(t=>t.setValue(values.include).setPlaceholder("e.g. design system, UI kit, typography").onChange(v=>{values.include=v;}));
+      new Setting(root).setName("Include terms").setDesc("Separate terms with commas. Match them against the original source content.").addTextArea(t=>t.setValue(values.include).setPlaceholder("e.g. design system, UI kit, typography").onChange(v=>{values.include=v;}));
       new Setting(root).setName("Match").addDropdown(d=>d.addOptions({any:"Any of these terms",all:"All of these terms"}).setValue(values.mode).onChange(v=>{values.mode=v as "any"|"all";}));
-      new Setting(root).setName("Exclude terms").setDesc("Exclude posts containing any of these terms.").addTextArea(t=>t.setValue(values.exclude).setPlaceholder("e.g. giveaway, sponsored").onChange(v=>{values.exclude=v;}));
+      new Setting(root).setName("Exclude terms").setDesc("Exclude source content containing any of these terms.").addTextArea(t=>t.setValue(values.exclude).setPlaceholder("e.g. giveaway, sponsored").onChange(v=>{values.exclude=v;}));
       const numeric=(parent:HTMLElement,name:string,key:"days"|"likes"|"reposts"|"pages"|"minimum",placeholder:string,min:number,max:number,description:string)=>{
         new Setting(parent).setName(name).setDesc(description).addText(t=>{t.setValue(values[key]).setPlaceholder(placeholder).onChange(v=>{values[key]=v;});t.inputEl.type="number";t.inputEl.min=String(min);t.inputEl.max=String(max);t.inputEl.step="1";t.inputEl.inputMode="numeric";});
       };
       numeric(root,"Maximum age · days","days","No limit",1,36500,"Use 30 for the past month, or 60 for the past two months.");
-      const engagement=root.createDiv({cls:"ss-field-pair"});
+      if(isX){const engagement=root.createDiv({cls:"ss-field-pair"});
       numeric(engagement,"Minimum likes","likes","No minimum",0,Number.MAX_SAFE_INTEGER,"");
-      numeric(engagement,"Minimum reposts","reposts","No minimum",0,Number.MAX_SAFE_INTEGER,"");
+      numeric(engagement,"Minimum reposts","reposts","No minimum",0,Number.MAX_SAFE_INTEGER,"");}
       const advanced=root.createEl("details",{cls:"ss-disclosure"});advanced.createEl("summary",{text:"Profile limits and rules"});
-      numeric(advanced,"Pages per collection","pages","1",1,10,"From 1 to 10. Each page reads a sample of your feed.");
+      if(isX)numeric(advanced,"Pages per collection","pages","1",1,10,"From 1 to 10. Each page reads a sample of your feed.");
       numeric(advanced,"Minimum match score","minimum","0",0,100,"Hide resources below this keyword score. It does not measure editorial quality.");
       if(project.filters){const pre=advanced.createEl("pre",{cls:"ss-preview"});pre.setText(JSON.stringify(project.filters,null,2));paragraph(advanced,"Existing date boundaries, domains and other rules are preserved.");}
       const status=formStatus(root);let busy=false;
@@ -437,7 +458,7 @@ class FeedFiltersModal extends Modal {
           const updated=applyFeedFilterForm(project,values);
           let selected=entry;
           if(JSON.stringify(updated)!==JSON.stringify(project)){
-            const variant=xFeedVariant({...updated,id:"x-for-you-resources"});
+            const variant=isX?xFeedVariant({...updated,id:"x-for-you-resources"}):sourceProfile(updated,entry.configPath);
             const registered=entries.find(p=>p.id===variant.id);
             if(registered){if(createHash("sha256").update(readFileSync(registered.configPath,"utf8")).digest("hex")!==registered.manifestHash)throw Error("The saved profile changed. Review it in settings.");selected=registered;}
             else{if(entries.length>=100)throw Error("The saved profile limit has been reached.");selected=writeWorkspaceProject(this.plugin.settings.mcpWorkspacePath,this.app.vault.adapter.getBasePath(),variant);this.plugin.settings.mcpProjectsJson=JSON.stringify([...entries,selected]);}
@@ -597,8 +618,9 @@ class ScraperSettings extends PluginSettingTab {
     const change=(key:keyof Preferences,value:string)=>{draft[key]=value;dirty.add(key);};
     const section=(label:string)=>{const part=body.createDiv({cls:"ss-settings-section"});new Setting(part).setName(label).setHeading();return part;};
     const connection=section("Connection");
-    new Setting(connection).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
-    new Setting(connection).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
+    const xSettings=connection.createEl("details",{cls:"ss-disclosure"});xSettings.createEl("summary",{text:"X adapter"});
+    new Setting(xSettings).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
+    new Setting(xSettings).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
     new Setting(connection).setName("MCP access").setDesc("Optional AI connection through Vault as MCP. Manual controls work without it.").addToggle(t=>t.setValue(draft.mcpEnabled==="true").onChange(v=>{change("mcpEnabled",String(v));}));
     const notes=section("Drafts");
     new Setting(notes).setName("Suggested folder").setDesc("Drafts are previews. The plugin does not create notes.").addText(t=>t.setPlaceholder("Source Scraper/Imported").setValue(draft.outputFolder).onChange(v=>{change("outputFolder",v);}));
@@ -641,6 +663,7 @@ export default class ScraperPlugin extends Plugin {
   private uiPolling=false;
   private uiStarting=false;
   private uiError="";
+  private xSessionError="";
   private uiMessage="";
   private projectCache?:{key:string;projects:PanelProject[]};
   private provider?:SourceScraperProvider;
@@ -686,7 +709,7 @@ export default class ScraperPlugin extends Plugin {
   async restoreLocalSession():Promise<void>{
     if(this.settings.xProviderEnabled!=="true")return;
     try{const saved=await this.sessionStore?.load();if(!this.unloaded&&saved){this.memorySession=saved;this.uiMessage="X session restored. You can collect resources.";}}
-    catch{this.uiError="Could not restore the encrypted X session. Select Connect X to renew it.";}
+    catch{this.xSessionError="Could not restore the encrypted X session. Select Connect X to renew it.";}
   }
   private changeSession(operation:()=>Promise<void>):Promise<void>{
     const pending=this.sessionChange.then(operation);this.sessionChange=pending.catch(()=>{});return pending;
@@ -707,7 +730,7 @@ export default class ScraperPlugin extends Plugin {
       this.memorySession={...session};this.settings.xProviderEnabled="true";
       try{
         if(this.sessionStore)await this.sessionStore.saveAndCommit(session,()=>this.savePrefs());else await this.savePrefs();
-        this.uiError="";this.uiMessage=this.canRememberSession()?"X session saved and loaded. Collect resources to verify access.":"X session loaded. Collect resources to verify access.";
+        this.xSessionError="";this.uiError="";this.uiMessage=this.canRememberSession()?"X session saved and loaded. Collect resources to verify access.":"X session loaded. Collect resources to verify access.";
       }catch(error){if(!this.unloaded)this.memorySession=previous;this.settings.xProviderEnabled=allowed;throw error;}
       this.updateStatus();
     });
@@ -723,7 +746,7 @@ export default class ScraperPlugin extends Plugin {
       try{
         if(statSync(p.configPath).size>200000)throw Error("Manifest limit");
         const manifest=parseProjectManifest(readFileSync(p.configPath,"utf8"));
-        return {id:p.id,name:manifest.name,isX:manifest.sources.some(s=>s.adapter==="x-for-you-local"),minimumScore:manifest.policy.minimumScore};
+        return {id:p.id,name:manifest.name,isX:isXOnlyProject(manifest),hasX:hasXSource(manifest),minimumScore:manifest.policy.minimumScore};
       }catch{return {id:p.id,name:p.id.replace(/[-_]/g," "),isX:false,minimumScore:0};}
     });
     this.projectCache={key,projects};return projects;
@@ -731,14 +754,14 @@ export default class ScraperPlugin extends Plugin {
   isCollecting():boolean{return this.uiStarting||this.cli.running||Boolean(this.provider?.activity().running)||Boolean(["running","waiting"].includes(this.provider?.cycle?.snapshot().state??""));}
   private panelSnapshot():PanelSnapshot{
     const list=this.registeredProjects(),projects=this.projectsForPanel(),readiness=xFeedReadiness(this.memorySession);
-    const activity=this.provider?.activity();
+    const activity=this.provider?.activity(),activeId=list.find(p=>p.configPath===this.settings.configPath)?.id||"",active=projects.find(p=>p.id===activeId);
     return {engine:Boolean(this.settings.cliPath&&existsSync(this.settings.cliPath)),mcp:Boolean(this.provider),python:Boolean(this.settings.xPythonPath&&existsSync(this.settings.xPythonPath)),
       session:readiness.accountSessionConfigured&&readiness.csrfConfigured,xAllowed:this.settings.xProviderEnabled==="true",
-      projects,projectId:list.find(p=>p.configPath===this.settings.configPath)?.id||"",findings:this.imported?.records.length??0,
+      projects,projectId:activeId,findings:this.imported?.records.length??0,
       findingProject:projects.find(p=>p.id===this.imported?.projectId)?.name||this.imported?.projectId||"",
       exampleFindings:this.imported?.projectId==="starter-project",
       cycle:this.provider?.cycle?.snapshot().projectId?this.provider.cycle.snapshot():undefined,
-      running:this.isCollecting(),error:this.uiError||(activity?.lastState==="failed"?activity.error:undefined),message:this.uiMessage};
+      running:this.isCollecting(),error:this.uiError||((active?.isX||active?.hasX)?this.xSessionError:"")||(activity?.lastState==="failed"&&activity.projectId===activeId?activity.error:undefined),message:this.uiMessage};
   }
   private placeStatus():void{
     const item=this.statusItem,parent=item?.parentElement;if(!item||!parent)return;
@@ -812,7 +835,7 @@ export default class ScraperPlugin extends Plugin {
         vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
         checkRead:path=>{if(this.settings.mcpEnabled!=="true"||host?.toolProviderApiVersion!==1)throw Error("MCP reference access is disabled");host.checkToolReadAccess(path);},
         stage:value=>{this.setImported(value);},
-        stageAuto:value=>{const visible=new Set(value.records.map(e=>e.key));this.imported=value;for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);this.refresh();},
+        stageAuto:value=>{if(this.panelSnapshot().projectId!==value.projectId)return;const visible=new Set(value.records.map(e=>e.key));this.imported=value;for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);this.refresh();},
         readReference:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile))throw Error("Reference note missing");return this.app.vault.read(file);}
       });
       this.provider=provider;
@@ -836,10 +859,25 @@ export default class ScraperPlugin extends Plugin {
   async restoreResource(url:string){this.provider?.memory.restore("user",url);this.refresh();}
   async setAutomaticLikes(enabled:boolean){this.settings.xLikesEnabled=String(enabled);await this.savePrefs();await this.provider?.localFeedback(enabled);}
   async controlCycle(action:"start"|"pause"|"stop",maxPages=100){
-    const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>p.isX&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
+    const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>(p.isX||p.hasX)&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX||p.hasX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
     const value=await this.provider.execute("source_scraper_control_cycle",{projectId,action,maxPages});this.updateStatus();return value;
   }
   openCycleControls(){this.closePopover();new CycleControlsModal(this.app,this).open();}
+  async addSourceProject(manifest:ReturnType<typeof buildPublicSource>){
+    if(this.isCollecting())throw Error("Wait for collection to finish before adding a source.");
+    if(!this.provider)throw Error("Set up the local engine in plugin settings before adding a source.");
+    const before={...this.settings};
+    try{
+      let project=this.registeredProjects().find(p=>p.id===manifest.id);
+      if(!project){await this.provider.execute("source_scraper_create_project",{manifest});project=this.registeredProjects().find(p=>p.id===manifest.id);}
+      if(!project)throw Error("The source could not be registered");
+      this.settings.configPath=project.configPath;this.imported=null;this.selected.clear();this.review=undefined;this.uiError="";this.uiMessage="";await this.savePrefs();
+    }catch(error){this.settings=before;throw error;}
+  }
+  canLikeResource(entity:EntityRecord):boolean{
+    if(entity.type!=="web-resource")return false;const entry=this.registeredProjects().find(p=>p.id===entity.projectId);if(!entry)return false;
+    try{return Boolean(xPostContext(parseProjectManifest(readFileSync(entry.configPath,"utf8")),entity,entity.provenance?.mentions??[]));}catch{return false;}
+  }
   async saveHumanReview(entity:EntityRecord,decision:"pending"|"approved"|"rejected",reason:string,queueLike=false){
     if(this.provider&&entity.type==="web-resource"&&entity.url){
       if(decision==="rejected")this.provider.memory.reject("user",entity.url,reason,"user-interface");
@@ -892,7 +930,7 @@ export default class ScraperPlugin extends Plugin {
       hasReviewInbox:()=>this.resourceInboxReady(),reviewInboxKey:()=>this.resourceInboxProject(),refreshResults:force=>this.refreshResources(force),
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
-      setup:()=>new XFeedSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
+      setup:()=>new XFeedSetupModal(this.app,this).open(),addSource:()=>new SourceSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
       cycle:()=>this.openCycleControls(),
       importFindings:()=>new ImportModal(this.app,this).open(),
       disconnect:()=>{void this.forgetLocalSession().catch(notify);},
@@ -900,7 +938,7 @@ export default class ScraperPlugin extends Plugin {
       cancel:()=>{const jobId=this.uiJobId||this.provider?.activity().jobId;if(jobId&&this.provider)void this.provider.execute("source_scraper_cancel_run",{jobId}).catch(notify);else{this.provider?.cycle.stop();this.cli.cancel();}},
       selectProject:id=>{
         if(this.isCollecting())return;
-        const p=this.registeredProjects().find(p=>p.id===id);if(p){this.settings.configPath=p.configPath;this.uiError="";this.uiMessage="";void this.savePrefs().catch(notify);}
+        const p=this.registeredProjects().find(p=>p.id===id);if(p){this.settings.configPath=p.configPath;this.imported=null;this.selected.clear();this.review=undefined;this.uiError="";this.uiMessage="";void this.savePrefs().then(()=>this.updateStatus(true)).catch(notify);}
       },
       renderReview:root=>{this.review??=new ScraperReview(undefined,this);this.review.mount(root);},unmountReview:()=>this.review?.unmount(),
       renderTools:root=>{this.review??=new ScraperReview(undefined,this);this.review.renderTools(root);}

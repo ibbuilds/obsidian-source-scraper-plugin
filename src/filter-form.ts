@@ -1,3 +1,4 @@
+import {isXOnlyProject} from "./adapter-policy.ts";
 import {parseProjectManifest,type ProjectManifest} from "./project-manifest.ts";
 export interface FeedFilterForm {include:string;exclude:string;mode:"any"|"all";days:string;likes:string;reposts:string;pages:string;minimum:string}
 export function feedFilterForm(project:ProjectManifest):FeedFilterForm{
@@ -20,15 +21,16 @@ export function applyFeedFilterForm(project:ProjectManifest,form:FeedFilterForm)
   const dates=(obs.dateRanges??[]).flatMap(r=>{if(r.field!=="occurredAt")return [r];const copy={...r};delete copy.maxAgeDays;return copy.from||copy.to?[copy]:[];});
   if(days!==undefined)dates.push({field:"occurredAt",maxAgeDays:days});
   if(dates.length)obs.dateRanges=dates;else delete obs.dateRanges;
-  const ranges=(obs.numericRanges??[]).flatMap(r=>{if(!["attributes.metrics.likes","attributes.metrics.reposts"].includes(r.field))return [r];return r.max===undefined?[]:[{field:r.field,max:r.max}];});
-  for(const [field,value,label] of [["attributes.metrics.likes",form.likes,"Likes"],["attributes.metrics.reposts",form.reposts,"Reposts"]]){const min=number(value,label,0,Number.MAX_SAFE_INTEGER);if(min!==undefined)ranges.push({field,min});}
+  const isX=isXOnlyProject(next);
+  const ranges=(obs.numericRanges??[]).flatMap(r=>{if(!isX||!["attributes.metrics.likes","attributes.metrics.reposts"].includes(r.field))return [r];return r.max===undefined?[]:[{field:r.field,max:r.max}];});
+  for(const [field,value,label] of (isX?[["attributes.metrics.likes",form.likes,"Likes"],["attributes.metrics.reposts",form.reposts,"Reposts"]]:[])){const min=number(value,label,0,Number.MAX_SAFE_INTEGER);if(min!==undefined)ranges.push({field,min});}
   if(ranges.length)obs.numericRanges=ranges;else delete obs.numericRanges;
   if(Object.keys(obs).length)filters.observation=obs;else delete filters.observation;
   // This screen collects links. Preserve any stricter existing type/domain rules.
-  filters.entity={...filters.entity,types:filters.entity?.types??["web-resource"],requiredFields:[...new Set([...(filters.entity?.requiredFields??[]),"url"])]};
+  filters.entity={...filters.entity,...(isX?{types:filters.entity?.types??["web-resource"]}:{}),requiredFields:[...new Set([...(filters.entity?.requiredFields??[]),"url"])]};
   next.filters=filters;
   next.policy.minimumScore=number(form.minimum,"Minimum score",0,100)??0;
-  const pages=number(form.pages,"Pages",1,10);if(pages===undefined)throw Error("Enter 1 to 10 pages per collection.");
-  for(const source of next.sources)if(source.adapter==="x-for-you-local")source.config.pagesPerRun=pages;
+  const pages=isX?number(form.pages,"Pages",1,10):1;if(pages===undefined)throw Error("Enter 1 to 10 pages per collection.");
+  if(isX)for(const source of next.sources)source.config.pagesPerRun=pages;
   return parseProjectManifest(JSON.stringify(next));
 }

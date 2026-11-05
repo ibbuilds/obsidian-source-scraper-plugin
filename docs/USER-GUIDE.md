@@ -6,7 +6,7 @@ windows and scrolls internally. Product UI, validation and help use English by
 default. Collected titles, evidence and user-authored content keep their original
 language.
 
-The home screen shows the X connection, **Search filters**, **Resources** and one
+The home screen follows the selected source, with **Search filters**, **Resources** and one
 primary action: connect, collect, stop or retry. Missing engine/reader setup links
 to settings. Loading a session is not itself a live access verification.
 
@@ -19,8 +19,11 @@ AI assistance is optional through your separate connector.
 
 Starter data is labelled **Local example**; it is not your X feed. **Options**
 contains imports, session management, other sources and **Advanced tools**. The
-main action uses the registered X source. Generic sources remain available under
-**Other sources**. Advanced tools retain project editing and draft formatting.
+main action uses the selected project. Use **Options → Add source** for a public
+RSS feed or product page, then set **Search filters** and choose **Find resources**.
+Adding a source never starts collection. Choose another project under **Sources**.
+Generic sources work without X; X-specific connection and feedback controls
+appear only for projects with an X connection. Advanced tools retain project editing and draft formatting.
 
 Importing explicitly opens results. MCP updates the review queue without opening
 the panel. Escape, Close or an outside click dismisses the panel. Startup never
@@ -104,3 +107,5 @@ available through Copy links and Preview drafts. No AI calls or note writes are 
 
 
 The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit selections and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.
+
+See [adapter boundaries](ADAPTER-BOUNDARIES.md) for built-in sources, custom local adapters and the separate X capabilities.

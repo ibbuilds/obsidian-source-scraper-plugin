@@ -150,6 +150,8 @@ jobs:
       - run: npm run build:cli --prefix engine
       - name: Verify real provider, assessments, drafts and zero note creation
         run: node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs engine/dist/source-scraper.mjs
+      - name: Verify generic/custom adapter boundaries and X-only effects
+        run: node --experimental-strip-types plugin/scripts/verify-adapter-boundaries.mjs engine/dist/source-scraper.mjs
       - name: Verify fast inbox, bulk evaluation and interrupted commit recovery
         run: node --experimental-strip-types plugin/scripts/verify-fast-workflow.mjs engine/dist/source-scraper.mjs
 
