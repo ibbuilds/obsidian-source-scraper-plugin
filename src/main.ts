@@ -1,5 +1,6 @@
-import {ResourceInbox} from "./resource-inbox.ts";
-import {dialog,action,formStatus,labelFields} from "./form-ui.ts";
+import {ResourceInbox,type ResourceViewState} from "./resource-inbox.ts";
+import {resourceAccess} from "./resource-actions.ts";
+import {dialog,action,formStatus,labelFields,externalLink} from "./form-ui.ts";
 import {feedFilterForm,applyFeedFilterForm} from "./filter-form.ts";
 import {ReviewIndex} from "./review-index.ts";
 import {BatchReviewModal} from "./batch-review-modal.ts";
@@ -209,21 +210,31 @@ class DetailModal extends Modal {
   private reason="";
   private busy=false;
   private queueLike=false;
-  constructor(app:Plugin["app"],private plugin:ScraperPlugin,private entity:EntityRecord){
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin,private entity:EntityRecord,private loadEvidence?:()=>Promise<EntityRecord>,private onDismiss?:(savedKey?:string)=>void){
     super(app);
     this.decision=entity.review;
   }
+  private openGeneration=0;
+  private saved=false;
   onOpen():void{
+    const generation=++this.openGeneration;
+    if(this.loadEvidence){const {body,footer}=dialog(this,this.entity.title);paragraph(body,"Loading source evidence…");action(footer,"Close",()=>this.close());void this.loadEvidence().then(entity=>{if(generation!==this.openGeneration)return;this.entity=entity;this.decision=entity.review;this.render();},error=>{if(generation!==this.openGeneration)return;this.render(errorMessage(error));});}
+    else this.render();
+  }
+  private render(evidenceError=""):void{
     const {body:root,footer}=dialog(this,this.entity.title);action(footer,"Close",()=>this.close());
+    if(evidenceError)paragraph(root,"Full evidence could not load. Open the resource to verify it. "+evidenceError);
     const links=root.createDiv({cls:"ss-detail-links"});
-    if(this.entity.url)links.createEl("a",{text:"Open resource ↗",href:this.entity.url,attr:{target:"_blank",rel:"noopener noreferrer"}});
+    if(this.entity.url)externalLink(links,"Open resource",this.entity.url);
     const post=this.entity.attributes.discoveryPost;
-    if(typeof post==="string"&&/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/.test(post))links.createEl("a",{text:"Open source post ↗",href:post,attr:{target:"_blank",rel:"noopener noreferrer"}});
+    if(typeof post==="string"&&/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/.test(post))externalLink(links,"Source post",post);
     const description=this.entity.attributes.description;
     if(typeof description==="string")paragraph(root,description.slice(0,1500));
+    paragraph(root,resourceAccess(this.entity.attributes));
     root.createEl("h4",{text:"Why it appears"});
     const reasons=root.createEl("ul");for(const reason of this.entity.reasons)reasons.createEl("li",{text:reason});
-    paragraph(root,"Relevance: "+this.entity.score+"/100 · "+(this.entity.provenance?.mentions.length??0)+" attached mentions. This score is a guide.");
+    const original=this.entity.attributes.discoveryText;if(typeof original==="string"&&original.trim()){const excerpt=root.createEl("details",{cls:"ss-source-evidence"});excerpt.createEl("summary",{text:"Original post"});paragraph(excerpt,original);}
+    paragraph(root,"Matching terms explain discovery. They do not certify quality.");
     const technical=root.createEl("details");technical.createEl("summary",{text:"View full evidence"});
     const pre=technical.createEl("pre");
     pre.addClass("ss-preview");
@@ -239,9 +250,9 @@ class DetailModal extends Modal {
 
       return;
     }
-    const reviewControls=root.createDiv();reviewControls.createEl("h4",{text:"My review"});let likeSetting:Setting|undefined;
-    new Setting(reviewControls).setName("Decision").addDropdown(d=>d.addOptions({
-      pending:"Pending",approved:"Approved",rejected:"Rejected"
+    const reviewControls=root.createDiv();let likeSetting:Setting|undefined;
+    new Setting(reviewControls).setName("Your choice").addDropdown(d=>d.addOptions({
+      pending:"Unreviewed",approved:"Keep",rejected:"Hide"
     }).setValue(this.decision).onChange(value=>{
       this.decision=value as "pending"|"approved"|"rejected";if(likeSetting)likeSetting.settingEl.hidden=this.decision!=="approved";
     }));
@@ -252,27 +263,28 @@ class DetailModal extends Modal {
       likeSetting=new Setting(reviewControls).setName("Like the source post").setDesc("I checked usefulness, quality, usable free access and the whole source post. Queued likes require Automatic likes to be enabled in Collection and feedback.").addToggle(t=>t.setValue(false).onChange(v=>{this.queueLike=v;}));
       likeSetting.settingEl.hidden=this.decision!=="approved";
     }
-    new Setting(footer).addButton(b=>b.setButtonText("Save review").setCta()
+    new Setting(footer).addButton(b=>b.setButtonText("Save choice").setCta()
       .onClick(async()=>{
         if(this.busy)return;
         this.busy=true;
         try{
-          await this.plugin.saveHumanReview(this.entity,this.decision,this.reason,this.decision==="approved"&&this.queueLike);
-          this.entity.review=this.decision;
+          const decision=this.decision,reason=this.reason,queueLike=decision==="approved"&&this.queueLike;b.setDisabled(true);for(const field of Array.from(root.querySelectorAll<HTMLInputElement>("input,select,textarea")))field.disabled=true;
+          await this.plugin.saveHumanReview(this.entity,decision,reason,queueLike);
+          this.entity.review=decision;this.saved=true;
           this.plugin.refresh();
           this.close();
-          new Notice("Review saved to the project.");
+          new Notice("Choice saved");
         }catch(error){notify(error);}
-        finally{this.busy=false;}
+        finally{this.busy=false;b.setDisabled(false);for(const field of Array.from(root.querySelectorAll<HTMLInputElement>("input,select,textarea")))field.disabled=false;}
       }));
     labelFields(root);
   }
-  onClose():void{this.contentEl.empty();}
+  onClose():void{this.openGeneration++;this.contentEl.empty();const dismiss=this.onDismiss;this.onDismiss=undefined;dismiss?.(this.saved?this.entity.key:undefined);}
 }
 class ExportModal extends Modal {
   private folder:string;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin,
-    private records:EntityRecord[]){
+    private records:EntityRecord[],private onDismiss?:()=>void){
     super(app);this.folder=plugin.settings.outputFolder.trim()||"Source Scraper/Imported";
   }
   onOpen():void{
@@ -300,7 +312,7 @@ class ExportModal extends Modal {
     paragraph(root,"Copy the Markdown to use it yourself, or ask an AI through your separate connector. This plugin never writes notes.");
     labelFields(root);
   }
-  onClose():void{this.contentEl.empty();}
+  onClose():void{this.contentEl.empty();this.onDismiss?.();}
 }
 class RunModal extends Modal {
   private busy=false;
@@ -339,7 +351,7 @@ class XFeedSetupModal extends Modal {
     const instructions=root.createEl("details",{cls:"ss-session-help"});instructions.createEl("summary",{text:"Where do I find these values?"});
     const steps=instructions.createEl("ol");
     for(const text of ["Open x.com and sign in using your browser.","Press F12. In Chrome or Edge, open Application → Cookies → https://x.com.","Copy twid, auth_token and ct0 into the fields below. Do not send them in chat."])steps.createEl("li",{text});
-    instructions.createEl("a",{text:"Open X ↗",href:"https://x.com/home",attr:{target:"_blank",rel:"noopener noreferrer"}});
+    externalLink(instructions,"Open X","https://x.com/home");
     let accountId="",include="react, frontend, css, gsap, motion, typography, design system, open source",exclude="sponsored, giveaway",minimum=50,pages=1,existingId="";
     let accountSession="",csrf="",busy=false;
     const existingSession=this.plugin.localSession();
@@ -445,18 +457,20 @@ class LegacyScraperView extends ItemView {
 }
 class ScraperReview {
   private inbox?:ResourceInbox;
+  private inboxState?:ResourceViewState;
+  private inboxProject="";
   private page=0;
   private search="";
   private reviewFilter="all";
   constructor(private root:HTMLElement|undefined,private plugin:ScraperPlugin){}
   private get app():Plugin["app"]{return this.plugin.app;}
   mount(root:HTMLElement):void{this.root=root;this.render();}
-  unmount():void{this.inbox?.unmount();this.root=undefined;}
+  unmount():void{if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();this.inbox=undefined;}this.root=undefined;}
   render():void{
     const root=this.root;if(!root||!root.isConnected)return;
     if(this.plugin.resourceInboxReady()){
-      this.inbox?.unmount();this.inbox=new ResourceInbox({projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
-        detail:e=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,e).open();},drafts:records=>{this.plugin.closePopover();new ExportModal(this.app,this.plugin,records).open();}});
+      if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();}const project=this.plugin.resourceInboxProject();if(this.inboxProject!==project)this.inboxState=undefined;this.inboxProject=project;this.inbox=new ResourceInbox({projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
+        detail:e=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,e,()=>this.plugin.detailedResource(e),(savedKey)=>{if(savedKey&&this.inboxState)this.inboxState.selected=this.inboxState.selected.filter(row=>row.key!==savedKey);setTimeout(()=>{void this.plugin.openView(true);},0);}).open();},drafts:records=>{this.plugin.closePopover();new ExportModal(this.app,this.plugin,records,()=>{setTimeout(()=>{void this.plugin.openView(true);},0);}).open();}},this.inboxState);
       this.inbox.mount(root);return;
     }
     root.empty();root.addClass("source-scraper-view");
@@ -470,7 +484,7 @@ class ScraperReview {
     const search=new SearchComponent(searchBox).setPlaceholder("Filter resources").setValue(this.search);
     const input=search.inputEl;input.setAttribute("aria-label","Filter resources");
     const filter=root.createEl("select",{cls:"ss-review-filter",attr:{"aria-label":"Review status"}});
-    for(const [value,label] of [["all","All resources"],["pending","Needs review"],["approved","Approved by me"],["recommended","AI recommended"],["discarded","AI discarded"]])filter.createEl("option",{value,text:label});
+    for(const [value,label] of [["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["recommended","AI recommended"],["discarded","AI discarded"]])filter.createEl("option",{value,text:label});
     filter.value=this.reviewFilter;
     const index=new ReviewIndex(imported.records);
     const selectTools=root.createDiv({cls:"ss-selection-tools"});
@@ -525,7 +539,7 @@ class ScraperReview {
         const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
         if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
         const evaluation=entity.resourceAssessment?.decision??"pending";if(entity.review==="pending")item.createSpan({cls:"ss-review-decision",text:evaluation==="recommended"?"AI recommended":evaluation==="discarded"?"AI discarded":"Needs review"});
-        if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Approved":"Rejected"});decision.dataset.review=entity.review;}
+        if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Kept":"Hidden"});decision.dataset.review=entity.review;}
       }
       pagination.hidden=pageCount===1;
       const previous=pagination.createEl("button",{text:"Previous"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;renderResults();};
@@ -552,17 +566,22 @@ class CycleControlsModal extends Modal {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
   onOpen(){
     const {body,footer}=dialog(this,"Collection and feedback");action(footer,"Close",()=>this.close());
-    paragraph(body,"Collection runs while Obsidian and this computer are open. Review resources directly in this plugin, or use an AI through MCP. AI is optional.");
-    const status=body.createEl("p",{attr:{role:"status"}});let maxPages=100;
-    new Setting(body).setName("Page budget").setDesc("Maximum pages for this collection cycle (1–1000). Progress is saved after each page.").addText(t=>t.setValue("100").onChange(v=>{maxPages=Number(v);}));
-    const controls=body.createDiv({cls:"ss-controls"});
+    paragraph(body,"Collection continues while Obsidian is open. Review links here, with or without AI.");
+    const status=body.createEl("p",{attr:{role:"status"}});let maxPages=this.plugin.cycleStatus()?.maxPages??100;
+    new Setting(body).setName("Page budget").setDesc("Maximum pages for this collection cycle (1–1000). Progress is saved after each page.").addText(t=>t.setValue(String(maxPages)).onChange(v=>{maxPages=Number(v);}));
+    const controls=body.createDiv({cls:"ss-cycle-actions"});
     const run=(kind:"start"|"pause"|"stop")=>{void this.plugin.controlCycle(kind,maxPages).catch(notify);};
-    action(controls,"Start / resume",()=>run("start"),true);action(controls,"Pause",()=>run("pause"));action(controls,"Stop collection",()=>run("stop"));
+    const start=action(controls,"Start collection",()=>run("start"),true),pause=action(controls,"Pause",()=>run("pause")),stop=action(controls,"Stop",()=>run("stop"));
     new Setting(body).setName("Automatic likes").setDesc("Separate permission to like evaluated, suitable posts. Up to 5 per hour, at least 60 seconds apart. Never follows, reposts, messages or unlikes.").addToggle(t=>t.setValue(this.plugin.settings.xLikesEnabled==="true").onChange(v=>{void this.plugin.setAutomaticLikes(v).catch(e=>{t.setValue(this.plugin.settings.xLikesEnabled==="true");notify(e);});}));
-    const rejected=body.createEl("details");rejected.createEl("summary",{text:"Rejected resources"});const list=rejected.createDiv();
-    rejected.addEventListener("toggle",()=>{if(!rejected.open)return;list.empty();for(const row of this.plugin.rejectedResources()){new Setting(list).setName(row.resource).setDesc(row.reason||"Explicitly rejected").addButton(b=>b.setButtonText("Restore").onClick(()=>{void this.plugin.restoreResource(row.resource).then(()=>{b.setDisabled(true);b.setButtonText("Restored");}).catch(notify);}));}if(!list.children.length)paragraph(list,"No rejected resources.");});
+    const rejected=body.createEl("details");rejected.createEl("summary",{text:"Hidden resources"});const list=rejected.createDiv();
+    rejected.addEventListener("toggle",()=>{if(!rejected.open)return;list.empty();for(const row of this.plugin.rejectedResources()){new Setting(list).setName(row.resource).setDesc(row.reason||"Explicitly rejected").addButton(b=>b.setButtonText("Restore").onClick(()=>{void this.plugin.restoreResource(row.resource).then(()=>{b.setDisabled(true);b.setButtonText("Restored");}).catch(notify);}));}if(!list.children.length)paragraph(list,"No hidden resources");});
     const activity=body.createEl("details");activity.createEl("summary",{text:"Like activity and errors"});const log=activity.createEl("pre",{cls:"ss-code-input"});
-    const update=()=>{const state=this.plugin.cycleStatus();status.textContent=state?`${state.projectId}: ${state.state} · ${state.pages} pages · ${state.observations} posts · ${state.duplicates} duplicates · ${state.reason}`:"MCP integration unavailable";log.textContent=this.plugin.likeActivity().slice(-30).map(a=>`${a.state} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions.";};
+    const text=(el:HTMLElement,value:string)=>{if(el.textContent!==value)el.textContent=value;};
+    const visible=(el:HTMLElement,value:boolean)=>{if(el.hidden===value)el.hidden=!value;};
+    const update=()=>{const state=this.plugin.cycleStatus(),active=state?.state==="running"||state?.state==="waiting";
+      text(status,state?`${state.state.charAt(0).toUpperCase()+state.state.slice(1)} · ${state.pages} pages · ${state.observations} posts read${state.reason?" · "+state.reason:""}`:"Configure a source to start collection");
+      text(start.buttonEl,state?.state==="paused"||state?.state==="blocked"?"Resume collection":"Start collection");visible(start.buttonEl,!active);visible(pause.buttonEl,active);visible(stop.buttonEl,Boolean(state&&state.state!=="stopped"));
+      text(log,this.plugin.likeActivity().slice(-30).map(a=>`${a.state} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions");};
     update();this.timer=window.setInterval(update,1000);labelFields(body);
   }
   onClose(){if(this.timer)window.clearInterval(this.timer);this.contentEl.empty();}
@@ -827,6 +846,10 @@ export default class ScraperPlugin extends Plugin {
       await this.provider.saveHumanReview(entity.projectId,entity.key,decision,reason,queueLike);
       if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
     }else{const s=this.settings;await this.cli.review({cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable},entity.projectId,entity.key,decision,reason.trim()||`User marked this resource ${decision}.`);}
+  }
+  async detailedResource(entity:EntityRecord):Promise<EntityRecord>{
+    if(!this.provider)return entity;const data=await this.provider.inspectResources(entity.projectId,[entity.key]);const detail=data.records[0];if(!detail?.entity)throw Error("Resource evidence is unavailable");
+    return {...detail.entity,review:detail.rejected?"rejected":detail.humanReview?.decision??detail.entity.review,resourceAssessment:detail.resourceAssessment,provenance:{mentions:detail.mentions??[],reviews:detail.reviews??[],assessmentHistory:detail.assessments??[],mentionsTruncated:detail.entity.observationCount>(detail.mentions?.length??0)}};
   }
   resourceInboxReady(){const entries=this.registeredProjects();return Boolean(this.provider&&entries.length&&(!this.imported||entries.some(p=>p.id===this.imported!.projectId)));}
   resourceInboxProject(){const id=this.imported?.projectId;return this.registeredProjects().some(p=>p.id===id)?id!:this.panelSnapshot().projectId;}

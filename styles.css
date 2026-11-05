@@ -91,11 +91,11 @@
 .ss-dialog-footer .setting-item-info { display:none; }
 .ss-dialog-footer button.mod-cta { order:2; }
 .ss-dialog .setting-item { display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:0; margin:0 0 16px; border:0; }
-.ss-dialog .setting-item-info-info { margin:0; }
-.ss-dialog .setting-item-name-name { font-size:14px; line-height:20px; font-weight:500; }
-.ss-dialog .setting-item-description-description { margin-top:4px; font-size:12px; line-height:18px; }
-.ss-dialog .setting-item-control-control { width:100%; min-width:0; justify-content:flex-start; }
-.ss-dialog :is(input[type=text],input[type=password],input[type=number],select) { width:100%; min-width:0; max-width:100%; height:38px; font:inherit; }
+.ss-dialog .setting-item-info { margin:0; }
+.ss-dialog .setting-item-name { font-size:14px; line-height:20px; font-weight:500; }
+.ss-dialog .setting-item-description { margin-top:4px; font-size:12px; line-height:18px; }
+.ss-dialog .setting-item-control { width:100%; min-width:0; justify-content:flex-start; }
+.ss-dialog :is(input[type=text],input[type=password],input[type=number],select:not(.is-measuring)) { width:100%; min-width:0; max-width:100%; height:38px; font:inherit; }
 .ss-dialog textarea { width:100%; min-width:0; max-width:100%; height:80px; min-height:80px; resize:none; overflow:auto; font:inherit; line-height:1.5; }
 .ss-dialog .ss-code-input { height:240px; min-height:160px; font:12px/1.6 var(--font-monospace); white-space:pre; }
 .ss-dialog .ss-preview { margin:16px 0 0; padding:12px; border-radius:6px; background:var(--background-secondary); white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 var(--font-monospace); max-height:260px; overflow:auto; }
@@ -244,17 +244,56 @@
 .ss-batch-reason[open] summary { margin-bottom:12px; }
 .ss-batch-status { font-size:12px; }
 
-/* Inbox: one query, one scope, one decision. Only the current page is rendered. */
-.ss-inbox-filters { display:grid; grid-template-columns:minmax(0,1fr) 140px; gap:8px; flex:none; }
-.ss-inbox-filters .search-input-container,.ss-inbox-filters input,.ss-inbox-filters select { width:100%; min-width:0; height:36px; font:inherit; }
-.ss-inbox-summary,.ss-inbox-scope { display:flex; align-items:center; gap:8px; flex:none; }
-.ss-inbox-scope { justify-content:space-between; font-size:12px; color:var(--text-muted); }
-.ss-inbox .ss-inbox-scope button,.ss-inbox-utility button { min-height:28px; padding:2px 6px; box-shadow:none; background:transparent; font-size:12px; }
+/* Resource library: review explicit choices, never infer approval from a query. */
+.ss-inbox-summary,.ss-select-page { display:flex; align-items:center; gap:8px; }
+.ss-inbox-summary { flex:none; justify-content:space-between; min-height:28px; }
+.ss-select-page { font-size:12px; color:var(--text-muted); cursor:pointer; }
+.ss-select-page input { width:16px; height:16px; margin:0; }
+.ss-inbox-filters { display:grid; grid-template-columns:minmax(0,1fr) 132px; gap:8px; flex:none; align-items:center; }
+.ss-inbox-filters .search-input-container { position:relative; width:100%; min-width:0; height:38px; margin:0; }
+.ss-inbox-filters input,.ss-inbox-filters select:not(.is-measuring) { width:100%; min-width:0; height:38px; margin:0; font:inherit; }
+.ss-inbox-filters .search-input-container::before { display:none; }
+.ss-inbox-filters input { padding-left:34px; }
+.ss-search-icon { position:absolute; inset:0 auto 0 10px; display:flex; align-items:center; pointer-events:none; color:var(--text-muted); }
+.ss-search-icon svg { width:16px; height:16px; }
+.ss-inbox .ss-record { display:flex; flex-direction:column; gap:4px; padding:12px 0; }
+.ss-inbox .ss-record:first-child { padding-top:0; }
+.ss-resource-heading { display:grid; grid-template-columns:16px minmax(0,1fr) 28px; align-items:start; gap:8px; }
+.ss-inbox .ss-resource-heading .ss-select-control { margin:6px 0 0; }
+.ss-resource-title { display:block; min-width:0; padding:4px 0; color:var(--text-normal); text-decoration:none; }
+.ss-resource-title:hover { text-decoration:underline; }
+.ss-resource-title-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; font-size:14px; line-height:20px; font-weight:var(--font-medium); }
+.ss-popover .ss-resource-details { display:flex; align-items:center; justify-content:center; width:28px; min-width:28px; height:28px; min-height:28px; padding:6px; border:0; box-shadow:none; color:var(--text-muted); background:transparent; }
+.ss-resource-details svg { width:16px; height:16px; }
+.ss-inbox .ss-record-description { margin:0 0 0 24px; }
+.ss-inbox .ss-record-source { display:flex; gap:8px; margin:0 0 0 24px; font-size:12px; line-height:18px; }
+.ss-resource-state { margin-left:auto; flex:none; color:var(--text-muted); }
+.ss-resource-access { margin:0 0 0 24px; font-size:12px; line-height:18px; color:var(--text-muted); }
 .ss-inbox-footer { flex:none; padding-top:12px; border-top:1px solid var(--background-modifier-border); }
-.ss-inbox-actions { display:flex; gap:8px; }
-.ss-inbox-actions button { flex:1; min-width:0; }
-.ss-inbox-utility { display:flex; gap:8px; margin-top:8px; }
-.ss-inbox-status { flex:none; max-height:60px; overflow:auto; font-size:12px; color:var(--text-muted); }
-.ss-inbox-status:empty { display:none; }
-.ss-inbox .ss-record-description { -webkit-line-clamp:2; }
-@media(max-width:390px){ .ss-inbox-filters { grid-template-columns:minmax(0,1fr) 125px; } }
+.ss-inbox-selection { display:flex; align-items:center; gap:8px; min-height:28px; color:var(--text-muted); font-size:12px; }
+.ss-inbox-selection>span { flex:1; }
+.ss-inbox .ss-inbox-selection button { min-height:28px; padding:2px 4px; box-shadow:none; background:transparent; font-size:12px; }
+.ss-inbox-actions { display:flex; gap:8px; margin-top:8px; }
+.ss-inbox-actions button { min-width:max-content; flex:1; }
+.ss-inbox-actions button:first-child { flex:1.4; }
+.ss-inbox-status { display:flex; align-items:center; gap:8px; flex:none; max-height:60px; overflow:auto; font-size:12px; color:var(--text-muted); }
+.ss-inbox-status button { flex:none; font-size:12px; }
+/* Native measuring selects are implementation details, not form controls. */
+.modal.ss-dialog .ss-dialog-body .setting-item { padding:0 !important; margin:0 0 16px !important; border:0 !important; }
+.modal.ss-dialog .setting-item-info { margin:0; min-width:0; }
+.modal.ss-dialog .setting-item-control { width:100%; min-width:0; justify-content:flex-start; margin:0; }
+.modal.ss-dialog .setting-item:has(.checkbox-container) { flex-direction:row; align-items:center; }
+.modal.ss-dialog .setting-item:has(.checkbox-container) .setting-item-info { flex:1; }
+.modal.ss-dialog .setting-item:has(.checkbox-container) .setting-item-control { width:auto; flex:none; }
+.ss-filter-link::after { display:none !important; }
+
+.ss-external-link { display:inline-flex; align-items:center; gap:6px; }
+.ss-external-link>span:last-child { display:flex; }
+.ss-external-link svg { display:block; width:14px; height:14px; }
+.ss-filter-link .ss-chevron { margin-left:auto; }
+.ss-chevron svg { width:16px; height:16px; }
+.ss-source-evidence { margin:16px 0; }
+.ss-source-evidence summary { cursor:pointer; color:var(--text-muted); }
+
+.ss-cycle-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+.ss-cycle-actions button { flex:1; min-width:max-content; }

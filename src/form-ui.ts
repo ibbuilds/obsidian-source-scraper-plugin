@@ -1,4 +1,4 @@
-import {Modal,ButtonComponent} from "obsidian";
+import {Modal,ButtonComponent,setIcon} from "obsidian";
 let fieldId=0;
 /** Native dialog chrome with one scroll area and persistent actions. */
 export function dialog(modal:Modal,title:string,wide=false){
@@ -28,4 +28,9 @@ export function labelFields(root:HTMLElement){
       if(desc?.textContent)input.setAttribute("aria-describedby",desc.id);
     }
   }
+}
+
+/** One icon box and label baseline for every external destination. */
+export function externalLink(root:HTMLElement,label:string,url:string){
+ const link=root.createEl("a",{cls:"ss-external-link",href:url,attr:{target:"_blank",rel:"noopener noreferrer"}});link.createSpan({text:label});const icon=link.createSpan({attr:{"aria-hidden":"true"}});setIcon(icon,"external-link");return link;
 }
