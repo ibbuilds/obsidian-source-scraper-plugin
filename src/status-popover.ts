@@ -6,6 +6,7 @@ export interface PopoverHost {
   settings:()=>void;setup:()=>void;filters:()=>void;collect:(projectId?:string)=>void;cancel:()=>void;
   importFindings:()=>void;
   disconnect?:()=>void;
+  cycle?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
 }
 let sequence=0;
@@ -137,6 +138,7 @@ export class ScraperPopover {
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
+    if(this.host.cycle)this.button(options,"Collection and feedback",()=>{this.close(false);this.host.cycle?.();},"ss-button ss-secondary");
     this.button(options,"Import results",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
     this.el(options,"h3","ss-section-label","X account");
     this.button(options,"Change session",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");

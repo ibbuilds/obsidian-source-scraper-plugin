@@ -23,6 +23,7 @@ import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
   xProviderEnabled:string;
+  xLikesEnabled:string;
   xPythonPath:string;
   mcpEnabled:string;
   mcpProjectsJson:string;
@@ -35,7 +36,7 @@ interface Preferences {
   projectFolder:string;
   noteMappingJson:string;
 }
-const defaults:Preferences={xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+const defaults:Preferences={xLikesEnabled:"false",xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
   projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -249,6 +250,7 @@ class DetailModal extends Modal {
           await this.plugin.cli.review({
             cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable
           },this.entity.projectId,this.entity.key,this.decision,this.reason);
+          await this.plugin.persistResourceDecision(this.entity,this.decision,this.reason);
           this.entity.review=this.decision;
           this.plugin.refresh();
           this.close();
@@ -490,6 +492,7 @@ class ScraperReview {
         }else source.createSpan({text:entity.type.replace(/[-_]/g," ")});
         const description=typeof entity.attributes.description==="string"?entity.attributes.description:entity.reasons[0];
         if(description)item.createEl("p",{cls:"ss-record-description",text:description.slice(0,180)});
+        const evaluation=entity.resourceAssessment?.decision??"pending";item.createSpan({cls:"ss-review-decision",text:evaluation==="recommended"?"ChatGPT recommended":evaluation==="discarded"?"Automatically discarded":"Awaiting ChatGPT"});
         if(entity.review!=="pending"){const decision=item.createSpan({cls:"ss-review-decision",text:entity.review==="approved"?"Approved":"Rejected"});decision.dataset.review=entity.review;}
       }
       pagination.hidden=pageCount===1;
@@ -509,16 +512,36 @@ class ScraperReview {
     action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
   }
 }
+class CycleControlsModal extends Modal {
+  private timer?:number;
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
+  onOpen(){
+    const {body,footer}=dialog(this,"Collection and feedback");action(footer,"Close",()=>this.close());
+    paragraph(body,"Collection runs while Obsidian and this computer are open. ChatGPT evaluates new links through MCP; candidates wait when ChatGPT is not running.");
+    const status=body.createEl("p",{attr:{role:"status"}});let maxPages=100;
+    new Setting(body).setName("Page budget").setDesc("Maximum pages for this collection cycle (1–1000). Progress is saved after each page.").addText(t=>t.setValue("100").onChange(v=>{maxPages=Number(v);}));
+    const controls=body.createDiv({cls:"ss-controls"});
+    const run=(kind:"start"|"pause"|"stop")=>{void this.plugin.controlCycle(kind,maxPages).catch(notify);};
+    action(controls,"Start / resume",()=>run("start"),true);action(controls,"Pause",()=>run("pause"));action(controls,"Stop collection",()=>run("stop"));
+    new Setting(body).setName("Automatic likes").setDesc("Separate permission to like evaluated, suitable posts. Up to 5 per hour, at least 60 seconds apart. Never follows, reposts, messages or unlikes.").addToggle(t=>t.setValue(this.plugin.settings.xLikesEnabled==="true").onChange(v=>{void this.plugin.setAutomaticLikes(v).catch(e=>{t.setValue(this.plugin.settings.xLikesEnabled==="true");notify(e);});}));
+    const rejected=body.createEl("details");rejected.createEl("summary",{text:"Rejected resources"});const list=rejected.createDiv();
+    rejected.addEventListener("toggle",()=>{if(!rejected.open)return;list.empty();for(const row of this.plugin.rejectedResources()){new Setting(list).setName(row.resource).setDesc(row.reason||"Explicitly rejected").addButton(b=>b.setButtonText("Restore").onClick(()=>{void this.plugin.restoreResource(row.resource).then(()=>{b.setDisabled(true);b.setButtonText("Restored");}).catch(notify);}));}if(!list.children.length)paragraph(list,"No rejected resources.");});
+    const activity=body.createEl("details");activity.createEl("summary",{text:"Like activity and errors"});const log=activity.createEl("pre",{cls:"ss-code-input"});
+    const update=()=>{const state=this.plugin.cycleStatus();status.textContent=state?`${state.projectId}: ${state.state} · ${state.pages} pages · ${state.observations} posts · ${state.duplicates} duplicates · ${state.reason}`:"MCP integration unavailable";log.textContent=this.plugin.likeActivity().slice(-30).map(a=>`${a.state} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions.";};
+    update();this.timer=window.setInterval(update,1000);labelFields(body);
+  }
+  onClose(){if(this.timer)window.clearInterval(this.timer);this.contentEl.empty();}
+}
 class ScraperSettings extends PluginSettingTab {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app,plugin);}
   display():void{
     const root=this.containerEl;root.empty();root.addClass("ss-settings");
-    root.createEl("h2",{text:"Source Scraper"});
+    new Setting(root).setName("Source Scraper").setHeading();
     paragraph(root,"Local connection and preferences. Changes take effect when saved.");
     const body=root.createDiv({cls:"ss-settings-body"});
     const draft={...this.plugin.settings},dirty=new Set<keyof Preferences>();
     const change=(key:keyof Preferences,value:string)=>{draft[key]=value;dirty.add(key);};
-    const section=(label:string)=>{const part=body.createDiv({cls:"ss-settings-section"});part.createEl("h3",{text:label});return part;};
+    const section=(label:string)=>{const part=body.createDiv({cls:"ss-settings-section"});new Setting(part).setName(label).setHeading();return part;};
     const connection=section("Connection");
     new Setting(connection).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
     new Setting(connection).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
@@ -651,7 +674,7 @@ export default class ScraperPlugin extends Plugin {
     });
     this.projectCache={key,projects};return projects;
   }
-  isCollecting():boolean{return this.uiStarting||this.cli.running||Boolean(this.provider?.activity().running);}
+  isCollecting():boolean{return this.uiStarting||this.cli.running||Boolean(this.provider?.activity().running)||Boolean(["running","waiting"].includes(this.provider?.cycle?.snapshot().state??""));}
   private panelSnapshot():PanelSnapshot{
     const list=this.registeredProjects(),projects=this.projectsForPanel(),readiness=xFeedReadiness(this.memorySession);
     const activity=this.provider?.activity();
@@ -660,6 +683,7 @@ export default class ScraperPlugin extends Plugin {
       projects,projectId:list.find(p=>p.configPath===this.settings.configPath)?.id||"",findings:this.imported?.records.length??0,
       findingProject:projects.find(p=>p.id===this.imported?.projectId)?.name||this.imported?.projectId||"",
       exampleFindings:this.imported?.projectId==="starter-project",
+      cycle:this.provider?.cycle?.snapshot().projectId?this.provider.cycle.snapshot():undefined,
       running:this.isCollecting(),error:this.uiError||(activity?.lastState==="failed"?activity.error:undefined),message:this.uiMessage};
   }
   private placeStatus():void{
@@ -679,6 +703,7 @@ export default class ScraperPlugin extends Plugin {
   private async collectSelected(projectId?:string):Promise<void>{
     if(this.isCollecting()||this.unloaded)return;
     const provider=this.provider,id=projectId||this.panelSnapshot().projectId;if(!provider||!id)return;
+    if(this.projectsForPanel().some(p=>p.id===id&&p.isX)){this.uiError="";this.uiMessage="";await provider.execute("source_scraper_control_cycle",{projectId:id,action:"start",maxPages:100});this.updateStatus();return;}
     this.uiStarting=true;this.uiError="";this.uiMessage="Collecting…";this.updateStatus();
     try{
       const job=await provider.execute("source_scraper_run_project",{projectId:id,requestId:"obsidian-ui-"+randomUUID(),pageSize:100,maxPages:10}) as {id:string};
@@ -723,6 +748,7 @@ export default class ScraperPlugin extends Plugin {
       const vaultId=createHash("sha256").update(vaultPath).digest("hex").slice(0,24);
       const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
         allowXProvider:this.settings.xProviderEnabled==="true",
+        allowXLikes:()=>this.settings.xLikesEnabled==="true",
         xPythonPath:this.settings.xPythonPath,
         getXSession:()=>this.memorySession,
         nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
@@ -730,9 +756,10 @@ export default class ScraperPlugin extends Plugin {
         vaultPath,pathExists:path=>Boolean(this.app.vault.getAbstractFileByPath(path)),mapping:()=>this.settings.noteMappingJson,
         checkRead:path=>host.checkToolReadAccess(path),
         stage:value=>{this.setImported(value);},
+        stageAuto:value=>{const visible=new Set(value.records.map(e=>e.key));this.imported=value;for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);this.refresh();},
         readReference:async path=>{const file=this.app.vault.getAbstractFileByPath(path);if(!(file instanceof TFile))throw Error("Reference note missing");return this.app.vault.read(file);}
       });
-      this.disposeProvider=host.registerToolProvider(provider);this.provider=provider;this.mcpStatus="connected; 15 tools registered; vault notes read-only";
+      this.disposeProvider=host.registerToolProvider(provider);this.provider=provider;this.mcpStatus="connected; "+provider.tools.length+" tools registered; vault notes read-only";
       void provider.restoreQueue().catch(()=>{this.mcpStatus="connected; prior queue needs explicit reload (missing or changed project)";});
     }catch(error){this.mcpStatus=errorMessage(error);}
   }
@@ -744,6 +771,22 @@ export default class ScraperPlugin extends Plugin {
       root.createEl("h4",{text:"Agent recommendations — separate from human reviews"});
       const pre=root.createEl("pre",{cls:"ss-preview"});pre.setText(JSON.stringify(result,null,2));
     }catch{paragraph(root,"Agent recommendations unavailable for this project; no human review was changed.");}
+  }
+  cycleStatus(){return this.provider?.cycle?.snapshot();}
+  likeActivity(){return this.provider?.memory.actions()??[];}
+  rejectedResources(){return this.provider?.memory.listRejected("user")??[];}
+  async restoreResource(url:string){this.provider?.memory.restore("user",url);this.refresh();}
+  async setAutomaticLikes(enabled:boolean){this.settings.xLikesEnabled=String(enabled);await this.savePrefs();await this.provider?.localFeedback(enabled);}
+  async controlCycle(action:"start"|"pause"|"stop",maxPages=100){
+    const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>p.isX&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
+    const value=await this.provider.execute("source_scraper_control_cycle",{projectId,action,maxPages});this.updateStatus();return value;
+  }
+  openCycleControls(){this.closePopover();new CycleControlsModal(this.app,this).open();}
+  async persistResourceDecision(entity:EntityRecord,decision:"pending"|"approved"|"rejected",reason:string){
+    if(!this.provider||entity.type!=="web-resource"||!entity.url)return;
+    if(decision==="rejected")this.provider.memory.reject("user",entity.url,reason,"user-interface");
+    else if(decision==="pending")this.provider.memory.restore("user",entity.url);
+    if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
   }
   setImported(data:EntityExport):void{this.imported=data;this.selected.clear();this.refresh();}
   getSelected():EntityRecord[]{
@@ -758,10 +801,11 @@ export default class ScraperPlugin extends Plugin {
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
       setup:()=>new XFeedSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
+      cycle:()=>this.openCycleControls(),
       importFindings:()=>new ImportModal(this.app,this).open(),
       disconnect:()=>{void this.forgetLocalSession().catch(notify);},
       collect:id=>{void this.collectSelected(id);},
-      cancel:()=>{const jobId=this.uiJobId||this.provider?.activity().jobId;if(jobId&&this.provider)void this.provider.execute("source_scraper_cancel_run",{jobId}).catch(notify);else this.cli.cancel();},
+      cancel:()=>{const jobId=this.uiJobId||this.provider?.activity().jobId;if(jobId&&this.provider)void this.provider.execute("source_scraper_cancel_run",{jobId}).catch(notify);else{this.provider?.cycle.stop();this.cli.cancel();}},
       selectProject:id=>{
         if(this.isCollecting())return;
         const p=this.registeredProjects().find(p=>p.id===id);if(p){this.settings.configPath=p.configPath;this.uiError="";this.uiMessage="";void this.savePrefs().catch(notify);}

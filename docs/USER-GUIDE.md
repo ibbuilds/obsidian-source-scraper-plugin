@@ -74,3 +74,8 @@ Imports: 5,000 records / 8 MB. MCP queries: up to 500 records per page.
 Selections: 1–200 keys. One engine command runs at a time. Cancellation retains
 committed work. Interrupted jobs do not restart automatically. Review queues
 persist without collecting sources again.
+
+
+Background cycles, persistent rejections and the separate like permission are
+documented in [AUTONOMOUS-FEED](AUTONOMOUS-FEED.md). ChatGPT evaluates resources
+through MCP; no additional model is installed.

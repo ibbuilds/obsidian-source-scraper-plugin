@@ -15,7 +15,7 @@ test("MCP grants are local, namespaced, bounded and cannot be expanded by tool a
       mapping:()=>DEFAULT_NOTE_MAPPING_JSON,pathExists:()=>false,
       stage:()=>{throw Error("must not stage")},checkRead:()=>{},readReference:async()=>""};
     const provider=new SourceScraperProvider(options),call=(name:string,args:Record<string,unknown>={})=>provider.execute("source_scraper_"+name,args);
-    assert.equal(provider.tools.length,15);assert.equal(new Set(provider.tools.map(t=>t.name)).size,15);
+    assert.equal(provider.tools.length,22);assert.equal(new Set(provider.tools.map(t=>t.name)).size,22);
     assert.ok(provider.tools.every(t=>t.inputSchema.additionalProperties===false));
     await assert.rejects(call("list_projects",{command:"arbitrary"}),/INVALID_INPUT/);
     await assert.rejects(call("run_project",{projectId:"missing",requestId:"test"}),/PROJECT_NOT_ALLOWED/);

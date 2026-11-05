@@ -81,7 +81,7 @@ test("MCP cannot enable the X provider or remotely register paid account sources
       await assert.rejects(provider.execute("source_scraper_run_project",{projectId:project.id,requestId:"test"}),/APPROVAL_REQUIRED/);
       await assert.rejects(provider.execute("source_scraper_run_project",{projectId:project.id,requestId:"test",allowXProvider:true}),/INVALID_INPUT/);
       await assert.rejects(provider.execute("source_scraper_create_project",{manifest:{...manifest,id:"other-x"}}),/SOURCE_NOT_TRUSTED/);
-      assert.deepEqual(await provider.execute("source_scraper_list_findings",{projectId:project.id}),{records:[]});
+      assert.deepEqual((await provider.execute("source_scraper_list_findings",{projectId:project.id}) as {records:unknown[]}).records,[]);
     }finally{provider.dispose();}
   }finally{rmSync(root,{recursive:true,force:true});}
 });

@@ -144,14 +144,19 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     expect(await browser.$("input[placeholder='Filter resources']").isFocused()).toBe(true);await browser.keys(["Control","a"]);await browser.keys("Backspace");await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===2);
     await browser.$("input[placeholder='Filter resources']").setValue("Independent");await browser.$(".ss-search .search-input-clear-button").click();await browser.waitUntil(async()=>(await browser.$$(".ss-record")).length===2);await browser.keys("Escape");
   });
-  it("runs only explicitly, cancels and prevents duplicate submissions (simulated provider)",async()=>{
-    await browser.executeObsidian(({plugins,require},data)=>{const p=(plugins as any).sourceScraper,old={provider:p.provider,connect:p.connectMcp,projects:p.projectsForPanel,settings:p.settings,memory:p.memorySession};let state="cancelled",runs=0,requested="";
+  it("starts bounded background cycles explicitly, stops and prevents duplicate submissions (simulated provider)",async()=>{
+    await browser.executeObsidian(({plugins,require},data)=>{const p=(plugins as any).sourceScraper,old={provider:p.provider,connect:p.connectMcp,projects:p.projectsForPanel,settings:p.settings,memory:p.memorySession};let state="stopped",runs=0;
       p.settings={...p.settings,cliPath:require("node:process").execPath,xPythonPath:require("node:process").execPath,xProviderEnabled:"true",configPath:"isolated-ui-project"};p.memorySession={accountSession:"synthetic-auth",csrf:"synthetic-csrf"};p.projectsForPanel=()=>[{id:"desktop-generic",name:"Fixture X feed",isX:true,minimumScore:0}];p.connectMcp=()=>{};
-      p.provider={localProjects:()=>[{id:"desktop-generic",configPath:"isolated-ui-project"}],activity:()=>({running:state==="running",jobId:"ui-job"}),execute:async(name:string,args:any)=>{
-        if(name==="source_scraper_run_project"){runs++;requested=args.projectId;state="running";return {id:"ui-job"};}if(name==="source_scraper_get_run_status")return {state,projectId:"desktop-generic"};if(name==="source_scraper_cancel_run"){state="cancelled";return {};}if(name==="source_scraper_list_findings")return data;if(name==="source_scraper_stage_findings"){p.setImported(data);return {};}throw Error("Unexpected simulated request");}};
-      p.__run={finish:()=>{state="succeeded";},finishEmpty:()=>{data={...data,records:[]};state="succeeded";},count:()=>runs,requested:()=>requested,restore:()=>{p.provider=old.provider;p.connectMcp=old.connect;p.projectsForPanel=old.projects;p.settings=old.settings;p.memorySession=old.memory;p.uiError="";p.uiMessage="";p.updateStatus();}};p.updateStatus();},fixture);
-    try{await overview();await click("Find resources");await browser.executeObsidian(async({plugins})=>{await (plugins as any).sourceScraper.collectSelected();});expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__run.count())).toBe(1);await click("Stop");await browser.waitUntil(async()=>(await browser.$(".ss-source-status").getText())==="Collection failed");await click("Retry");await browser.keys("Escape");await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__run.finish();});await browser.waitUntil(()=>browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;return !p.uiJobId&&!p.isCollecting();}));expect(await browser.$(".ss-popover").isExisting()).toBe(false);expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__run.count())).toBe(2);await overview();await click("Find resources");await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__run.finishEmpty();});await browser.waitUntil(()=>browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;return !p.uiJobId&&!p.isCollecting();}));await browser.$(".ss-results-link").click();expect(await browser.$(".ss-popover-body").getText()).toContain("No resources match these filters");await browser.keys("Escape");
-    }finally{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper;p.__run.restore();delete p.__run;});}expect(await snapshot()).toEqual(original);
+      const snapshot=()=>({projectId:"desktop-generic",state,active:state==="running",pages:0,observations:0,reason:"Fixture bounded cycle"});
+      p.provider={localProjects:()=>[],cycle:{snapshot,stop:()=>{state="stopped";}},activity:()=>({running:state==="running"}),execute:async(name:string,args:any)=>{if(name==="source_scraper_control_cycle"){if(args.action==="start"){runs++;state="running";}else state="stopped";return snapshot();}throw Error("Unexpected simulated request");}};
+      p.__run={finish:()=>{state="stopped";p.setImported(data);},finishEmpty:()=>{state="stopped";p.setImported({...data,records:[]});},count:()=>runs,restore:()=>{p.provider=old.provider;p.connectMcp=old.connect;p.projectsForPanel=old.projects;p.settings=old.settings;p.memorySession=old.memory;p.uiError="";p.uiMessage="";p.updateStatus();}};p.updateStatus();},fixture);
+    try{
+      await overview();await click("Find resources");await browser.executeObsidian(async({plugins})=>{await (plugins as any).sourceScraper.collectSelected();});expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__run.count())).toBe(1);
+      await click("Stop cycle");await browser.waitUntil(async()=>(await browser.$(".ss-source-status").getText())==="Session loaded");
+      await click("Find resources");await browser.keys("Escape");await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__run.finish();});await browser.waitUntil(()=>browser.executeObsidian(({plugins})=>!(plugins as any).sourceScraper.isCollecting()));expect(await browser.$(".ss-popover").isExisting()).toBe(false);expect(await browser.executeObsidian(({plugins})=>(plugins as any).sourceScraper.__run.count())).toBe(2);
+      await overview();await click("Find resources");await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__run.finishEmpty();});await browser.waitUntil(()=>browser.executeObsidian(({plugins})=>!(plugins as any).sourceScraper.isCollecting()));await browser.$(".ss-results-link").click();expect(await browser.$(".ss-popover-body").getText()).toContain("No results yet");await browser.keys("Escape");
+    }finally{await browser.executeObsidian(({plugins})=>{(plugins as any).sourceScraper.__run.restore();});}
+    expect(await snapshot()).toEqual(original);
   });
   it("reproduces configured example results without pretending X is connected; captures compact native UI",async()=>{
     mkdirSync(screenshots,{recursive:true});await browser.waitUntil(async()=>!(await browser.$(".notice").isExisting()),{timeout:15000});
@@ -196,6 +201,19 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     if(settingsWindow)await browser.switchToWindow(settingsWindow);
     try{
       await browser.$(".ss-settings").waitForDisplayed();await browser.$(".ss-settings").saveScreenshot(resolve(screenshots,"settings.png"));
+      for(const [width,height] of [[865,736],[768,700],[390,480]]){
+        await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
+        await browser.executeAsync(done=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(null))));
+        const geometry=await browser.execute(()=>{
+          const root=document.querySelector<HTMLElement>(".ss-settings")!,r=root.getBoundingClientRect();
+          const save=root.querySelector<HTMLElement>(".ss-settings-footer button")!.getBoundingClientRect();
+          const body=root.querySelector<HTMLElement>(".ss-settings-body")!;
+          return {inside:r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1,footer:save.left>=r.left&&save.right<=r.right+1&&save.top>=r.top&&save.bottom<=r.bottom+1,overflow:root.scrollWidth>root.clientWidth+1||body.scrollWidth>body.clientWidth+1};
+        });
+        expect(geometry).toEqual({inside:true,footer:true,overflow:false});
+        await browser.$(".ss-settings").saveScreenshot(resolve(screenshots,"settings-"+width+".png"));
+      }
+      await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});
       const beforeValue=await browser.$("input[placeholder='Source Scraper/Imported']").getValue();
       await browser.$("input[placeholder='Source Scraper/Imported']").setValue("Test draft folder");
       if(settingsWindow)await browser.switchToWindow(mainWindow);

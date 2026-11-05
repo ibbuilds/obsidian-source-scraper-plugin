@@ -2,12 +2,13 @@ export interface PanelProject {id:string;name:string;isX:boolean;minimumScore:nu
 export interface PanelSnapshot {
   engine:boolean;mcp:boolean;python:boolean;session:boolean;xAllowed:boolean;
   projects:PanelProject[];projectId:string;findings:number;findingProject:string;
+  cycle?:{state:string;pages:number;observations:number;reason:string};
   running:boolean;error?:string;message?:string;exampleFindings?:boolean;
 }
 /** The normal user journey is the personalized X feed; other adapters stay in advanced options. */
 export function discoveryState(s:PanelSnapshot){
   const project=s.projects.find(p=>p.isX&&p.id===s.projectId)||s.projects.find(p=>p.isX);
-  if(s.running)return {state:"running",status:"Collecting…",hint:"You can close this panel. Collection continues.",action:"cancel",button:"Stop",projectId:project?.id};
+  if(s.running)return {state:"running",status:s.cycle?.state==="waiting"?"Waiting for new posts":"Collecting…",hint:s.cycle?`${s.cycle.pages} pages · ${s.cycle.observations} posts. ${s.cycle.reason}.`:"You can close this panel. Collection continues.",action:"cancel",button:s.cycle?"Stop cycle":"Stop",projectId:project?.id};
   if(!s.engine||!s.mcp)return {state:"setup",status:"Setup required",hint:"Set up the local connection to start collecting.",action:"settings",button:"Set up Source Scraper",projectId:project?.id};
   if(!s.python)return {state:"setup",status:"X setup required",hint:"Configure the local X reader to continue.",action:"settings",button:"Set up connection",projectId:project?.id};
   if(!project||!s.session||!s.xAllowed)return {state:"setup",status:"Not connected",hint:"Find tools and resources in your feed.",action:"connect",button:"Connect X",projectId:project?.id};
