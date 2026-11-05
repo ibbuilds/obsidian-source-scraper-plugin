@@ -1,0 +1,5 @@
+import {test} from "node:test";import assert from "node:assert/strict";import {buildPublicSource} from "../../src/source-project.ts";
+test("public source setup builds deterministic link projects without X or executable settings",()=>{
+ const rss=buildPublicSource("rss","https://example.org/feed.xml","");assert.equal(rss.name,"example.org");assert.deepEqual(rss.sources[0].config,{url:"https://example.org/feed.xml"});assert.deepEqual(rss.pipeline,["extract-links"]);assert.deepEqual(rss.outputs,[]);assert.equal(buildPublicSource("rss","https://example.org/feed.xml","Renamed").id,rss.id);
+ assert.deepEqual(buildPublicSource("public-product","https://example.org/product","Product").sources[0].config,{urls:["https://example.org/product"]});for(const adapter of ["mcp-stdio","x-for-you-local"])assert.throws(()=>buildPublicSource(adapter,"https://example.org",""));for(const url of ["file:///private","javascript:alert(1)","https://user:pass@example.org","https://example.org/?auth_token=secret"])assert.throws(()=>buildPublicSource("rss",url,""));assert.throws(()=>buildPublicSource("public-product","http://example.org/product",""));
+});

@@ -1,3 +1,4 @@
+import {xPostContext,hasXSource} from "./adapter-policy.ts";
 import {ResourceMemory,type Recommendation} from "./resource-memory.ts";
 import {FeedCycle} from "./feed-cycle.ts";
 import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
@@ -38,15 +39,15 @@ const definitions:Array<[string,string,Record<string,unknown>,string[],boolean]>
   ["get_resources","Start here: query a compact review inbox. Returns total, stable selectionId and a page. Reuse selectionId for subsequent pages; use inspect_resources for evidence.",{projectId:string,selectionId:string,search:{type:"string",maxLength:1000},review:{type:"string",enum:["all","pending","approved","rejected"]},evaluation:{type:"string",enum:["all","recommended","pending","discarded"]},limit:{...number,minimum:1,maximum:500},offset:number,filters:COLLECTION_FILTER_SCHEMA},["projectId"],true],
   ["inspect_resources","Read evidence and fingerprints for up to 50 resource keys in one call. No collection or evaluation is started.",{projectId:string,keys:{...keys,maxItems:50}},["projectId","keys"],true],
   ["review_resources","Save explicit USER choices in one durable, replay-safe batch. Prefer changes listing the resources the user chose. Relevance alone never implies approval. A selectionId is allowed only when the user explicitly ordered an operation over that whole result set. To reconcile, resend projectId and requestId only. AI evaluations must use assess_resources. Never queues likes.",{projectId:string,requestId:string,selectionId:string,decision:{type:"string",enum:["pending","approved","rejected"]},reason:{type:"string",maxLength:1000},changes:{type:"array",minItems:1,maxItems:5000,items:{type:"object",additionalProperties:false,properties:{key:string,revision:string,decision:{type:"string",enum:["pending","approved","rejected"]},reason:{type:"string",maxLength:1000}},required:["key","decision"]}}},["projectId","requestId"],false],
-  ["assess_resources","Record up to 50 evidence-based AI evaluations in one call, separate from human decisions. First inspect_resources and supply each current fingerprint. Optional postId follows the existing guarded like policy.",{projectId:string,items:{type:"array",minItems:1,maxItems:50,items:{type:"object",properties:{key:string,postId:string,assessment:{type:"object"}},required:["key","assessment"],additionalProperties:false}}},["projectId","items"],false],
+  ["assess_resources","Record up to 50 evidence-based AI evaluations in one call, separate from human decisions. First inspect_resources and supply each current fingerprint. postSuitable and optional postId apply only to the X adapter; omit them for other sources.",{projectId:string,items:{type:"array",minItems:1,maxItems:50,items:{type:"object",properties:{key:string,postId:string,assessment:{type:"object"}},required:["key","assessment"],additionalProperties:false}}},["projectId","items"],false],
 
-  ["cycle_status","Read collection progress, budget and waiting reason; no chat is needed for collection.",{},[],true],
-  ["control_cycle","Start, resume, pause or stop a bounded background collection cycle. Users can review resources directly without AI.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
+  ["cycle_status","Read X feed cycle progress, budget and waiting reason. Other sources use run_project.",{},[],true],
+  ["control_cycle","Start, resume, pause or stop a bounded X feed cycle. Only X adapter connections are collected; other adapters use run_project.",{projectId:string,action:{type:"string",enum:["start","pause","stop"]},maxPages:{...number,minimum:1,maximum:1000}},["projectId","action"],false],
   ["resource_decision","Persist an explicit user review, rejection, restoration or alias. Approve only on user instruction; automatic evaluations use assess_resource.",{projectId:string,key:string,action:{type:"string",enum:["reject","restore","alias","approve","pending"]},queueLike:{type:"boolean"},reason:{type:"string",maxLength:1000},alias:string},["projectId","key","action"],false],
   ["list_rejected","Read persistent rejected resources without recommending them.",{projectId:string},["projectId"],true],
-  ["assess_resource","Record an AI's evidence-based resource evaluation, separate from human decisions. Recommended posts may enter the like queue; never approve by keywords or counters.",{projectId:string,key:string,postId:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
-  ["feedback_status","Read persistent like requests, confirmations, errors and separate local permission.",{},[],true],
-  ["control_feedback","Stop feedback, or enable it only when the separate local like permission is already granted.",{enabled:{type:"boolean"}},["enabled"],false],
+  ["assess_resource","Record an AI's evidence-based resource evaluation, separate from human decisions. Only verified X-adapter posts may enter the like queue. Omit postSuitable/postId for other sources; never approve by keywords or counters.",{projectId:string,key:string,postId:string,assessment:{type:"object"}},["projectId","key","assessment"],false],
+  ["feedback_status","Read X-adapter like requests, confirmations, errors and separate local permission.",{},[],true],
+  ["control_feedback","Stop X feedback, or enable it only when an X adapter and separate local like permission are configured.",{enabled:{type:"boolean"}},["enabled"],false],
   ["capabilities","Read installed integration versions and locally granted capabilities.",{},[],true],
   ["list_projects","List locally registered projects; paths are not executable arguments.",{},[],true],
   ["validate_project","Validate a registered project without running sources.",{projectId:string},["projectId"],true],
@@ -164,8 +165,8 @@ export class SourceScraperProvider {
   dispose():void{this.closed=true;this.memory.close();this.cycle.dispose();this.collectionBridge.cancel();if(this.feedbackTimer)clearInterval(this.feedbackTimer);this.bridge.cancel();}
   private projects():RegisteredProject[]{return [...this.options.projects,...this.state.projects];}
   localProjects():RegisteredProject[]{return this.projects().map(p=>({...p}));}
-  activity():{running:boolean;jobId?:string;lastState?:string;error?:string}{
-    const last=this.state.jobs.at(-1);return {running:Boolean(this.activeJob)||Boolean(this.cycle.snapshot().active),jobId:this.activeJob?.id,lastState:last?.state,error:last?.error};
+  activity():{running:boolean;jobId?:string;lastState?:string;error?:string;projectId?:string}{
+    const last=this.state.jobs.at(-1);return {running:Boolean(this.activeJob)||Boolean(this.cycle.snapshot().active),jobId:this.activeJob?.id,lastState:last?.state,error:last?.error,projectId:last?.projectId};
   }
   private project(id:unknown):{project:RegisteredProject;config:CliConfig}{
     const project=this.projects().find(p=>p.id===text(id,"projectId"));
@@ -184,7 +185,7 @@ export class SourceScraperProvider {
     }
     if(!isAbsolute(this.options.nodeExecutable)||hash(readFileSync(this.options.cliPath,"utf8"))!==this.options.cliHash)
       throw Error("CLI_NOT_TRUSTED: verify and register the CLI locally");
-    return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:this.options.allowXProvider===true,allowXLikes:this.options.allowXLikes?.()===true&&this.memory.enabled,xPythonPath:this.options.xPythonPath,xSession:this.options.getXSession?.()}};
+    const usesX=hasXSource(parsed);return {project,config:{cliPath:this.options.cliPath,nodeExecutable:this.options.nodeExecutable,configPath:project.configPath,allowXProvider:usesX&&this.options.allowXProvider===true,allowXLikes:usesX&&this.options.allowXLikes?.()===true&&this.memory.enabled,xPythonPath:usesX?this.options.xPythonPath:undefined,xSession:usesX?this.options.getXSession?.():undefined}};
   }
   private async invoke(id:unknown,command:Parameters<CliBridge["invoke"]>[1],args:string[]=[],lane:CliBridge=this.bridge):Promise<any>{
     const {config}=this.project(id);
@@ -224,7 +225,7 @@ export class SourceScraperProvider {
     if(!["pending","approved","rejected"].includes(decision)||typeof reason!=="string"||reason.length>1000||typeof queueLike!=="boolean"||queueLike&&decision!=="approved")throw Error("INVALID_HUMAN_REVIEW");
     const before=await this.invoke(projectId,"inspect",["--key",key]);
     if(!before.entity.url||before.entity.type!=="web-resource")throw Error("RESOURCE_LINK_REQUIRED");
-    if(queueLike&&(!before.entity.attributes.discoveryPost||!await this.matchesProfile(projectId,key)))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
+    if(queueLike){this.resourcePostContext(projectId,before);if(!await this.matchesProfile(projectId,key))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");}
     if(decision==="rejected")this.memory.reject("user",before.entity.url,reason,origin);
     await this.invoke(projectId,"review",["--key",key,"--decision",decision,"--reason",reason.trim()||`User marked this resource ${decision}.`]);
     const data=await this.invoke(projectId,"inspect",["--key",key]);
@@ -233,21 +234,22 @@ export class SourceScraperProvider {
     return {review,action,notesCreated:0};
   }
   private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string){
-    const postUrl=data.entity.attributes.discoveryPost,postId=typeof postUrl==="string"?/\/status\/(\d+)$/.exec(postUrl)?.[1]:undefined;
-    if(!postId||requestedPostId!==undefined&&requestedPostId!==postId||!data.mentions.some((m:{active:boolean;itemId:string;url:string})=>m.active&&m.itemId===postId&&m.url===postUrl))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");
-    const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),source=manifest.sources.find(s=>s.adapter==="x-for-you-local");
-    if(!source||typeof source.config.accountId!=="string")throw Error("X_ACCOUNT_REQUIRED");
-    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId:source.config.accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+    const {postUrl,postId,accountId}=this.resourcePostContext(projectId,data,requestedPostId);
+    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+  }
+  private resourcePostContext(projectId:string,data:any,requestedPostId?:string){
+    const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),context=xPostContext(manifest,data.entity,data.mentions??[],requestedPostId);
+    if(!context)throw Error("RESOURCE_POST_PROVENANCE_REQUIRED: likes require a retained post from the X adapter");return context;
   }
   private async dispatchFeedback(){
     if(this.closed||this.bridge.running||this.collectionBridge.running||this.activeJob||!this.options.allowXLikes?.())return;
     await this.memory.dispatch({
-      stillValid:async a=>{const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);return inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
+      stillValid:async a=>{const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);let context;try{context=this.resourcePostContext(a.projectId,inspected,a.postId);}catch{return false;}return context.accountId===a.accountId&&inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
       verify:async a=>{const r=await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","inspect_x_like"]);if(r.postTextHash!==a.postTextHash||r.postUrl!==a.postUrl||!Array.isArray(r.urls)||!r.urls.some((url:string)=>this.memory.identity("user",url)===a.resource))throw Error("X_POST_CHANGED_OR_LINK_NOT_EXPOSED: re-evaluate the original post");a.directUrl=r.urls.find((url:string)=>this.memory.identity("user",url)===a.resource);return r.favorited===true;},
       send:async a=>{await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","like_x_post","--post-text-hash",a.postTextHash,"--direct-url",a.directUrl||"","--resource-memory",join(dirname(this.options.statePath),"resources.json"),"--resource-url",a.resource]);}
     });
   }
-  async localFeedback(enabled:boolean){if(enabled&&!this.options.allowXLikes?.())throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");this.memory.setFeedback(enabled);return this.feedbackStatus();}
+  async localFeedback(enabled:boolean){if(enabled&&!this.options.allowXLikes?.())throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");if(enabled&&!this.projects().some(p=>hasXSource(parseProjectManifest(readFileSync(this.project(p.id).project.configPath,"utf8")))))throw Error("X_SOURCE_REQUIRED: likes belong to the X adapter");this.memory.setFeedback(enabled);return this.feedbackStatus();}
   private resourceLane:Promise<unknown>=Promise.resolve();
   private resourceCommand(projectId:string,input:any){
     const next=this.resourceLane.then(()=>this.runResourceCommand(projectId,input));this.resourceLane=next.catch(()=>{});return next;
@@ -337,11 +339,11 @@ export class SourceScraperProvider {
       case "assess_resources":{
         if(!Array.isArray(args.items)||!args.items.length||args.items.length>50||new Set(args.items.map(x=>x.key)).size!==args.items.length)throw Error("Select 1–50 distinct assessments");
         const projectId=text(args.projectId,"projectId"),details=await this.inspectResources(projectId,args.items.map(x=>text(x.key,"key")));
-        const records=this.memory.transaction(()=>(args.items as any[]).map((item:any)=>{try{const d=details.records.find((r:any)=>r.key===item.key);if(!d?.entity||d.rejected||!d.profileMatched)throw Error("RESOURCE_REJECTED_OR_OUTSIDE_FILTERS");if(item.assessment?.fingerprint!==d.fingerprint)throw Error("STALE_RESOURCE_ASSESSMENT");const record=this.memory.assess("user",d.entity.url,item.assessment);const action=record.decision==="recommended"&&record.postSuitable&&item.postId?this.queueResourcePost(projectId,item.key,d,text(item.postId,"postId")):undefined;return {key:item.key,decision:record.decision,action};}catch(e){return {key:item.key,error:e instanceof Error?e.message:"Assessment failed"};}}));
+        const records=this.memory.transaction(()=>(args.items as any[]).map((item:any)=>{try{const d=details.records.find((r:any)=>r.key===item.key);if(!d?.entity||d.rejected||!d.profileMatched)throw Error("RESOURCE_REJECTED_OR_OUTSIDE_FILTERS");if(item.postId!==undefined)this.resourcePostContext(projectId,d,text(item.postId,"postId"));if(item.assessment?.fingerprint!==d.fingerprint)throw Error("STALE_RESOURCE_ASSESSMENT");const record=this.memory.assess("user",d.entity.url,item.assessment);const action=record.decision==="recommended"&&record.postSuitable&&item.postId?this.queueResourcePost(projectId,item.key,d,text(item.postId,"postId")):undefined;return {key:item.key,decision:record.decision,action};}catch(e){return {key:item.key,error:e instanceof Error?e.message:"Assessment failed"};}}));
         return {projectId,records,humanReviewChanged:false};
       }
       case "cycle_status":return this.cycle.snapshot();
-      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000));}
+      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");if(!parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local"))throw Error("X_SOURCE_REQUIRED: background feed cycles belong to the X adapter");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000));}
       case "feedback_status":return this.feedbackStatus();
       case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
       case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
@@ -361,6 +363,7 @@ export class SourceScraperProvider {
         if(data.entity.type!=="web-resource"||!data.entity.url||!this.eligible(data.entity))throw Error("RESOURCE_REJECTED_OR_NOT_A_LINK");
         if((args.assessment as Recommendation)?.fingerprint!==data.fingerprint)throw Error("STALE_RESOURCE_ASSESSMENT");
         if(!await this.matchesProfile(args.projectId,data.entity.key))throw Error("RESOURCE_OUTSIDE_CONFIGURED_FILTERS");
+        if(args.postId!==undefined)this.resourcePostContext(text(args.projectId,"projectId"),data,text(args.postId,"postId"));
         const record=this.memory.assess("user",data.entity.url,args.assessment);
         let action:unknown;
         if(record.decision==="recommended"&&record.postSuitable&&args.postId!==undefined){
@@ -372,7 +375,7 @@ export class SourceScraperProvider {
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         cycle:this.cycle.snapshot(),feedback:{enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true},
-        evaluation:{owner:"User review or optional AI via MCP",backgroundModel:false,whenChatClosed:"Collection continues; users can review resources in the plugin without AI",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence","postSuitable"]},
+        evaluation:{owner:"User review or optional AI via MCP",backgroundModel:false,whenChatClosed:"Collection continues; users can review resources in the plugin without AI",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence"],xLikeEvidenceFields:["postSuitable"]},
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},

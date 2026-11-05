@@ -163,7 +163,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
     await browser.executeObsidian(({plugins},data)=>{const p=(plugins as any).sourceScraper;p.__snapshotBefore=p.panelSnapshot;const demo={...data,projectId:"starter-project",records:Array.from({length:4},(_,i)=>({...data.records[i%2],projectId:"starter-project",key:"demo-"+i,title:["Motion","GSAP","Lucide","Radix UI"][i],url:["https://motion.dev","https://gsap.com","https://lucide.dev","https://www.radix-ui.com"][i],attributes:{description:["Animation for web interfaces","Web animation tools","SVG icon library","Accessible interface components"][i]},review:"pending"}))};p.setImported(demo);p.panelSnapshot=()=>({...p.__snapshotBefore(),engine:true,mcp:true,python:true,session:false,xAllowed:false,projects:[{id:"starter-project",name:"Source Scraper offline starter",isX:false,minimumScore:0},{id:"npm-react-ui-discovery",name:"Public tools",isX:false,minimumScore:50}],projectId:"starter-project",findings:4,findingProject:"Source Scraper offline starter",exampleFindings:true});p.updateStatus();},fixture);
     try{
       await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:2,mobile:false});await overview();await browser.execute(()=>{document.body.classList.remove("theme-light");document.body.classList.add("theme-dark");});
-      await expect(browser.$(".ss-primary")).toHaveText("Connect X");expect(await browser.$(".ss-source-status").getText()).toBe("Not connected");expect(await browser.$(".ss-project-select").isExisting()).toBe(false);
+      await expect(browser.$(".ss-primary")).toHaveText("Find resources");expect(await browser.$(".ss-source-status").getText()).toBe("Ready");expect(await browser.$(".ss-source-line").getText()).toContain("offline starter");expect(await browser.$(".ss-project-select").isExisting()).toBe(false);
       expect(await browser.execute(()=>document.querySelector(".ss-popover")!.getBoundingClientRect().height)).toBe(500);await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"buscar-dark.png"));await browser.saveScreenshot(resolve(screenshots,"contexto-dark.png"));
       await browser.$(".ss-results-link").click();expect(await browser.$(".ss-example-note").getText()).toContain("this is not your X feed");await browser.$(".ss-record input[type=checkbox]").click();await expect(browser.$(".ss-selection-count")).toHaveText("1 selected");await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"resultados-dark.png"));
       await browser.sendCommand("Emulation.setDeviceMetricsOverride",{width:768,height:900,deviceScaleFactor:1,mobile:false});await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"resultados-tablet.png"));await browser.$("button[aria-label='Back to collection']").click();await browser.execute(()=>{document.body.classList.remove("theme-dark");document.body.classList.add("theme-light");});await browser.$(".ss-popover").saveScreenshot(resolve(screenshots,"buscar-light.png"));
@@ -247,7 +247,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       p.settings={...p.settings,cliPath:require("node:process").execPath,configPath:"manual-fixture-no-execution"};p.provider=undefined;p.connectMcp=()=>{};p.review=undefined;
       (globalThis as any).__manualReviews=[];(globalThis as any).__manualClipboard="";
       navigator.clipboard.writeText=async(text:string)=>{(globalThis as any).__manualClipboard=text;};
-      p.saveHumanReview=async(_entity:any,decision:string,reason:string,queueLike:boolean)=>{(globalThis as any).__manualReviews.push({decision,reason,queueLike});};
+      p.__manualBefore.canLike=p.canLikeResource;p.canLikeResource=()=>true;p.saveHumanReview=async(_entity:any,decision:string,reason:string,queueLike:boolean)=>{(globalThis as any).__manualReviews.push({decision,reason,queueLike});};
       p.setImported({...data,records:[{...data.records[1],type:"web-resource",review:"pending",title:"Manual review resource",attributes:{description:"Useful fixture for manual review",discoveryPost:"https://x.com/example/status/123"}}]});
     },fixture);
     try{
@@ -262,7 +262,7 @@ describe("Source Scraper simple discovery journey in isolated Obsidian",()=>{
       await click('Preview drafts');await click('Copy Markdown');await browser.waitUntil(()=>browser.execute(()=>(globalThis as any).__manualClipboard.includes('Manual review resource')));expect(await browser.execute(()=>(globalThis as any).__manualClipboard)).toContain('https://example.org/catalog');await browser.keys('Escape');
       expect(await snapshot()).toEqual(original);
     }finally{
-      await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__manualBefore;p.settings=b.settings;p.saveHumanReview=b.save;p.connectMcp=b.connect;p.provider=b.provider;p.review=b.review;
+      await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__manualBefore;p.settings=b.settings;p.canLikeResource=b.canLike;p.saveHumanReview=b.save;p.connectMcp=b.connect;p.provider=b.provider;p.review=b.review;
         navigator.clipboard.writeText=b.clipboardWrite;
         if(b.imported)p.setImported(b.imported);p.selected=new Set(b.selected);p.updateStatus();delete p.__manualBefore;});
     }

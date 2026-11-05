@@ -1,5 +1,5 @@
 import {ButtonComponent,DropdownComponent} from "obsidian";
-import {panelPosition,discoveryState,type PanelSnapshot} from "./panel-model.ts";
+import {panelPosition,discoveryState,selectedProject,type PanelSnapshot} from "./panel-model.ts";
 
 export interface PopoverHost {
   snapshot:()=>PanelSnapshot;icon:(root:HTMLElement,name:string)=>void;
@@ -9,7 +9,7 @@ export interface PopoverHost {
   refreshResults?:(force?:boolean)=>Promise<void>;
   hasReviewInbox?:()=>boolean;
   reviewInboxKey?:()=>string;
-  cycle?:()=>void;
+  cycle?:()=>void;addSource?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
 }
 let sequence=0;
@@ -119,7 +119,7 @@ export class ScraperPopover {
   }
   private renderHome(body:HTMLElement,snapshot:PanelSnapshot):void{
     body.classList.add("ss-discovery");
-    const source=this.el(body,"div","ss-source-line");this.el(source,"strong","","X · For You");const status=this.el(source,"span","ss-source-status");
+    const source=this.el(body,"div","ss-source-line");const sourceName=this.el(source,"strong","");const status=this.el(source,"span","ss-source-status");
     this.el(body,"h2","ss-discovery-title","Find links");
     const hint=this.el(body,"p","ss-hint");hint.setAttribute("role","status");
     const filters=this.button(body,"Search filters",()=>{this.close(false);this.host.filters();},"ss-filter-link");
@@ -134,24 +134,25 @@ export class ScraperPopover {
     this.el(complete,"span","","Resources");this.resultsCount=this.el(complete,"span","ss-result-count");
     this.host.icon(this.el(complete,"span","ss-chevron"),"chevron-right");
     this.homeUpdate=s=>{
-      const state=discoveryState(s);body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
+      const project=selectedProject(s),state=discoveryState(s);sourceName.textContent=project?.isX?"X · For You":project?.name??"Sources";sourceName.title=sourceName.textContent;body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
       this.resultsCount!.textContent=s.findings+(s.exampleFindings?" examples":s.findings===1?" available":" available");
       complete.setAttribute("aria-label",s.findings?"View results":"View empty results");
-      filters.disabled=s.running||!s.projects.some(p=>p.isX);
+      filters.disabled=s.running||!selectedProject(s);
       rootBusy(body,s.running);
     };
     const footer=this.el(body.parentElement!,"footer","ss-home-footer");footer.appendChild(primary);this.homeUpdate(snapshot);
   }
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
-    if(this.host.cycle)this.button(options,"Collection and feedback",()=>{this.close(false);this.host.cycle?.();},"ss-button ss-secondary");
+    const addSource=this.host.addSource?this.button(options,"Add source",()=>{this.close(false);this.host.addSource?.();},"ss-button ss-secondary"):undefined;
+    const cycle=this.host.cycle?this.button(options,"Collection and feedback",()=>{this.close(false);this.host.cycle?.();},"ss-button ss-secondary"):undefined;
     this.button(options,"Import results",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
-    this.el(options,"h3","ss-section-label","X account");
-    this.button(options,"Change session",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
-    const disconnect=this.button(options,"Disconnect X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
-    const alternative=this.el(options,"label","ss-project-label","Other sources");
+    const xOptions=this.el(options,"div","ss-x-options");this.el(xOptions,"h3","ss-section-label","X account");
+    this.button(xOptions,"Change session",()=>{this.close(false);this.host.setup();},"ss-button ss-text-action");
+    const disconnect=this.button(xOptions,"Disconnect X",()=>this.host.disconnect?.(),"ss-button ss-text-action");
+    const alternative=this.el(options,"label","ss-project-label","Sources");
     const dropdown=new DropdownComponent(alternative);for(const p of snapshot.projects)dropdown.addOption(p.id,p.name);
-    const select=dropdown.selectEl;select.classList.add("ss-project-select");select.setAttribute("aria-label","Other sources");
+    const select=dropdown.selectEl;select.classList.add("ss-project-select");select.setAttribute("aria-label","Sources");
     dropdown.onChange(value=>this.host.selectProject(value));
     const runOther=this.button(options,"Collect from this source",()=>this.host.collect(select.value),"ss-button ss-secondary");
     const advanced=this.el(options,"details","ss-review-tools");this.el(advanced,"summary","","Advanced tools");
@@ -159,12 +160,12 @@ export class ScraperPopover {
     this.button(options,"Plugin settings",()=>{this.close(false);this.host.settings();},"ss-button ss-text-action");
     const diagnostics=this.el(advanced,"p","ss-diagnostics");
     this.homeUpdate=s=>{
-      select.value=s.projectId;select.disabled=s.running;
+      if(addSource)addSource.disabled=s.running;select.value=selectedProject(s)?.id??"";select.disabled=s.running;xOptions.hidden=Boolean(selectedProject(s)&&!(selectedProject(s)?.isX||selectedProject(s)?.hasX));if(cycle)cycle.hidden=!(selectedProject(s)?.isX||selectedProject(s)?.hasX);
       alternative.hidden=!s.projects.length;runOther.hidden=!s.projects.length;
       const selected=s.projects.find(p=>p.id===select.value);
-      runOther.disabled=s.running||!s.engine||!s.mcp||!selected||Boolean(selected.isX&&(!s.session||!s.xAllowed||!s.python));
+      runOther.disabled=s.running||!s.engine||!s.mcp||!selected||Boolean((selected.isX||selected.hasX)&&(!s.session||!s.xAllowed||!s.python));
       disconnect.hidden=!s.session||!s.xAllowed;disconnect.disabled=s.running;
-      diagnostics.textContent=s.error||"Engine: "+(s.engine?"available":"not configured")+" · MCP: "+(s.mcp?"available":"not connected")+" · X reader: "+(s.python?"available":"not set up");
+      diagnostics.textContent=s.error||"Engine: "+(s.engine?"available":"not configured")+" · MCP: "+(s.mcp?"available":"not connected")+((selectedProject(s)?.isX||selectedProject(s)?.hasX)?" · X reader: "+(s.python?"available":"not set up"):"");
       rootBusy(options,s.running);
     };
     this.homeUpdate(snapshot);

@@ -24,3 +24,15 @@ test("saving visual controls preserves advanced domains, date boundaries, maxima
  for(const bad of ["-1","1.5","hello","Infinity"])assert.throws(()=>applyFeedFilterForm(p,{...form,likes:bad}));
  assert.throws(()=>applyFeedFilterForm(p,{...form,pages:"11"}));assert.throws(()=>applyFeedFilterForm(p,{...form,days:"0"}));
 });
+
+test("generic link filters preserve source metrics and types without requiring X",()=>{
+ const p={...buildXFeedProject("12345","","",0,1),id:"generic",sources:[{id:"feed",adapter:"rss",config:{url:"https://example.org/feed"}}],pipeline:["observation-entity"],filters:{version:1 as const,observation:{numericRanges:[{field:"attributes.metrics.likes",min:4}]}}};
+ const next=applyFeedFilterForm(p,{...feedFilterForm(p),include:"typography",likes:"999",pages:"irrelevant"});
+ assert.deepEqual(next.filters?.observation?.numericRanges,[{field:"attributes.metrics.likes",min:4}]);assert.equal(next.filters?.entity?.types,undefined);assert.deepEqual(next.filters?.entity?.requiredFields,["url"]);assert.deepEqual(next.sources,p.sources);
+ const filter=compileCollectionFilters(["feed"],next.filters);assert.equal(filter.match({type:"feed-entry",url:"https://example.org/resource"},()=>[{sourceId:"feed",observation:{text:"typography",attributes:{metrics:{likes:5}}}}]).matched,true);
+});
+
+test("editing common filters in mixed projects leaves X connection limits untouched",()=>{
+ const p=buildXFeedProject("12345","","",0,7);p.sources.push({id:"feed",adapter:"rss",config:{url:"https://example.org/feed"}});
+ const next=applyFeedFilterForm(p,{...feedFilterForm(p),include:"typography",pages:"not a visible control"});assert.deepEqual(next.sources,p.sources);
+});

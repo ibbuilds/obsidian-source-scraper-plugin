@@ -22,14 +22,14 @@
 .ss-popover button:disabled, .ss-dialog button:disabled { cursor:default; opacity:.5; }
 .ss-popover :is(button,input,select,summary,a,[tabindex]):focus-visible, .ss-dialog :is(button,input,textarea,select,summary,a):focus-visible { outline:2px solid var(--interactive-accent); outline-offset:2px; }
 .ss-source-line { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.ss-source-line strong { font-size:13px; font-weight:500; }
-.ss-source-status { color:var(--text-muted); font-size:12px; white-space:nowrap; }
+.ss-source-line strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:500; }
+.ss-source-status { flex:none; color:var(--text-muted); font-size:12px; white-space:nowrap; }
 .ss-discovery { display:flex; flex-direction:column; gap:16px; }
 .ss-discovery-title { margin:4px 0 -8px; font-size:20px; line-height:1.3; font-weight:600; }
 .ss-hint { margin:0; color:var(--text-muted); overflow-wrap:anywhere; }
 .ss-discovery .ss-hint { min-height:44px; }
 .ss-discovery>.ss-primary { margin-top:auto; flex:none; }
-.ss-discovery[data-state=error] .ss-source-status { color:var(--text-error); }
+.ss-discovery[data-state=error] .ss-source-status { flex:none; color:var(--text-error); }
 .ss-popover .ss-filter-link, .ss-popover .ss-results-link { display:flex; align-items:center; gap:8px; width:100%; padding:12px; margin:0; height:auto; min-height:48px; border:1px solid var(--background-modifier-border); border-radius:6px; box-shadow:none; background:transparent; text-align:left; color:var(--text-normal); }
 .ss-popover .ss-filter-link::after { content:'›'; margin-left:auto; color:var(--text-muted); }
 .ss-results-link>:first-child { flex:1; }
@@ -297,3 +297,5 @@
 
 .ss-cycle-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
 .ss-cycle-actions button { flex:1; min-width:max-content; }
+
+.ss-x-options { display:flex; flex-direction:column; gap:8px; }

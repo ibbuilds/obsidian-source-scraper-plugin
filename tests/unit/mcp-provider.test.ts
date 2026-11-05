@@ -66,3 +66,17 @@ for(const descendantLink of [false,true])test(descendantLink?
     provider.dispose();
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("non-X CLI work never inherits X session credentials or local read permission",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-adapter-env-"));let provider:SourceScraperProvider|undefined;
+ try{
+  const cliPath=join(root,"fixture.mjs"),configPath=join(root,"project.json"),hash=(v:string)=>createHash("sha256").update(v).digest("hex");
+  writeFileSync(cliPath,`const c=process.argv[2];console.log(JSON.stringify(c==='version'?{name:'source-scraper',jsonSchemaVersion:1,capabilities:['agent-assessments-v1','selected-entity-export-v1']}:{read:!!process.env.SOURCE_SCRAPER_X_LOCAL_APPROVED,session:!!process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION,csrf:!!process.env.SOURCE_SCRAPER_X_CSRF,python:!!process.env.SOURCE_SCRAPER_X_PYTHON}));`);
+  writeFileSync(join(root,"items.json"),'[]');const manifest={id:"env-fixture",name:"Environment fixture",sources:[{id:"local",adapter:"json-file",config:{path:"items.json"}}],pipeline:["observation-entity"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]};
+  for(const usesX of [false,true]){
+   const raw=JSON.stringify({...manifest,sources:usesX?[{id:"x-local",adapter:"x-for-you-local",config:{accountId:"12345"}}]:manifest.sources});writeFileSync(configPath,raw);
+   provider=new SourceScraperProvider({cliPath,cliHash:hash(readFileSync(cliPath,"utf8")),nodeExecutable:process.execPath,projects:[{id:manifest.id,configPath,manifestHash:hash(raw)}],workspacePath:root,statePath:join(root,"state.json"),vaultPath:join(root,"vault"),allowXProvider:true,xPythonPath:process.execPath,getXSession:()=>({accountSession:"synthetic-auth",csrf:"synthetic-csrf"}),mapping:()=>DEFAULT_NOTE_MAPPING_JSON,pathExists:()=>false,stage:()=>{},checkRead:()=>{},readReference:async()=>""});
+   assert.deepEqual(await provider.execute("source_scraper_validate_project",{projectId:manifest.id}),{read:usesX,session:usesX,csrf:usesX,python:usesX});provider.dispose();provider=undefined;
+  }
+ }finally{provider?.dispose();rmSync(root,{recursive:true,force:true});}
+});
