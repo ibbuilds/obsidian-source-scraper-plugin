@@ -11,7 +11,7 @@ unattended background ChatGPT inference service.
 
 Open Source Scraper in the status bar. Find resources starts a bounded cycle for
 the selected X profile: 100 pages per explicit start, in batches of at most 10.
-Options > Collection and feedback provides a 1–1000 page budget, Start / resume,
+Options > Collection and feedback provides a 1–1000 page budget, Start collection / Resume collection,
 Pause and Stop collection. Pausing retains the checkpoint. Stopping also retains
 it but begins a new cycle audit when started again. A restart resumes a previously
 running/waiting cycle; blocked or paused work requires an explicit resume.
@@ -39,8 +39,8 @@ not disable local collection, review or draft copying.
 
 Resources refreshes the saved inventory without recollecting the feed. Use the
 review-status selector and text search, open a resource or its source post, and
-save My review as Pending, Approved or Rejected. The reason is optional. Rejected
-resources can be restored from Collection and feedback. Human decisions are
+save Your choice as Unreviewed, Keep or Hide. The reason is optional. Hidden
+resources can be restored from the Hidden view. Human decisions are
 stored separately from AI recommendations and survive restarting Obsidian.
 
 Approval alone never queues a like. For an approved resource, Like the source
@@ -52,8 +52,8 @@ must also be enabled before anything can be sent.
 Copy links copies selected URLs. Preview drafts lets you inspect each full draft,
 Copy Markdown copies the current draft and Copy all drafts copies the selection.
 Paste them yourself wherever you choose; the plugin never writes vault notes.
-Up to 5,000 resources load in the compact review view, with an explicit notice at
-that bound. Engine storage retains the remaining inventory.
+The registered-project library queries the full stored inventory, loading 40 rows
+per page. Only explicitly selected resources are copied, kept or hidden.
 
 ## Optional AI evaluation through MCP
 
@@ -90,7 +90,7 @@ queues and draft selections cannot silently promote a rejected resource. Pending
 likes are cancelled. Existing human rejection rows are imported only as explicit
 stored decisions, never from conversational examples. History remains retained.
 
-Options > Collection and feedback > Rejected resources shows the list and Restore.
+Options > Collection and feedback > Hidden resources shows the list and Restore.
 MCP list_rejected and resource_decision(action=restore) provide the same capability.
 resource_decision(action=alias, key, alias) joins specific URLs explicitly. Restoring
 does not remove earlier likes or automatically mark a resource as recommended.
@@ -122,4 +122,4 @@ outside vault notes. Engine evidence and progress remain in the project SQLite
 store. Source Scraper never creates, edits, moves, renames or deletes vault notes.
 
 
-The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for filter-wide actions and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.
+The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit resource choices and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.

@@ -1,26 +1,29 @@
-# Resource inbox
+# Resource library
 
-The local workflow does not require AI. Open Resources, filter the inbox and use
-Approve N or Reject N. The count explicitly names the scope: all matching
-resources, or the checked resources across pages. No selection or comparison
-dialog is needed for the normal action. The inbox renders 40 rows and queries
-only the requested page. Pagination reuses a stable selection rather than
-rescanning the catalogue. Needs review is the default view. Approved resources
-can be marked Pending; the Rejected view has Restore.
+Source Scraper finds links that match the configured source filters. Matching is
+retrieval evidence, not a quality verdict. Users can browse, open and copy these
+links without approving anything or using AI.
 
-A submitted action affects the captured selection, never later matches. Resources
-changed since that selection are reported separately. Actions support up to
-5,000 resources per transaction; a larger result must be narrowed or explicitly
-selected. This is an operation budget, not a 5,000-resource inventory limit.
-Review writes use one engine process and one transaction instead of repeated
-inspect/review/inspect processes. Persistent request receipts and the local
-journal reconcile an interrupted commit without duplicating history. Ledger
-updates are coalesced into one private-file write. Human rejections always win.
+The default All resources view shows titles, useful descriptions, source domains
+and reported access/license information. The title opens the resource directly;
+the information button loads its full retained evidence only when requested.
+Missing access conditions are labelled Access not checked. Matching scores never
+stand in for editorial quality.
 
-Opening a title retains the detailed manual review and original evidence. Copy
-page links states its scope; checking rows changes this to the selected links.
-Preview drafts remains a copy-only operation, with a 200-draft output bound.
-Reviewing and approving resources never sends likes or writes vault notes.
+Check the concrete resources to Copy links, Keep or Hide. With no selection there
+is no review action. Select page is an explicit convenience for the visible page;
+it never chooses the rest of the catalogue. Selection persists across pages of
+the same query and clears when the view or search changes. Kept is a personal
+shortlist, not a certification of quality. Hidden removes a resource and future
+canonical duplicates; choose Hidden, select the link and Restore to undo it.
+Keeping alone never queues a like or writes a note. Preview drafts is optional
+and supports up to 200 selected resources.
+
+The UI renders only 40 rows. A chosen set is submitted in one replay-safe request,
+up to 5,000 resources per transaction. Every selected row carries its revision;
+changed resources are reported instead of overwritten. Recovery retains the
+request identity and never repeats confirmed decisions. This operation bound
+is not an inventory limit. Existing imported-result comparison remains available.
 
 ## Optional AI workflow
 
@@ -33,8 +36,10 @@ fingerprint and independently verify utility, reuse, usable output and free
 access before assess_resources(projectId, items). One call accepts up to 50
 separate evidence-based evaluations. It does not invent human approvals.
 
-Only on explicit user instruction, review_resources accepts requestId with
-selectionId + decision, or changes for mixed decisions. Reuse the same requestId
+On explicit user instruction, review_resources normally accepts requestId and
+changes listing each chosen resource. The compatible selectionId + decision
+form is reserved for an explicit instruction about that entire result set; an
+agent must never infer it from filter relevance. Reuse the same requestId
 and arguments after an uncertain result. A new requestId is a new decision.
 Refreshing after new evidence or preference changes creates a current selection;
 an old selection fails safely. A request receipt reports saved and failed counts

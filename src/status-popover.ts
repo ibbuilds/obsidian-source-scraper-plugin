@@ -123,6 +123,7 @@ export class ScraperPopover {
     this.el(body,"h2","ss-discovery-title","Find links");
     const hint=this.el(body,"p","ss-hint");hint.setAttribute("role","status");
     const filters=this.button(body,"Search filters",()=>{this.close(false);this.host.filters();},"ss-filter-link");
+    this.host.icon(this.el(filters,"span","ss-chevron"),"chevron-right");
     const primary=this.button(body,"Connect X",()=>{
       const state=discoveryState(this.host.snapshot());
       if(state.action==="cancel")this.host.cancel();

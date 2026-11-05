@@ -10,12 +10,12 @@ The home screen shows the X connection, **Search filters**, **Resources** and on
 primary action: connect, collect, stop or retry. Missing engine/reader setup links
 to settings. Loading a session is not itself a live access verification.
 
-Open **Resources** to filter the review inbox. **Approve N** and **Reject N**
-apply to all matching resources; check rows to act on specific resources instead.
-The count states the scope. No selection or comparison dialog is required.
-Select a resource title to inspect its provenance. **Preview drafts** shows previews without writing files. Ask
-ChatGPT to evaluate the selection or save notes through your separate Obsidian
-connector when you want it to. The back arrow returns to collection.
+Open **Resources** to browse matching links. Titles open the resource; the
+information button shows its retained evidence. Choose specific links with the
+checkboxes, then **Copy links**, **Keep** or **Hide**. Actions never apply to the
+whole query implicitly. **Kept** is your shortlist; **Hidden** contains resources
+you can restore. **Preview drafts** prepares Markdown without writing files.
+AI assistance is optional through your separate connector.
 
 Starter data is labelled **Local example**; it is not your X feed. **Options**
 contains imports, session management, other sources and **Advanced tools**. The
@@ -103,4 +103,4 @@ Batch approval never queues a like. Selected links and full Markdown drafts rema
 available through Copy links and Preview drafts. No AI calls or note writes are needed.
 
 
-The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for filter-wide actions and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.
+The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit selections and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.

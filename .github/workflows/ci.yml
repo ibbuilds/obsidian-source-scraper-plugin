@@ -85,6 +85,13 @@ jobs:
           OBSIDIAN_VERSIONS: latest/latest
           WDIO_MAX_INSTANCES: '1'
         run: ./tests/desktop/node_modules/.bin/wdio run ./tests/desktop/wdio.conf.mts
+      - name: Verify browsing, explicit choices and native control alignment
+        working-directory: tests/desktop
+        env:
+          DISPLAY: ':99'
+          OBSIDIAN_VERSIONS: latest/latest
+          WDIO_MAX_INSTANCES: '1'
+        run: node node_modules/@wdio/cli/bin/wdio.js run wdio.ux.conf.mts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,7 +5,7 @@ import {MAX_REVIEW_SELECTION,type ReviewChange,type ReviewDecision,type ReviewRe
 interface BatchHost {
   saveReviewBatch:(changes:ReviewChange[],reason:string,stopped:()=>boolean,progress:(results:ReviewResult[])=>void)=>Promise<ReviewResult[]>;
 }
-const labels:Record<ReviewDecision,string>={pending:"Pending",approved:"Approved",rejected:"Rejected"};
+const labels:Record<ReviewDecision,string>={pending:"Unreviewed",approved:"Kept",rejected:"Hidden"};
 const errorText=(e:unknown)=>String(e instanceof Error?e.message:e).replace(/https?:\/\/[^\s"'<>()]+/gi,"[redacted-url]").replace(/(?:token|password|secret|cookie|session|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi,"[redacted]").slice(0,250);
 /** Compare multiple resources and submit mixed or shared decisions without AI. */
 export class BatchReviewModal extends Modal {
@@ -25,7 +25,7 @@ export class BatchReviewModal extends Modal {
     body.createEl("p",{text:"Compare the resources and choose what to keep."});
     const controls=body.createDiv({cls:"ss-batch-controls"});
     let refresh=()=>{};
-    new Setting(controls).setName("Apply to all selected").addDropdown(d=>d.addOptions({none:"Choose a decision…",approved:"Approve all",rejected:"Reject all",pending:"Mark all pending"}).onChange(v=>{if(v==="none")return;for(const e of this.records)if(!this.saved.has(e.key))this.decisions.set(e.key,v as ReviewDecision);d.setValue("none");refresh();}));
+    new Setting(controls).setName("Apply to selection").addDropdown(d=>d.addOptions({none:"Choose a decision…",approved:"Keep selected",rejected:"Hide selected",pending:"Mark unreviewed"}).onChange(v=>{if(v==="none")return;for(const e of this.records)if(!this.saved.has(e.key))this.decisions.set(e.key,v as ReviewDecision);d.setValue("none");refresh();}));
     const reasonDisclosure=controls.createEl("details",{cls:"ss-batch-reason"});reasonDisclosure.createEl("summary",{text:"Add a shared reason (optional)"});
     new Setting(reasonDisclosure).setName("Reason (optional)").addText(t=>t.setPlaceholder("Applies to this batch").onChange(v=>{this.reason=v;}).inputEl.maxLength=1000);
     const status=formStatus(body);status.addClass("ss-batch-status");status.setText("Reviews only · No likes or note writes.");
@@ -51,7 +51,7 @@ export class BatchReviewModal extends Modal {
         details.addEventListener("toggle",()=>{if(details.open&&!details.querySelector("pre"))details.createEl("pre",{cls:"ss-preview",text:JSON.stringify({reasons:e.reasons,attributes:e.attributes,provenance:e.provenance??"Not included"},null,2)});});
         if(this.saved.has(e.key))card.createEl("p",{cls:"ss-batch-saved",text:`Saved: ${labels[e.review]}`});
         else{
-          new Setting(card).setName("My decision").setDesc(`Current: ${labels[e.review]}`).addDropdown(d=>d.addOptions({unchanged:"Keep current",approved:"Approve",rejected:"Reject",pending:"Pending"}).setValue(this.decisions.get(e.key)??"unchanged").onChange(v=>{if(v==="unchanged")this.decisions.delete(e.key);else this.decisions.set(e.key,v as ReviewDecision);update();}));
+          new Setting(card).setName("Your choice").setDesc(`Current: ${labels[e.review]}`).addDropdown(d=>d.addOptions({unchanged:"Keep current",approved:"Keep",rejected:"Hide",pending:"Unreviewed"}).setValue(this.decisions.get(e.key)??"unchanged").onChange(v=>{if(v==="unchanged")this.decisions.delete(e.key);else this.decisions.set(e.key,v as ReviewDecision);update();}));
           if(this.failures.has(e.key))card.createEl("p",{cls:"ss-form-status",text:this.failures.get(e.key)});
         }
       }
