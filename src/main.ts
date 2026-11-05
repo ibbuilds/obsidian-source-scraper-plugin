@@ -1,6 +1,8 @@
 import {dialog,action,formStatus,labelFields} from "./form-ui.ts";
 import {feedFilterForm,applyFeedFilterForm} from "./filter-form.ts";
 import {ReviewIndex} from "./review-index.ts";
+import {BatchReviewModal} from "./batch-review-modal.ts";
+import {MAX_REVIEW_SELECTION,selectReviewPage,runReviewBatch,type ReviewChange,type ReviewResult} from "./review-batch.ts";
 import {XSessionStore} from "./x-session-store.ts";
 import {
   FileSystemAdapter,ItemView,Modal,Notice,Plugin,PluginSettingTab,
@@ -464,11 +466,19 @@ class ScraperReview {
     for(const [value,label] of [["all","All resources"],["pending","Needs review"],["approved","Approved by me"],["recommended","AI recommended"],["discarded","AI discarded"]])filter.createEl("option",{value,text:label});
     filter.value=this.reviewFilter;
     const index=new ReviewIndex(imported.records);
+    const selectTools=root.createDiv({cls:"ss-selection-tools"});
+    const selectLabel=selectTools.createEl("label");const selectPage=selectLabel.createEl("input",{type:"checkbox",attr:{"aria-label":"Select this page"}});selectLabel.createSpan({text:"Select page"});
+    const clear=action(selectTools,"Clear selection",()=>{this.plugin.selected.clear();syncCheckboxes();updateSelection();}).buttonEl;
+    let visible:EntityRecord[]=[];
+    const syncCheckboxes=()=>{for(const box of Array.from(list.querySelectorAll<HTMLInputElement>(".ss-select-control")))box.checked=this.plugin.selected.has(box.dataset.key!);};
     const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0"}});list.setAttribute("aria-label","Found resources");
     const pagination=root.createDiv({cls:"ss-pagination"});
     const draftArea=root.createDiv({cls:"ss-review-footer"});
-    const selection=draftArea.createSpan({cls:"ss-selection-count"});selection.setAttribute("role","status");
-    const preview=new ButtonComponent(draftArea).setButtonText("Preview drafts").setTooltip("Preview and copy Markdown; no notes are written").onClick(()=>{
+    const primaryRow=draftArea.createDiv({cls:"ss-review-primary"});
+    const selection=primaryRow.createSpan({cls:"ss-selection-count"});selection.setAttribute("role","status");
+    const bulk=action(primaryRow,"Review selected",()=>{const records=this.plugin.getSelected();if(!records.length)return;this.plugin.closePopover();new BatchReviewModal(this.app,this.plugin,records).open();},true).buttonEl;
+    const exportRow=draftArea.createDiv({cls:"ss-review-export"});
+    const preview=new ButtonComponent(exportRow).setButtonText("Preview drafts").setTooltip("Preview and copy Markdown; no notes are written").onClick(()=>{
       try{
         const selected=this.plugin.getSelected();
         if(!selected.length)throw Error("Select resources before previewing drafts.");
@@ -476,17 +486,18 @@ class ScraperReview {
         this.plugin.closePopover();new ExportModal(this.app,this.plugin,selected).open();
       }catch(error){notify(error);}
     }).buttonEl;preview.classList.add("ss-preview-action");preview.type="button";
-    const copyLinks=new ButtonComponent(draftArea).setButtonText("Copy links").onClick(async()=>{try{await navigator.clipboard.writeText(this.plugin.getSelected().map(e=>e.url).filter(Boolean).join("\n"));new Notice("Selected links copied.");}catch(error){notify(error);}}).buttonEl;
+    const copyLinks=new ButtonComponent(exportRow).setButtonText("Copy links").onClick(async()=>{try{await navigator.clipboard.writeText(this.plugin.getSelected().map(e=>e.url).filter(Boolean).join("\n"));new Notice("Selected links copied.");}catch(error){notify(error);}}).buttonEl;
     const updateSelection=()=>{
       const count=this.plugin.selected.size;
-      selection.textContent=count+(count===1?" selected":" selected");preview.disabled=count===0;copyLinks.disabled=!this.plugin.getSelected().some(e=>e.url);
+      selection.textContent=count+" selected";preview.disabled=count===0;copyLinks.disabled=!this.plugin.getSelected().some(e=>e.url);bulk.disabled=!count;exportRow.hidden=!count;clear.disabled=!count;
+      const checked=visible.filter(e=>this.plugin.selected.has(e.key)).length;selectPage.checked=visible.length>0&&checked===visible.length;selectPage.indeterminate=checked>0&&checked<visible.length;selectPage.disabled=!visible.length;
     };
     const renderResults=()=>{
       if(this.root!==root||!root.isConnected)return;
       list.empty();pagination.empty();
       const filtered=index.filter(this.search).filter(e=>this.reviewFilter==="all"||this.reviewFilter==="pending"&&e.review==="pending"||this.reviewFilter==="approved"&&e.review==="approved"||["recommended","discarded"].includes(this.reviewFilter)&&e.resourceAssessment?.decision===this.reviewFilter);
       const pageSize=40,pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));this.page=Math.min(this.page,pageCount-1);
-      const visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
+      visible=filtered.slice(this.page*pageSize,(this.page+1)*pageSize);
       if(!visible.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:"No matches"});paragraph(empty,"Try another search term.");}
       for(const entity of visible){
         const item=list.createEl("article",{cls:"ss-record"});
@@ -494,7 +505,7 @@ class ScraperReview {
         const checkbox=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{'aria-label':"Select "+entity.title}});
         checkbox.checked=this.plugin.selected.has(entity.key);checkbox.dataset.key=entity.key;
         checkbox.addEventListener("change",()=>{
-          if(checkbox.checked)this.plugin.selected.add(entity.key);else this.plugin.selected.delete(entity.key);
+          if(checkbox.checked){if(this.plugin.selected.size>=MAX_REVIEW_SELECTION){checkbox.checked=false;new Notice("Select up to 200 resources per batch.");return;}this.plugin.selected.add(entity.key);}else this.plugin.selected.delete(entity.key);
           updateSelection();
         });
         const inspect=new ButtonComponent(head).setButtonText(entity.title).onClick(()=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,entity).open();}).buttonEl;
@@ -513,7 +524,9 @@ class ScraperReview {
       const previous=pagination.createEl("button",{text:"Previous"});previous.disabled=this.page===0;previous.onclick=()=>{this.page--;renderResults();};
       pagination.createSpan({text:filtered.length?((this.page*pageSize+1)+"–"+Math.min((this.page+1)*pageSize,filtered.length)+" of "+filtered.length):"0 resources"});
       const next=pagination.createEl("button",{text:"Next"});next.disabled=this.page>=pageCount-1;next.onclick=()=>{this.page++;renderResults();};
+      updateSelection();
     };
+    selectPage.onchange=()=>{if(selectPage.checked){if(selectReviewPage(this.plugin.selected,visible))new Notice("Selection is limited to 200 resources. Clear the selection to review another batch.");}else for(const e of visible)this.plugin.selected.delete(e.key);syncCheckboxes();updateSelection();};
     filter.onchange=()=>{this.reviewFilter=filter.value;this.page=0;renderResults();};
     search.onChange(()=>{this.search=input.value;this.page=0;renderResults();});
     renderResults();updateSelection();
@@ -808,10 +821,20 @@ export default class ScraperPlugin extends Plugin {
       if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
     }else{const s=this.settings;await this.cli.review({cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable},entity.projectId,entity.key,decision,reason.trim()||`User marked this resource ${decision}.`);}
   }
+  private batchSaving=false;
+  async saveReviewBatch(changes:ReviewChange[],reason:string,stopped:()=>boolean,progress:(results:ReviewResult[])=>void){
+    if(this.batchSaving)throw Error("A review batch is still saving. Try again when it finishes.");
+    if(reason.length>1000)throw Error("Keep the review reason within 1,000 characters.");
+    this.batchSaving=true;this.reviewRequest++;
+    try{return await runReviewBatch(changes,async({entity,decision})=>{
+      await this.saveHumanReview(entity,decision,reason,false);entity.review=decision;
+      const current=this.imported?.records.find(e=>e.projectId===entity.projectId&&e.key===entity.key);if(current)current.review=decision;
+    },{stopped,progress});}finally{this.batchSaving=false;this.refresh();}
+  }
   private reviewRequest=0;
   reviewTruncated=false;
   async refreshResources(){
-    if(!this.provider)return;
+    if(!this.provider||this.batchSaving)return;
     const entries=this.registeredProjects(),id=entries.some(p=>p.id===this.imported?.projectId)?this.imported!.projectId:this.panelSnapshot().projectId;
     if(!id||this.imported&&!entries.some(p=>p.id===this.imported!.projectId))return;
     const request=++this.reviewRequest,records:EntityRecord[]=[];

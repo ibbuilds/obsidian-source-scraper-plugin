@@ -79,3 +79,23 @@ persist without collecting sources again.
 Background cycles, persistent rejections and the separate like permission are
 documented in [AUTONOMOUS-FEED](AUTONOMOUS-FEED.md). Review resources directly in the plugin, or use a compatible AI through MCP.
 MCP access is optional; no additional model is installed.
+
+
+## Review several resources without AI
+
+In Resources, use Select page to select the visible page of up to 40 resources.
+Selections stay checked across pages and filters, up to 200 per batch. Clear selection
+clears the whole selection. Review selected shows the complete selection, eight
+resources per page in a two-column view that stacks on narrow windows.
+
+Compare descriptions, access/license information and the original links. Missing
+access or licensing evidence is explicitly Not verified. Open Evidence and match
+reasons for retained source data. These fields are source evidence, not a quality guarantee.
+Choose a different My decision for each resource, or Apply to all selected. The
+optional reason applies to this batch. Nothing is saved until Save reviews.
+
+Saving shows counts and individual errors. Stop saving finishes the current
+resource and leaves the rest unprocessed; closing while saving has the same effect.
+Saved reviews are retained. Retry saves only failed or unprocessed decisions.
+Batch approval never queues a like. Selected links and full Markdown drafts remain
+available through Copy links and Preview drafts. No AI calls or note writes are needed.

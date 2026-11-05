@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {runReviewBatch} from "../src/review-batch.ts";
 import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,copyFileSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";import {join,resolve,dirname} from "node:path";import {spawnSync} from "node:child_process";import {createHash} from "node:crypto";
 import {SourceScraperProvider} from "../src/mcp-provider.ts";import {DEFAULT_NOTE_MAPPING_JSON} from "../src/note-mapping.ts";
@@ -16,5 +17,7 @@ try{
  provider.dispose();provider=new SourceScraperProvider(options);assert.equal((await provider.execute("source_scraper_list_rejected",{projectId:"manual-one"})).records.length,1);
  provider.memory.restore("user",entity.url);const restored=await provider.execute("source_scraper_list_findings",{projectId:"manual-one",evaluation:"all"});assert.equal(restored.count,1);assert.equal(restored.records[0].review,"pending");
  await provider.execute("source_scraper_resource_decision",{projectId:"manual-one",key:entity.key,action:"approve",reason:"User explicitly chose approval"});assert.equal(provider.memory.humanReview("user",entity.url).origin,"user-mcp");
- assert.equal(readFileSync(note,"utf8"),original);console.log(JSON.stringify({passed:true,realCli:true,manualApprove:true,optionalReason:true,crossProjectReject:true,restart:true,explicitRestore:true,aiRequired:false,likesSent:0,notesChanged:0}));
+ const batchRecords=[];for(const project of projects){const page=await provider.execute("source_scraper_list_findings",{projectId:project.id,evaluation:"all"});batchRecords.push(page.records[0]);}
+ const batch=await runReviewBatch(batchRecords.map(entity=>({entity,decision:"pending"})),async c=>{await provider.saveHumanReview(c.entity.projectId,c.entity.key,c.decision,"");},{stopped:()=>false});assert.equal(batch.filter(r=>r.saved).length,2);assert.equal(provider.memory.actions().length,0);assert.equal(provider.memory.assessment("user",entity.url),undefined);
+ assert.equal(readFileSync(note,"utf8"),original);console.log(JSON.stringify({passed:true,realCli:true,manualApprove:true,optionalReason:true,crossProjectReject:true,restart:true,explicitRestore:true,aiRequired:false,batchReviews:2,likesSent:0,notesChanged:0}));
 }finally{provider?.dispose();assert.equal(dirname(root),resolve(tmpdir()));rmSync(root,{recursive:true,force:true});}

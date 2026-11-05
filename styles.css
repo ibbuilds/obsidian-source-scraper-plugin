@@ -208,3 +208,38 @@
 .ss-review-filter { width:100%; min-width:0; flex:none; height:36px; margin-bottom:8px; font:inherit; }
 
 .ss-detail-links { display:flex; flex-wrap:wrap; gap:8px 16px; margin-bottom:16px; }
+
+/* Manual review in batches: fixed shell, bounded pages, native controls. */
+.ss-selection-tools,.ss-selection-tools label { display:flex; align-items:center; gap:8px; }
+.ss-selection-tools { flex:none; justify-content:space-between; }
+.ss-selection-tools label { font-size:12px; cursor:pointer; }
+.ss-selection-tools input { margin:0; }
+.ss-popover .ss-selection-tools button { min-height:28px; font-size:12px; box-shadow:none; background:transparent; }
+.ss-review-footer { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
+.ss-review-primary,.ss-review-export { display:flex; align-items:center; gap:8px; }
+.ss-review-primary .ss-selection-count { flex:1; }
+.ss-review-export button { flex:1; min-width:0; }
+.ss-review-export[hidden] { display:none; }
+.ss-batch-controls { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+.ss-batch-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.ss-batch-card { min-width:0; padding:16px; border:1px solid var(--background-modifier-border); border-radius:var(--radius-s); }
+.ss-batch-card h3 { margin:0 0 8px; overflow-wrap:anywhere; font-size:14px; }
+.ss-batch-card p { margin:8px 0; }
+.ss-batch-card .ss-detail-links { margin:0 0 12px; font-size:12px; }
+.ss-batch-description { font-size:13px; }
+.ss-batch-facts,.ss-batch-card summary { font-size:12px; color:var(--text-muted); }
+.ss-batch-card .setting-item { margin-top:16px !important; margin-bottom:0 !important; }
+.ss-batch-card .ss-preview { max-height:200px; }
+.ss-batch-status { margin-bottom:12px; color:var(--text-muted); }
+.ss-batch-pagination { margin-top:16px; }
+@media (max-width:620px) {
+ .ss-batch-grid,.ss-batch-controls { grid-template-columns:minmax(0,1fr); }
+ .ss-batch-controls { gap:0; }
+}
+
+.ss-popover .source-scraper-view { gap:8px; }
+.ss-dialog .ss-dialog-body .ss-batch-controls>.setting-item { padding:0; border:0; margin:0 0 16px; }
+.ss-batch-reason { min-width:0; margin-bottom:16px; }
+.ss-batch-reason summary { font-size:12px; cursor:pointer; }
+.ss-batch-reason[open] summary { margin-bottom:12px; }
+.ss-batch-status { font-size:12px; }
