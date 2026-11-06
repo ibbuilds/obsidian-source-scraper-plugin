@@ -11,7 +11,7 @@ The repository retains its original plugin identity, `source-scraper`. This bran
 - A status-bar indicator immediately after ChatGPT, opening an anchored floating panel. No automatic sidebar or workspace tab.
 - Bounded entity JSON/NDJSON v1 import and generic evidence browsing, including records without URLs.
 - Optional explicit trusted CLI collection, export/import and human engine review; no automatic collection.
-- A locally enabled provider exposing 26 namespaced tools through the existing Vault as MCP server and existing tunnel.
+- A locally enabled provider exposing 27 namespaced tools through the existing Vault as MCP server and existing tunnel.
 - Registered projects, bounded jobs/status/cancel, paginated findings, evidence fingerprints, separate agent assessments, persistent staged references and read-only Markdown previews.
 - Source-independent project JSON inspection and note mapping. Remote project creation is limited to the external registered workspace.
 - Optional user-configured feedback without AI: private per-project topics and evidence requirements, bounded continuous X windows, separate local check records and guarded likes. No built-in topic or default profile; unsupported evidence stays pending. See [background feedback](docs/AUTONOMOUS-FEED.md).
