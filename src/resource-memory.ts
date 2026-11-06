@@ -1,6 +1,7 @@
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from "node:fs";
 import {dirname} from "node:path";
 import {randomUUID} from "node:crypto";
+import type {VisualReview} from "./reference-quality.ts";
 import {LOCAL_CHECKS,RESOURCE_POLICY,type LocalResourceCheck} from "./feedback-policy.ts";
 
 export function resourceIdentity(raw:string):string{
@@ -13,7 +14,7 @@ export function resourceIdentity(raw:string):string{
 }
 export type Recommendation={decision:"recommended"|"pending"|"discarded";fingerprint:string;
   utility:string;reuse:string;quality:string;freeAccess:string;usableOutput:string;unknowns:string[];
-  evidence:Array<{url:string;quote:string}>;postSuitable:boolean;at:string};
+  evidence:Array<{url:string;quote:string}>;postSuitable:boolean;at:string;visualReview?:VisualReview};
 export type FeedbackAction={id:string;scope:string;resource:string;projectId:string;key:string;accountId:string;postId:string;postUrl:string;postTextHash:string;directUrl?:string;fingerprint:string;origin?:"local-policy";profileHash?:string;
   state:"pending"|"in-progress"|"confirmed"|"failed"|"uncertain"|"cancelled";requestedAt:string;updatedAt:string;error?:string;attempts:number};
 export type HumanReview={decision:"pending"|"approved"|"rejected";reason:string;fingerprint:string;postSuitable:boolean;verifiedUsefulFreeAndQuality:boolean;at:string;origin:"user-interface"|"user-mcp"};

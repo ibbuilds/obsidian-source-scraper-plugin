@@ -6,16 +6,18 @@ export const LOCAL_CHECKS=["focus",...OPTIONAL_CHECKS,"suitablePost"] as const;
 export type LocalCheckName=typeof LOCAL_CHECKS[number];
 /** User-owned data. No topic or quality requirements are supplied by the application. */
 export interface FeedbackProfile {
+ referencePaths?:string[];
  version:1;includeTerms:string[];reuseTerms:string[];excludeTerms:string[];blockedPostTerms:string[];
  requiredChecks:Array<typeof OPTIONAL_CHECKS[number]>;
 }
 export function parseFeedbackProfile(input:unknown):FeedbackProfile {
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Invalid feedback criteria");
  const value=input as Record<string,unknown>;
- if(value.version!==1||Object.keys(value).some(k=>!["version","includeTerms","reuseTerms","excludeTerms","blockedPostTerms","requiredChecks"].includes(k)))throw Error("Unsupported feedback criteria");
+ if(value.version!==1||Object.keys(value).some(k=>!["referencePaths","version","includeTerms","reuseTerms","excludeTerms","blockedPostTerms","requiredChecks"].includes(k)))throw Error("Unsupported feedback criteria");
  const terms=(key:string)=>{const items=value[key];if(!Array.isArray(items)||items.length>64||items.some(s=>typeof s!=="string"||!s.trim()||s.length>128))throw Error("Invalid feedback terms: "+key);return [...new Set((items as string[]).map(s=>s.trim().toLowerCase()))].sort();};
  if(!Array.isArray(value.requiredChecks)||value.requiredChecks.length>OPTIONAL_CHECKS.length||value.requiredChecks.some(k=>!OPTIONAL_CHECKS.includes(k)))throw Error("Invalid feedback requirements");
- return {version:1,includeTerms:terms("includeTerms"),reuseTerms:terms("reuseTerms"),excludeTerms:terms("excludeTerms"),blockedPostTerms:terms("blockedPostTerms"),requiredChecks:[...new Set(value.requiredChecks)].sort()};
+ if(value.referencePaths!==undefined&&(!Array.isArray(value.referencePaths)||value.referencePaths.length>25||value.referencePaths.some(p=>typeof p!=="string"||!p.trim()||p.length>1000||p.startsWith("/")||p.includes("..")||p.includes(":"))))throw Error("Invalid reference paths");
+ return {...(value.referencePaths?{referencePaths:[...new Set(value.referencePaths as string[])].sort()}:{}),version:1,includeTerms:terms("includeTerms"),reuseTerms:terms("reuseTerms"),excludeTerms:terms("excludeTerms"),blockedPostTerms:terms("blockedPostTerms"),requiredChecks:[...new Set(value.requiredChecks)].sort()};
 }
 export function parseFeedbackProfiles(raw:string):Record<string,FeedbackProfile> {
  if(raw.length>1_000_000)throw Error("Feedback criteria limit");

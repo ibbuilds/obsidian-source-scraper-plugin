@@ -592,13 +592,14 @@ class FeedbackCriteriaModal extends Modal {
     const {body,footer}=dialog(this,"Feedback criteria");this.modalEl.addClass("ss-feedback-criteria");
     paragraph(body,"These preferences belong to this project on your computer. No topics are supplied by Source Scraper. Likes always require verified original links and the separate Automatic likes permission.");
     const saved=this.plugin.feedbackProfile(this.projectId),draft:FeedbackProfile=saved?structuredClone(saved):{version:1,includeTerms:[],reuseTerms:[],excludeTerms:[],blockedPostTerms:[],requiredChecks:[]};
-    const fields:Array<["includeTerms"|"reuseTerms"|"excludeTerms"|"blockedPostTerms",string,string]>=[
+    const fields:Array<["includeTerms"|"reuseTerms"|"excludeTerms"|"blockedPostTerms"|"referencePaths",string,string]>=[
+      ["referencePaths","Reference note paths","Comma-separated vault note paths. When configured, structural checks cannot authorize likes; a separate visual comparison is required."],
       ["includeTerms","Topic keywords","Comma-separated words or phrases. Blank explicitly allows any topic."],
       ["reuseTerms","Reusable output keywords","Optional words or phrases the repository must mention when reusable output is required."],
       ["excludeTerms","Excluded keywords","Skip resources matching any of these words or phrases."],
       ["blockedPostTerms","Excluded post keywords","Keep posts with these words or phrases pending."]
     ];
-    for(const [key,label,help] of fields)new Setting(body).setName(label).setDesc(help).addTextArea(t=>{t.inputEl.setAttribute("aria-label",label);t.setValue(draft[key].join(", ")).onChange(v=>{draft[key]=v.split(",").map(s=>s.trim()).filter(Boolean);});});
+    for(const [key,label,help] of fields)new Setting(body).setName(label).setDesc(help).addTextArea(t=>{t.inputEl.setAttribute("aria-label",label);t.setValue((draft[key]??[]).join(", ")).onChange(v=>{draft[key]=v.split(",").map(s=>s.trim()).filter(Boolean);});});
     const names:Record<typeof OPTIONAL_CHECKS[number],string>={reusableOutput:"Reusable source output",freeAccess:"Recognized open-source license",documentation:"Usage documentation",automatedChecks:"Declared package test suite and test structure",examples:"Published examples",activeSource:"Active repository"};
     paragraph(body,"Required evidence. Choose what matters for this project; these checks do not certify aesthetics or execute upstream tests.");
     for(const key of OPTIONAL_CHECKS)new Setting(body).setName(names[key]).addToggle(t=>t.setValue(draft.requiredChecks.includes(key)).onChange(v=>{draft.requiredChecks=v?[...draft.requiredChecks,key]:draft.requiredChecks.filter(k=>k!==key);}));

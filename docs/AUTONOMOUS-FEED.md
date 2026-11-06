@@ -1,6 +1,6 @@
 # Background feed collection and controlled feedback
 
-The existing Source Scraper provider exposes 26 MCP tools. No second server,
+The existing Source Scraper provider exposes 27 MCP tools. No second server,
 repository, paid X API or extra model is needed. Users can review resources directly in the plugin. AI evaluation is optional
 through the existing MCP connection. Collection and already-evaluated like actions
 can continue with the chat closed while Obsidian and the computer remain open.
@@ -58,6 +58,34 @@ Source cooldowns survive policy/profile updates. X credentials never reach publi
 probes. Existing five-attempts/hour and 60-second spacing apply.
 
 ## Daily use
+
+### Reference-based research
+
+Feedback criteria can include local reference note paths. These are private per-project
+preferences, with no built-in topic or vault path. When any references are configured,
+the local structural worker cannot queue likes. A separate reviewer must examine actual
+rendered examples; no vision model is installed or called by the collector.
+
+`source_scraper_research_packet(projectId, selectionId?, offset?, limit?)` returns a
+stable selection in packets of at most 50, capped at 500 candidates per selection pass.
+Reuse selectionId and nextOffset. It includes evidence, configured reference links grouped
+by note heading, note revision hashes, and prior explicit rejections. It writes no notes,
+evaluations or likes. Collection limits still apply independently; 500 candidates does not
+mean 500 verified libraries or 500 new publishers. Source failures remain visible.
+
+For a recommended assessment, supply `visualReview: {baselineHash, comparisons}`.
+Each comparison has referenceUrl, sampleUrl, composition, typography, interaction,
+usefulness and verdict. At least two distinct configured references and two distinct
+HTTPS examples of the actual resource (or its verified related site) are required.
+Each dimension needs concrete observations. Below/unknown verdicts cannot qualify.
+The provider checks note revisions before saving and again during like preflight.
+Changed/unavailable references and missing comparisons block dispatch. Legacy metadata-only
+recommendations cannot qualify under a reference profile.
+
+These checks validate the review evidence contract, not the truth of the reviewer's
+judgment. They do not certify aesthetics, accessibility or test execution. Calibrate the
+separate reviewer against accepted references and explicit negative examples before
+enabling feedback. Keep recommendations private and independent from human approvals.
 
 Open Source Scraper in the status bar. Find resources starts a bounded cycle for
 the selected X profile: 100 pages per explicit start, in batches of at most 10.
