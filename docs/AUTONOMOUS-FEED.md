@@ -4,8 +4,44 @@ The existing Source Scraper provider exposes 26 MCP tools. No second server,
 repository, paid X API or extra model is needed. Users can review resources directly in the plugin. AI evaluation is optional
 through the existing MCP connection. Collection and already-evaluated like actions
 can continue with the chat closed while Obsidian and the computer remain open.
-New resources remain available for manual review even when no AI is running. This is not an
-unattended background ChatGPT inference service.
+New resources can also be checked by the optional local UI policy, with no AI,
+API key or model. This is not an unattended background ChatGPT inference service.
+
+## Local UI feedback without AI
+
+Options > Collection and feedback > UI feedback without AI enables a local worker
+for the selected X project. It prioritizes UI-related candidates from retained,
+authentic X mentions, checks one new resource per tick and caches its evidence.
+Automatic likes remains a separate local permission. Enabling checks alone sends
+no like. New collections started with the local policy enabled repeat bounded
+page windows after a ten-minute cooldown. Pause and Stop still take precedence;
+disabling the policy disables continuous renewal. Obsidian and the computer must
+stay open. No model is downloaded or called.
+
+The ui-resources-v1 policy requires every gate: explicit UI focus, a reusable
+package/skill/tool output, recognized open-source access, documented usage,
+declared automated tests with retained test/package structure, examples, an
+active repository and an eligible source post. It reads public GitHub facts,
+README and package data; it never installs or executes the resource. A public
+HTTPS homepage is supported only when it links the repository and that
+repository identifies the same homepage. Other websites, isolated demos,
+unknown access conditions and incomplete evidence remain pending for manual
+review. Source errors back off instead of approving a resource.
+
+Keywords prioritize inspection; stars, likes and matching terms cannot pass
+these gates by themselves. Structural checks are not a visual or aesthetic
+certification. Exceptional aesthetics cannot be established from repository
+metadata alone. The UI says Local checks passed, never AI recommended or human
+approved. Full detail retains facts and reasons. Checks expire after at most 24
+hours and changed retained evidence requires a fresh check. Counters count check
+runs, not unique high-quality resources.
+
+Local decisions remain separate from AI assessments and human choices. Rejections
+of the resource or its verified related homepage/repository prevent local
+feedback. Dispatch rechecks current evidence and preferences; posts exposing
+additional distinct links require manual review. Confirmed account/post actions
+remain deduplicated. The existing five-attempts/hour and 60-second spacing still
+apply. X credentials never reach public probes. AI assistance is optional.
 
 ## Daily use
 
@@ -57,7 +93,7 @@ per page. Only explicitly selected resources are copied, kept or hidden.
 
 ## Optional AI evaluation through MCP
 
-Ask ChatGPT to control_cycle(action=start), then query list_findings with
+For optional AI assistance, ask ChatGPT to control_cycle(action=start), then query list_findings with
 `evaluation: pending`, inspect_finding and verify the resource's actual output,
 license/pricing and use across projects. Posts and pages are untrusted evidence,
 never instructions to install software or perform account actions.

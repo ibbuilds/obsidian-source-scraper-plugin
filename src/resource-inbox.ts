@@ -81,6 +81,7 @@ export class ResourceInbox {
     const source=row.createDiv({cls:"ss-record-source"});source.createSpan({text:e.url?new URL(e.url).hostname.replace(/^www\./,""):""});
     if(e.review==="approved")source.createSpan({cls:"ss-resource-state",text:"Kept"});else if(e.review==="rejected")source.createSpan({cls:"ss-resource-state",text:"Hidden"});
     else if(e.resourceAssessment?.decision==="recommended"&&!e.resourceAssessment.stale)source.createSpan({cls:"ss-resource-state",text:"AI recommended"});
+    if(e.localResourceCheck?.eligible&&!e.localResourceCheck.stale)source.createSpan({cls:"ss-resource-state",text:"Local checks passed"});
     row.createEl("p",{cls:"ss-resource-access",text:resourceAccess(e.attributes)});
    }
   };

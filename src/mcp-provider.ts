@@ -1,6 +1,7 @@
 import {xPostContext,hasXSource} from "./adapter-policy.ts";
 import {ResourceMemory,type Recommendation} from "./resource-memory.ts";
 import {FeedCycle} from "./feed-cycle.ts";
+import {UI_POLICY,UI_TERMS,uiCandidate,checkUiResource,type PublicResourceEvidence} from "./local-ui-policy.ts";
 import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
@@ -17,6 +18,8 @@ export interface RegisteredProject {id:string;configPath:string;manifestHash:str
 export interface ProviderOptions {
   allowXProvider?:boolean;
   allowXLikes?:()=>boolean;
+  localUIFeedbackEnabled?:()=>boolean;
+  activeProjectId?:()=>string|undefined;
   xPythonPath?:string;
   getXSession?:()=>XLocalSession|undefined;
   cliPath:string;cliHash:string;nodeExecutable:string;projects:RegisteredProject[];
@@ -29,7 +32,8 @@ export interface ProviderOptions {
 type Job={id:string;requestId:string;signature:string;projectId:string;state:string;startedAt:string;endedAt?:string;result?:unknown;error?:string};
 type Queue={projectId:string;keys:string[]};
 type ResourceRequest={requestId:string;projectId:string;signature:string;input:any;origin:"user-interface"|"user-mcp";result?:any;error?:string;terminal?:boolean};
-type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[];resourceRequests?:ResourceRequest[]};
+type LocalFeedbackState={checked:number;eligible:number;pending:number;nextAt:number;lastError?:string;lastAt?:string;cursor?:{projectId:string;selectionId?:string;offset:number}};
+type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[];resourceRequests?:ResourceRequest[];localFeedback?:LocalFeedbackState};
 const empty=():State=>({version:1,projects:[],jobs:[],queues:[]});
 const string={type:"string",minLength:1,maxLength:4000};
 const keys={type:"array",items:string,minItems:1,maxItems:200,uniqueItems:true};
@@ -120,6 +124,8 @@ export class SourceScraperProvider {
   private feedbackTimer?:ReturnType<typeof setInterval>;
   private bridge=new CliBridge();
   private collectionBridge=new CliBridge();
+  private evidenceBridge=new CliBridge();
+  private localFeedbackBusy=false;
   private activeJob?:Job;
   private engineChecked=false;
   private engineCapabilities:string[]=[];
@@ -153,7 +159,7 @@ export class SourceScraperProvider {
       return this.invoke(state.projectId,"cycle-progress",["--cycle-id",state.cycleId],this.collectionBridge);
     });
     this.cycle.attach();
-    this.feedbackTimer=setInterval(()=>{void this.dispatchFeedback();},10000);this.feedbackTimer.unref?.();
+    this.feedbackTimer=setInterval(()=>{void this.feedbackTick();},10000);this.feedbackTimer.unref?.();
   }
   private persist():void{
     const raw=JSON.stringify(this.state);
@@ -162,7 +168,7 @@ export class SourceScraperProvider {
     const tmp=this.options.statePath+"."+randomUUID()+".tmp";
     writeFileSync(tmp,raw,{flag:"wx",mode:0o600});renameSync(tmp,this.options.statePath);
   }
-  dispose():void{this.closed=true;this.memory.close();this.cycle.dispose();this.collectionBridge.cancel();if(this.feedbackTimer)clearInterval(this.feedbackTimer);this.bridge.cancel();}
+  dispose():void{this.closed=true;this.memory.close();this.cycle.dispose();this.collectionBridge.cancel();this.evidenceBridge.cancel();if(this.feedbackTimer)clearInterval(this.feedbackTimer);this.bridge.cancel();}
   private projects():RegisteredProject[]{return [...this.options.projects,...this.state.projects];}
   localProjects():RegisteredProject[]{return this.projects().map(p=>({...p}));}
   activity():{running:boolean;jobId?:string;lastState?:string;error?:string;projectId?:string}{
@@ -210,7 +216,8 @@ export class SourceScraperProvider {
     if((args.includes("--x-cycle")||command==="x-feedback")&&!this.engineCapabilities.includes(command==="x-feedback"?"x-likes-v1":"x-cycle-v1"))throw Error("SCHEMA_UNSUPPORTED: update the trusted engine before using cycles or likes");
     if(command==="run"&&manifest.sources.some(s=>sources.includes(s.id)&&s.adapter==="x-for-you-local")&&
       !this.engineCapabilities.includes("x-for-you-local-v1"))throw Error("SCHEMA_UNSUPPORTED: X feed collection requires x-for-you-local-v1");
-    return lane.invoke(config,command,["--config",config.configPath,...args]);
+    if(command==="resource-evidence"&&!this.engineCapabilities.includes("public-resource-evidence-v1"))throw Error("LOCAL_FEEDBACK_ENGINE_UPDATE_REQUIRED");
+    return lane.invoke(command==="resource-evidence"?{...config,allowXProvider:false,allowXLikes:false,xPythonPath:undefined,xSession:undefined}:config,command,["--config",config.configPath,...args]);
   }
   private eligible(entity:{type:string;url?:string;review?:string},verifiedXPipeline=false){if(entity.type==="x-inspiration")return false;
     if(!entity.url)return entity.review!=="rejected";
@@ -236,9 +243,9 @@ export class SourceScraperProvider {
     const action=queueLike?this.queueResourcePost(projectId,key,data):undefined;
     return {review,action,notesCreated:0};
   }
-  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string){
+  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string,origin?:"local-policy"){
     const {postUrl,postId,accountId}=this.resourcePostContext(projectId,data,requestedPostId);
-    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint});
+    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint,...(origin?{origin}:{})});
   }
   private resourcePostContext(projectId:string,data:any,requestedPostId?:string){
     const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),context=xPostContext(manifest,data.entity,data.mentions??[],requestedPostId);
@@ -247,10 +254,48 @@ export class SourceScraperProvider {
   private async dispatchFeedback(){
     if(this.closed||this.bridge.running||this.collectionBridge.running||this.activeJob||!this.options.allowXLikes?.())return;
     await this.memory.dispatch({
-      stillValid:async a=>{const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);let context;try{context=this.resourcePostContext(a.projectId,inspected,a.postId);}catch{return false;}return context.accountId===a.accountId&&inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
-      verify:async a=>{const r=await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","inspect_x_like"]);if(r.postTextHash!==a.postTextHash||r.postUrl!==a.postUrl||!Array.isArray(r.urls)||!r.urls.some((url:string)=>this.memory.identity("user",url)===a.resource))throw Error("X_POST_CHANGED_OR_LINK_NOT_EXPOSED: re-evaluate the original post");a.directUrl=r.urls.find((url:string)=>this.memory.identity("user",url)===a.resource);return r.favorited===true;},
+      stillValid:async a=>{if(a.origin==="local-policy"&&(!this.options.localUIFeedbackEnabled?.()||this.options.activeProjectId&&this.options.activeProjectId()!==a.projectId))return false;const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);let context;try{context=this.resourcePostContext(a.projectId,inspected,a.postId);}catch{return false;}return context.accountId===a.accountId&&inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
+      verify:async a=>{const r=await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","inspect_x_like"]);if(r.postTextHash!==a.postTextHash||r.postUrl!==a.postUrl||!Array.isArray(r.urls)||!r.urls.some((url:string)=>this.memory.identity("user",url)===a.resource))throw Error("X_POST_CHANGED_OR_LINK_NOT_EXPOSED: re-evaluate the original post");if(a.origin==="local-policy"&&r.urls.some((url:string)=>this.memory.identity("user",url)!==a.resource))throw Error("X_POST_ADDITIONAL_LINKS_NEED_REVIEW");a.directUrl=r.urls.find((url:string)=>this.memory.identity("user",url)===a.resource);return r.favorited===true;},
       send:async a=>{await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","like_x_post","--post-text-hash",a.postTextHash,"--direct-url",a.directUrl||"","--resource-memory",join(dirname(this.options.statePath),"resources.json"),"--resource-url",a.resource]);}
     });
+  }
+  private async feedbackTick(){await this.localFeedbackTick();await this.dispatchFeedback();}
+  localFeedbackStatus(){const s=this.state.localFeedback;return {enabled:this.options.localUIFeedbackEnabled?.()===true,busy:this.localFeedbackBusy,policy:UI_POLICY,modelRequired:false,checked:s?.checked??0,eligible:s?.eligible??0,pending:s?.pending??0,lastAt:s?.lastAt,lastError:s?.lastError,nextAt:s?.nextAt??0,qualityScope:"Verified structural signals; no aesthetic certification",sourceCoverage:"Public repositories and verified official homepages; unsupported resources stay pending"};}
+  /** Local bounded worker. It owns no human reviews and never calls an AI. */
+  async localFeedbackTick(now=Date.now()){
+    if(this.closed||!this.options.localUIFeedbackEnabled?.()||this.localFeedbackBusy||this.bridge.running||this.activeJob||this.state.resourceRequests?.some(r=>!r.result&&!r.terminal))return;
+    const state=this.state.localFeedback??={checked:0,eligible:0,pending:0,nextAt:0};if(state.nextAt>now)return;
+    this.localFeedbackBusy=true;
+    try{
+      const projects=this.projects().filter(p=>(!this.options.activeProjectId||this.options.activeProjectId()===p.id)&&parseProjectManifest(readFileSync(this.project(p.id).project.configPath,"utf8")).sources.filter(s=>s.adapter==="x-for-you-local").length===1);
+      if(!projects.length){state.lastError="Select an X project to run local checks";state.nextAt=now+60000;this.persist();return;}
+      if(!state.cursor||!projects.some(p=>p.id===state.cursor!.projectId))state.cursor={projectId:projects[0].id,offset:0};
+      const cursor=state.cursor;
+      const page=await this.getResources({projectId:cursor.projectId,review:"all",selectionId:cursor.selectionId,offset:cursor.offset,limit:40,filters:{version:1,entity:{fields:["title","attributes.description","attributes.discoveryText"],includeTerms:UI_TERMS,matchMode:"word"}}});
+      if(this.closed||!this.options.localUIFeedbackEnabled?.())return;cursor.selectionId=page.selectionId;
+      if(!page.records.length){const next=(projects.findIndex(p=>p.id===cursor.projectId)+1)%projects.length;state.cursor={projectId:projects[next].id,offset:0};state.nextAt=now+60000;this.persist();return;}
+      const details=await this.inspectResources(cursor.projectId,page.records.map((r:any)=>r.key));
+      for(let index=0;index<details.records.length;index++){
+        const data=details.records[index];if(!data.entity?.url||data.rejected||!uiCandidate(data.entity))continue;
+        let context;try{context=this.resourcePostContext(cursor.projectId,data);}catch{continue;}
+        let check=this.memory.localCheck("user",data.entity.url);
+        const fresh=!check||check.fingerprint!==data.fingerprint||Date.parse(check.expiresAt)<=now;
+        if(fresh){
+          const proof=await this.invoke(cursor.projectId,"resource-evidence",["--url",data.entity.url],this.evidenceBridge) as PublicResourceEvidence;
+          if(proof?.version!==1||proof.url!==data.entity.url||!Array.isArray(proof.evidence))throw Error("INVALID_PUBLIC_RESOURCE_EVIDENCE");
+          if(!this.engineCapabilities.includes("public-resource-evidence-v1"))throw Error("LOCAL_FEEDBACK_ENGINE_UPDATE_REQUIRED");
+          if(this.closed||!this.options.localUIFeedbackEnabled?.())return;
+          const current=(await this.inspectResources(cursor.projectId,[data.entity.key])).records[0];
+          if(current.fingerprint!==data.fingerprint){state.nextAt=now+10000;this.persist();return;}
+          check=this.memory.recordLocalCheck("user",data.entity.url,checkUiResource(data.entity,data.fingerprint,proof,now));
+          state.checked++;if(check.eligible)state.eligible++;else state.pending++;state.lastAt=new Date().toISOString();state.lastError=proof.reason;state.nextAt=now+(proof.retryAfterSeconds??10)*1000;
+        }
+        if(this.memory.localEligible("user",data.entity.url,data.fingerprint)&&!this.memory.hasAction(context.accountId,context.postId))this.queueResourcePost(cursor.projectId,data.entity.key,data,context.postId,"local-policy");
+        if(fresh){cursor.offset+=index+1;this.persist();return;}
+      }
+      cursor.offset+=page.records.length;state.nextAt=now+10000;state.lastError=undefined;this.persist();
+    }catch(error){if(!this.closed){const message=error instanceof Error?error.message:"Local verification failed";if(/SELECTION_CHANGED|SELECTION_EXPIRED/.test(message))state.cursor=undefined;state.lastError=message.slice(0,240);state.nextAt=now+(/BUSY|Another Source Scraper command/.test(message)?10000:60000);this.persist();}}
+    finally{this.localFeedbackBusy=false;}
   }
   async localFeedback(enabled:boolean){if(enabled&&!this.options.allowXLikes?.())throw Error("X_LOCAL_LIKES_APPROVAL_REQUIRED");if(enabled&&!this.projects().some(p=>hasXSource(parseProjectManifest(readFileSync(this.project(p.id).project.configPath,"utf8")))))throw Error("X_SOURCE_REQUIRED: likes belong to the X adapter");this.memory.setFeedback(enabled);return this.feedbackStatus();}
   private resourceLane:Promise<unknown>=Promise.resolve();
@@ -263,8 +308,9 @@ export class SourceScraperProvider {
     if(!this.engineCapabilities.includes("resource-batch-v1"))throw Error("RESOURCE_BATCH_UNAVAILABLE: update the trusted engine");
     return this.bridge.resourceBatch(config,input);
   }
-  async getResources(args:any){await this.recoverResourceReviews();const result=await this.resourceCommand(text(args.projectId,"projectId"),{...args,operation:"query",context:this.memory.queryContext()});return {...result,recovery:(this.state.resourceRequests??[]).filter(r=>!r.result&&!r.terminal).map(r=>({projectId:r.projectId,requestId:r.requestId,error:r.error??"Review needs reconciliation"}))};}
-  async inspectResources(projectId:string,keys:string[]){const value=await this.resourceCommand(projectId,{operation:"inspect",keys});for(const r of value.records){if(r.entity?.url){r.humanReview=this.memory.humanReview("user",r.entity.url);const saved=this.memory.assessment("user",r.entity.url);r.resourceAssessment=saved?{...saved,stale:saved.fingerprint!==r.fingerprint}:undefined;r.rejected=this.memory.rejected("user",r.entity.url);}}return value;}
+  private localCheckView(url:string,fingerprint?:string){const check=this.memory.localCheck("user",url);return check?{...check,eligible:this.memory.localEligible("user",url,fingerprint),stale:Boolean(fingerprint&&check.fingerprint!==fingerprint)||Date.parse(check.expiresAt)<=Date.now()}:undefined;}
+  async getResources(args:any){await this.recoverResourceReviews();const result=await this.resourceCommand(text(args.projectId,"projectId"),{...args,operation:"query",context:this.memory.queryContext()});for(const e of result.records??[]){const check=e.url?this.localCheckView(e.url):undefined;if(check)e.localResourceCheck={policy:check.policy,eligible:check.eligible,checkedAt:check.checkedAt,expiresAt:check.expiresAt,reasons:check.reasons.slice(0,3),stale:e.updatedAt>check.checkedAt||check.stale};}return {...result,recovery:(this.state.resourceRequests??[]).filter(r=>!r.result&&!r.terminal).map(r=>({projectId:r.projectId,requestId:r.requestId,error:r.error??"Review needs reconciliation"}))};}
+  async inspectResources(projectId:string,keys:string[]){const value=await this.resourceCommand(projectId,{operation:"inspect",keys});for(const r of value.records){if(r.entity?.url){r.humanReview=this.memory.humanReview("user",r.entity.url);const saved=this.memory.assessment("user",r.entity.url);r.resourceAssessment=saved?{...saved,stale:saved.fingerprint!==r.fingerprint}:undefined;r.localResourceCheck=this.localCheckView(r.entity.url,r.fingerprint);r.rejected=this.memory.rejected("user",r.entity.url);}}return value;}
   async reviewResources(args:any,origin:"user-interface"|"user-mcp"="user-interface"){
     const projectId=text(args.projectId,"projectId"),requestId=text(args.requestId,"requestId",100),signature=hash(canonical(args));this.project(projectId);
     this.state.resourceRequests??=[];let job=this.state.resourceRequests.find(r=>r.projectId===projectId&&r.requestId===requestId);
@@ -290,7 +336,7 @@ export class SourceScraperProvider {
   restoreResource(url:string){this.requireRecoveredReviews();this.memory.restore("user",url);}
   private recordReviewError(job:ResourceRequest,error:unknown){job.error=error instanceof Error?error.message:"Review needs reconciliation";job.terminal=error instanceof CliCommandError&&error.exitCode===1&&/SELECTION_CHANGED|SELECTION_EXPIRED|INVALID_|REQUEST_CONFLICT|REQUEST_ID_REQUIRED|REQUEST_LIMIT|Select 1/.test(job.error);if(job.terminal)job.input={};this.persist();}
   private async recoverResourceReviews(){for(const job of this.state.resourceRequests??[]){const key=job.projectId+"|"+job.requestId;if(!job.result&&!job.terminal&&!this.recoveryTried.has(key)){this.recoveryTried.add(key);try{await this.finishResourceReview(job);}catch(e){this.recordReviewError(job,e);}}}}
-  private feedbackStatus(){return {enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true,actions:this.memory.actions(),limits:{maxPerHour:5,minIntervalSeconds:60},algorithmEffect:"Not guaranteed"};}
+  private feedbackStatus(){return {enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true,actions:this.memory.actions(),localPolicy:this.localFeedbackStatus(),limits:{maxPerHour:5,minIntervalSeconds:60},algorithmEffect:"Not guaranteed"};}
   private async entities(projectId:unknown,selected:string[],excludeRejected=false):Promise<EntityExport>{
     const value=await this.invoke(projectId,"export",["--keys-json",JSON.stringify(selected)]);
     const exported=parseExport(JSON.stringify(value));
@@ -349,7 +395,7 @@ export class SourceScraperProvider {
         return {projectId,records,humanReviewChanged:false};
       }
       case "cycle_status":return this.cycle.snapshot();
-      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");if(!parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local"))throw Error("X_SOURCE_REQUIRED: background feed cycles belong to the X adapter");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000));}
+      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");if(!parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local"))throw Error("X_SOURCE_REQUIRED: background feed cycles belong to the X adapter");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000),this.options.localUIFeedbackEnabled?.()===true);}
       case "feedback_status":return this.feedbackStatus();
       case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
       case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
@@ -383,7 +429,7 @@ export class SourceScraperProvider {
         localAvailability:{workspace:existsSync(this.options.workspacePath),cli:existsSync(this.options.cliPath),node:existsSync(this.options.nodeExecutable)},
         limits:{queryRecords:500,selectedRecords:200,selectionBytes:12000,importBytes:8000000,assessmentBytes:12000},toolNames:this.tools.map(t=>t.name),
         cycle:this.cycle.snapshot(),feedback:{enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true},
-        evaluation:{owner:"User review or optional AI via MCP",backgroundModel:false,whenChatClosed:"Collection continues; users can review resources in the plugin without AI",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence"],xLikeEvidenceFields:["postSuitable"]},
+        evaluation:{owner:"Local rule checks, user review or optional AI via MCP",backgroundModel:false,localPolicy:this.localFeedbackStatus(),whenChatClosed:"Enabled local rule checks and collection continue; no AI is required",recommendedEvidenceFields:["utility","reuse","quality","freeAccess","usableOutput","evidence"],xLikeEvidenceFields:["postSuitable"]},
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},

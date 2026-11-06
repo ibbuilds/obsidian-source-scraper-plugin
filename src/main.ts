@@ -31,6 +31,7 @@ const VIEW_TYPE="source-scraper-view";
 interface Preferences {
   xProviderEnabled:string;
   xLikesEnabled:string;
+  xLocalFeedbackEnabled:string;
   xPythonPath:string;
   mcpEnabled:string;
   mcpProjectsJson:string;
@@ -43,7 +44,7 @@ interface Preferences {
   projectFolder:string;
   noteMappingJson:string;
 }
-const defaults:Preferences={xLikesEnabled:"false",xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+const defaults:Preferences={xLocalFeedbackEnabled:"false",xLikesEnabled:"false",xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
   projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -252,6 +253,7 @@ class DetailModal extends Modal {
     const description=this.entity.attributes.description;
     if(typeof description==="string")paragraph(root,description.slice(0,1500));
     paragraph(root,resourceAccess(this.entity.attributes));
+    const local=this.entity.localResourceCheck;if(local){root.createEl("h4",{text:"Local rule checks"});paragraph(root,local.stale?"Evidence changed or checks expired; waiting for verification.":local.eligible?"Passed the local UI resource rules. This is not an AI recommendation or aesthetic certification.":"Pending verification under the local rules.");const list=root.createEl("ul");for(const reason of local.reasons)list.createEl("li",{text:reason});}
     root.createEl("h4",{text:"Why it appears"});
     const reasons=root.createEl("ul");for(const reason of this.entity.reasons)reasons.createEl("li",{text:reason});
     const original=this.entity.attributes.discoveryText;if(typeof original==="string"&&original.trim()){const excerpt=root.createEl("details",{cls:"ss-source-evidence"});excerpt.createEl("summary",{text:"Original post"});paragraph(excerpt,original);}
@@ -264,7 +266,7 @@ class DetailModal extends Modal {
       url:this.entity.url??null,attributes:this.entity.attributes,
       score:this.entity.score,confidence:this.entity.confidence,
       review:this.entity.review,reasons:this.entity.reasons,
-      provenance:this.entity.provenance??"Not included in this import"
+      provenance:this.entity.provenance??"Not included in this import",localResourceCheck:this.entity.localResourceCheck
     },null,2));
     void this.plugin.showAgentAssessments(this.entity,technical);
     if(!this.plugin.settings.cliPath||!this.plugin.settings.configPath){
@@ -593,6 +595,8 @@ class CycleControlsModal extends Modal {
     const controls=body.createDiv({cls:"ss-cycle-actions"});
     const run=(kind:"start"|"pause"|"stop")=>{void this.plugin.controlCycle(kind,maxPages).catch(notify);};
     const start=action(controls,"Start collection",()=>run("start"),true),pause=action(controls,"Pause",()=>run("pause")),stop=action(controls,"Stop",()=>run("stop"));
+    new Setting(body).setName("UI feedback without AI").setDesc("Check reusable UI resources against local evidence rules. Unsupported or incomplete evidence stays pending. New collections repeat bounded windows after cooldown; Automatic likes is a separate permission.").addToggle(t=>{t.toggleEl.setAttribute("aria-label","UI feedback without AI");t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true").onChange(v=>{void this.plugin.setLocalUIFeedback(v).catch(e=>{t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true");notify(e);});});});
+    const localStatus=body.createEl("p",{attr:{role:"status"}});
     new Setting(body).setName("Automatic likes").setDesc("Separate permission to like evaluated, suitable posts. Up to 5 per hour, at least 60 seconds apart. Never follows, reposts, messages or unlikes.").addToggle(t=>t.setValue(this.plugin.settings.xLikesEnabled==="true").onChange(v=>{void this.plugin.setAutomaticLikes(v).catch(e=>{t.setValue(this.plugin.settings.xLikesEnabled==="true");notify(e);});}));
     const rejected=body.createEl("details");rejected.createEl("summary",{text:"Hidden resources"});const list=rejected.createDiv();
     rejected.addEventListener("toggle",()=>{if(!rejected.open)return;list.empty();for(const row of this.plugin.rejectedResources()){new Setting(list).setName(row.resource).setDesc(row.reason||"Explicitly rejected").addButton(b=>b.setButtonText("Restore").onClick(()=>{void this.plugin.restoreResource(row.resource).then(()=>{b.setDisabled(true);b.setButtonText("Restored");}).catch(notify);}));}if(!list.children.length)paragraph(list,"No hidden resources");});
@@ -602,7 +606,8 @@ class CycleControlsModal extends Modal {
     const update=()=>{const state=this.plugin.cycleStatus(),active=state?.state==="running"||state?.state==="waiting";
       text(status,state?`${state.state.charAt(0).toUpperCase()+state.state.slice(1)} · ${state.pages} pages · ${state.observations} posts read${state.reason?" · "+state.reason:""}`:"Configure a source to start collection");
       text(start.buttonEl,state?.state==="paused"||state?.state==="blocked"?"Resume collection":"Start collection");start.setDisabled(state?.active===true);visible(start.buttonEl,!active);visible(pause.buttonEl,active);visible(stop.buttonEl,Boolean(state&&state.state!=="stopped"));
-      text(log,this.plugin.likeActivity().slice(-30).map(a=>`${a.state} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions");};
+      const local=this.plugin.localUIFeedbackStatus();text(localStatus,local?.enabled?`Local checks: ${local.checked} runs · ${local.eligible} passed · ${local.pending} deferred${local.lastError?" · "+local.lastError:""}`:"Local UI feedback is off. AI assistance remains optional.");
+      text(log,this.plugin.likeActivity().slice(-30).map(a=>`${a.state}${a.origin?" · "+a.origin:""} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions");};
     update();this.timer=window.setInterval(update,1000);labelFields(body);
   }
   onClose(){if(this.timer)window.clearInterval(this.timer);this.contentEl.empty();}
@@ -828,6 +833,8 @@ export default class ScraperPlugin extends Plugin {
       const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
         allowXProvider:this.settings.xProviderEnabled==="true",
         allowXLikes:()=>this.settings.xLikesEnabled==="true",
+        localUIFeedbackEnabled:()=>this.settings.xLocalFeedbackEnabled==="true",
+        activeProjectId:()=>this.registeredProjects().find(p=>p.configPath===this.settings.configPath)?.id,
         xPythonPath:this.settings.xPythonPath,
         getXSession:()=>this.memorySession,
         nodeExecutable:this.settings.nodeExecutable,projects,workspacePath:this.settings.mcpWorkspacePath,
@@ -858,6 +865,8 @@ export default class ScraperPlugin extends Plugin {
   rejectedResources(){return this.provider?.memory.listRejected("user")??[];}
   async restoreResource(url:string){this.provider?.restoreResource(url);this.refresh();}
   async setAutomaticLikes(enabled:boolean){this.settings.xLikesEnabled=String(enabled);await this.savePrefs();await this.provider?.localFeedback(enabled);}
+  localUIFeedbackStatus(){return this.provider?.localFeedbackStatus?.();}
+  async setLocalUIFeedback(enabled:boolean){this.settings.xLocalFeedbackEnabled=String(enabled);await this.savePrefs();if(!enabled)this.provider?.cycle.setContinuous(false);}
   async controlCycle(action:"start"|"pause"|"stop",maxPages=100){
     const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>(p.isX||p.hasX)&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX||p.hasX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
     const value=await this.provider.execute("source_scraper_control_cycle",{projectId,action,maxPages});this.updateStatus();return value;
@@ -886,7 +895,7 @@ export default class ScraperPlugin extends Plugin {
   }
   async detailedResource(entity:EntityRecord):Promise<EntityRecord>{
     if(!this.provider)return entity;const data=await this.provider.inspectResources(entity.projectId,[entity.key]);const detail=data.records[0];if(!detail?.entity)throw Error("Resource evidence is unavailable");
-    return {...detail.entity,review:detail.rejected?"rejected":detail.humanReview?.decision??detail.entity.review,resourceAssessment:detail.resourceAssessment,provenance:{mentions:detail.mentions??[],reviews:detail.reviews??[],assessmentHistory:detail.assessments??[],mentionsTruncated:detail.entity.observationCount>(detail.mentions?.length??0)}};
+    return {...detail.entity,review:detail.rejected?"rejected":detail.humanReview?.decision??detail.entity.review,resourceAssessment:detail.resourceAssessment,localResourceCheck:detail.localResourceCheck,provenance:{mentions:detail.mentions??[],reviews:detail.reviews??[],assessmentHistory:detail.assessments??[],mentionsTruncated:detail.entity.observationCount>(detail.mentions?.length??0)}};
   }
   resourceInboxReady(){const entries=this.registeredProjects();return Boolean(this.provider&&entries.length&&(!this.imported||entries.some(p=>p.id===this.imported!.projectId)));}
   resourceInboxProject(){const id=this.imported?.projectId;return this.registeredProjects().some(p=>p.id===id)?id!:this.panelSnapshot().projectId;}
