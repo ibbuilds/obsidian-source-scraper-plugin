@@ -9,13 +9,14 @@ export interface LocalResourceCheck {
  relatedResources?:string[];
 }
 export interface PublicResourceEvidence {
- version:1;url:string;checkedAt:string;status:"checked"|"pending";reason?:string;retryAfterSeconds?:number;
+ version:1;url:string;checkedAt:string;status:"checked"|"pending";reason?:string;retryAfterSeconds?:number;rateLimited?:boolean;
  repository?:{url:string;name:string;description:string;topics:string[];license:string;openSource:boolean;archived:boolean;disabled:boolean;homepage:string};
  rootEntries?:string[];readme?:string;
  package?:{name:string;description:string;main:string;module:string;exports:boolean;bin:boolean;workspaces:boolean;testScript:string};
  evidence:Array<{url:string;quote:string}>;
 }
 const ui=/\b(?:ui|ux|css|typography|design[ -]tokens?|design[ -]system|user[ -]interface|component[ -]library|ui[ -]components?)\b/i;
+export function hasMixedRepositories(urls:readonly string[]){const repos=new Set<string>();for(const raw of urls){try{const url=new URL(raw);if(url.hostname==="github.com"){const parts=url.pathname.split("/").filter(Boolean);if(parts.length>=2)repos.add(parts.slice(0,2).join("/").replace(/\.git$/i,"").toLowerCase());}}catch{return true;}}return repos.size>1;}
 export function relatedResourceUrl(raw:string,related:readonly string[]){
  try{const url=new URL(raw);if(!["https:","http:"].includes(url.protocol)||url.username||url.password)return false;return related.some(value=>{const base=new URL(value);if(url.hostname!==base.hostname||url.port!==base.port)return false;const path=base.pathname.replace(/\/+$/,"")||"/";return path==="/"||url.pathname.replace(/\/+$/,"")===path||url.pathname.startsWith(path+"/");});}catch{return false;}
 }

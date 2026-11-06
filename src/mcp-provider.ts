@@ -1,7 +1,7 @@
 import {xPostContext,hasXSource} from "./adapter-policy.ts";
 import {ResourceMemory,type Recommendation} from "./resource-memory.ts";
 import {FeedCycle} from "./feed-cycle.ts";
-import {UI_POLICY,UI_TERMS,uiCandidate,checkUiResource,relatedResourceUrl,type PublicResourceEvidence} from "./local-ui-policy.ts";
+import {UI_POLICY,UI_TERMS,uiCandidate,checkUiResource,relatedResourceUrl,hasMixedRepositories,type PublicResourceEvidence} from "./local-ui-policy.ts";
 import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
@@ -32,7 +32,7 @@ export interface ProviderOptions {
 type Job={id:string;requestId:string;signature:string;projectId:string;state:string;startedAt:string;endedAt?:string;result?:unknown;error?:string};
 type Queue={projectId:string;keys:string[]};
 type ResourceRequest={requestId:string;projectId:string;signature:string;input:any;origin:"user-interface"|"user-mcp";result?:any;error?:string;terminal?:boolean};
-type LocalFeedbackState={policy?:string;checked:number;eligible:number;pending:number;nextAt:number;lastError?:string;lastAt?:string;cursor?:{projectId:string;selectionId?:string;offset:number}};
+type LocalFeedbackState={policy?:string;checked:number;eligible:number;pending:number;nextAt:number;publicNextAt?:number;lastError?:string;lastAt?:string;cursor?:{projectId:string;selectionId?:string;offset:number}};
 type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[];resourceRequests?:ResourceRequest[];localFeedback?:LocalFeedbackState};
 const empty=():State=>({version:1,projects:[],jobs:[],queues:[]});
 const string={type:"string",minLength:1,maxLength:4000};
@@ -260,11 +260,11 @@ export class SourceScraperProvider {
     });
   }
   private async feedbackTick(){await this.localFeedbackTick();await this.dispatchFeedback();}
-  localFeedbackStatus(){const s=this.state.localFeedback;return {enabled:this.options.localUIFeedbackEnabled?.()===true,busy:this.localFeedbackBusy,policy:UI_POLICY,modelRequired:false,checked:s?.checked??0,eligible:s?.eligible??0,pending:s?.pending??0,lastAt:s?.lastAt,lastError:s?.lastError,nextAt:s?.nextAt??0,qualityScope:"Verified structural signals; no aesthetic certification",sourceCoverage:"Public repositories and verified official homepages; unsupported resources stay pending"};}
+  localFeedbackStatus(){const s=this.state.localFeedback;return {enabled:this.options.localUIFeedbackEnabled?.()===true,busy:this.localFeedbackBusy,policy:UI_POLICY,modelRequired:false,checked:s?.checked??0,eligible:s?.eligible??0,pending:s?.pending??0,lastAt:s?.lastAt,lastError:s?.lastError,nextAt:s?.nextAt??0,nextPublicProbeAt:s?.publicNextAt??0,qualityScope:"Verified structural signals; no aesthetic certification",sourceCoverage:"Public repositories and verified official homepages; unsupported resources stay pending"};}
   /** Local bounded worker. It owns no human reviews and never calls an AI. */
   async localFeedbackTick(now=Date.now()){
     if(this.closed||!this.options.localUIFeedbackEnabled?.()||this.localFeedbackBusy||this.bridge.running||this.activeJob||this.state.resourceRequests?.some(r=>!r.result&&!r.terminal))return;
-    const state=this.state.localFeedback??={checked:0,eligible:0,pending:0,nextAt:0};if(state.policy!==UI_POLICY)Object.assign(state,{policy:UI_POLICY,checked:0,eligible:0,pending:0,nextAt:0,cursor:undefined,lastError:undefined});if(state.nextAt>now)return;
+    const state=this.state.localFeedback??={checked:0,eligible:0,pending:0,nextAt:0};if(state.policy!==UI_POLICY){const publicNextAt=state.publicNextAt??(/rate|limit|incomplete/i.test(state.lastError??"")?state.nextAt:0);Object.assign(state,{policy:UI_POLICY,checked:0,eligible:0,pending:0,nextAt:0,cursor:undefined,publicNextAt});}if(state.nextAt>now)return;
     this.localFeedbackBusy=true;
     try{
       const projects=this.projects().filter(p=>(!this.options.activeProjectId||this.options.activeProjectId()===p.id)&&parseProjectManifest(readFileSync(this.project(p.id).project.configPath,"utf8")).sources.filter(s=>s.adapter==="x-for-you-local").length===1);
@@ -282,20 +282,23 @@ export class SourceScraperProvider {
         let check=this.memory.localCheck("user",data.entity.url);
         const fresh=!check||check.policy!==UI_POLICY||check.fingerprint!==data.fingerprint||Date.parse(check.expiresAt)<=now;
         if(fresh){
-          const proof=await this.invoke(cursor.projectId,"resource-evidence",["--url",data.entity.url],this.evidenceBridge) as PublicResourceEvidence;
+          const mention=data.mentions?.find((m:any)=>m.active===true&&m.connectionId===context.connectionId&&m.itemId===context.postId&&m.url===context.postUrl),urls=Array.isArray(mention?.resourceUrls)?mention.resourceUrls:undefined;
+          const earlyReason=!urls?.length?"Original source-post links need verification":hasMixedRepositories(urls)?"Original post mixes unrelated repositories; manual review required":undefined;
+          if(!earlyReason&&(state.publicNextAt??0)>now)continue;
+          const proof:PublicResourceEvidence=earlyReason?{version:1,url:data.entity.url,checkedAt:new Date().toISOString(),status:"pending",reason:earlyReason,evidence:[],retryAfterSeconds:3600}:await this.invoke(cursor.projectId,"resource-evidence",["--url",data.entity.url],this.evidenceBridge) as PublicResourceEvidence;
           if(proof?.version!==1||proof.url!==data.entity.url||!Array.isArray(proof.evidence))throw Error("INVALID_PUBLIC_RESOURCE_EVIDENCE");
           if(!this.engineCapabilities.includes("public-resource-evidence-v1"))throw Error("LOCAL_FEEDBACK_ENGINE_UPDATE_REQUIRED");
           if(this.closed||!this.options.localUIFeedbackEnabled?.())return;
           const current=(await this.inspectResources(cursor.projectId,[data.entity.key])).records[0];
           if(current.fingerprint!==data.fingerprint){state.nextAt=now+10000;this.persist();return;}
-          const mention=data.mentions?.find((m:any)=>m.active===true&&m.connectionId===context.connectionId&&m.itemId===context.postId&&m.url===context.postUrl);
-          check=this.memory.recordLocalCheck("user",data.entity.url,checkUiResource(data.entity,data.fingerprint,proof,now,Array.isArray(mention?.resourceUrls)?mention.resourceUrls:undefined));
-          state.checked++;if(check.eligible)state.eligible++;else state.pending++;state.lastAt=new Date().toISOString();state.lastError=proof.reason;state.nextAt=now+(proof.retryAfterSeconds??10)*1000;
+          check=this.memory.recordLocalCheck("user",data.entity.url,checkUiResource(data.entity,data.fingerprint,proof,now,urls));
+          if(!earlyReason&&proof.rateLimited&&proof.retryAfterSeconds)state.publicNextAt=now+proof.retryAfterSeconds*1000;
+          state.checked++;if(check.eligible)state.eligible++;else state.pending++;state.lastAt=new Date().toISOString();if(!earlyReason||!(state.publicNextAt&&state.publicNextAt>now))state.lastError=proof.reason;state.nextAt=now+10000;
         }
         if(this.memory.localEligible("user",data.entity.url,data.fingerprint)&&!this.memory.hasAction(context.accountId,context.postId))this.queueResourcePost(cursor.projectId,data.entity.key,data,context.postId,"local-policy");
         if(fresh){cursor.offset+=index+1;this.persist();return;}
       }
-      cursor.offset+=page.records.length;state.nextAt=now+10000;state.lastError=undefined;this.persist();
+      cursor.offset+=page.records.length;state.nextAt=now+10000;if(!(state.publicNextAt&&state.publicNextAt>now))state.lastError=undefined;this.persist();
     }catch(error){if(!this.closed){const message=error instanceof Error?error.message:"Local verification failed";if(/SELECTION_CHANGED|SELECTION_EXPIRED/.test(message))state.cursor=undefined;state.lastError=message.slice(0,240);state.nextAt=now+(/BUSY|Another Source Scraper command/.test(message)?10000:60000);this.persist();}}
     finally{this.localFeedbackBusy=false;}
   }

@@ -52,6 +52,11 @@ old preflight refusal may be retired only if no mutation was ever attempted and
 fresh whole-post evidence passes the new policy. Confirmed or uncertain actions
 are never reopened or blindly repeated.
 
+Mixed-repository posts are deferred before any public API request. Public-source
+rate limits pause new network probes while local post checks and cached records
+remain usable. Missing individual pages defer only that resource, not the whole
+queue. The worker preserves source cooldowns across policy upgrades.
+
 ## Daily use
 
 Open Source Scraper in the status bar. Find resources starts a bounded cycle for
