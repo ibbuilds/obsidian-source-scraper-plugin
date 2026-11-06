@@ -23,7 +23,7 @@ export class CliBridge {
   cancel():void{this.controller?.abort();}
   private async command(config:CliConfig,command:string,args:string[],timeout=90000,input?:string):Promise<unknown>{
     if(this.running)throw new Error("Another Source Scraper command is running");
-    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress","resource-batch"]);
+    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress","resource-batch","resource-evidence"]);
     if(!cmd.has(command))throw new Error("Command not allowed");
     const script=realpathSync(config.cliPath);
     const node=config.nodeExecutable.trim()||"node";
@@ -116,7 +116,7 @@ export class CliBridge {
     return this.command(config,"resource-batch",["--config",config.configPath],120000,raw);
   }
   /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
-  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review",args:string[]=[]):Promise<unknown>{
+  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review"|"resource-evidence",args:string[]=[]):Promise<unknown>{
     return this.command(config,command,args,120000);
   }
   async checkVersion(config:CliConfig):Promise<string>{

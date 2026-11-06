@@ -11,3 +11,9 @@ test("stop and immediate restart cannot mix an in-flight batch into a new cycle"
  const cycle=new FeedCycle(join(root,"cycle.json"),async()=>{await new Promise<void>(r=>{release=r;});return {pages:2,observations:8,duplicates:0,endReason:"work-limit"};},()=>{});
  try{cycle.start("feed",10);const id=cycle.snapshot().cycleId;cycle.stop();assert.throws(()=>cycle.start("feed",10),/CYCLE_BUSY/);assert.equal(cycle.snapshot().cycleId,id);release();await settle();assert.equal(cycle.snapshot().state,"stopped");assert.equal(cycle.snapshot().pages,2);cycle.start("feed",10);assert.notEqual(cycle.snapshot().cycleId,id);release();await settle();assert.equal(cycle.snapshot().pages,2);}finally{release?.();cycle.dispose();rmSync(root,{recursive:true,force:true});}
 });
+
+test("explicit continuous mode repeats bounded windows after cooldown and still honors pause/stop",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-continuous-"));let calls=0;
+ const cycle=new FeedCycle(join(root,"cycle.json"),async state=>{calls++;return {pages:state.pagesPerBatch,observations:2,duplicates:0,endReason:"work-limit"};},()=>{});
+ try{cycle.start("feed",1,true);await settle();await cycle.tick(Date.now()+10000);const waiting=cycle.snapshot();assert.equal(waiting.state,"waiting");assert.equal(waiting.pages,1);assert.equal(waiting.budgetStartPages,1);await cycle.tick(waiting.nextAt-1);assert.equal(calls,1);await cycle.tick(waiting.nextAt+1);assert.equal(calls,2);await cycle.tick(waiting.nextAt+20000);assert.equal(cycle.snapshot().state,"waiting");cycle.setContinuous(false);assert.equal(cycle.snapshot().state,"paused");await cycle.tick(waiting.nextAt+999999);assert.equal(calls,2);cycle.pause();cycle.stop();assert.equal(cycle.snapshot().continuous,false);}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});

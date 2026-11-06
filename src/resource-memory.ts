@@ -1,6 +1,7 @@
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from "node:fs";
 import {dirname} from "node:path";
 import {randomUUID} from "node:crypto";
+import {LOCAL_CHECKS,UI_POLICY,type LocalResourceCheck} from "./local-ui-policy.ts";
 
 export function resourceIdentity(raw:string):string{
   const u=new URL(raw);
@@ -13,11 +14,11 @@ export function resourceIdentity(raw:string):string{
 export type Recommendation={decision:"recommended"|"pending"|"discarded";fingerprint:string;
   utility:string;reuse:string;quality:string;freeAccess:string;usableOutput:string;unknowns:string[];
   evidence:Array<{url:string;quote:string}>;postSuitable:boolean;at:string};
-export type FeedbackAction={id:string;scope:string;resource:string;projectId:string;key:string;accountId:string;postId:string;postUrl:string;postTextHash:string;directUrl?:string;fingerprint:string;
+export type FeedbackAction={id:string;scope:string;resource:string;projectId:string;key:string;accountId:string;postId:string;postUrl:string;postTextHash:string;directUrl?:string;fingerprint:string;origin?:"local-policy";
   state:"pending"|"in-progress"|"confirmed"|"failed"|"uncertain"|"cancelled";requestedAt:string;updatedAt:string;error?:string;attempts:number};
 export type HumanReview={decision:"pending"|"approved"|"rejected";reason:string;fingerprint:string;postSuitable:boolean;verifiedUsefulFreeAndQuality:boolean;at:string;origin:"user-interface"|"user-mcp"};
 type Rejection={scope:string;resource:string;reason:string;at:string;origin:string;active:boolean};
-type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];assessments:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean};
+type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];assessments:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean;localChecks?:Record<string,LocalResourceCheck>};
 /** One provider owns this ledger. Scope is the authenticated account, shared across projects. */
 export class ResourceMemory{
   private data:State;
@@ -77,9 +78,20 @@ export class ResourceMemory{
     this.save();return record;
   }
   humanReview(scope:string,url:string){return this.data.humanReviews[scope+"|"+this.identity(scope,url)];}
-  private canLike(scope:string,resource:string,fingerprint:string){
-    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource);
-    return Boolean(human?.decision==="approved"&&human.postSuitable&&human.verifiedUsefulFreeAndQuality&&human.fingerprint===fingerprint)||Boolean(assessment?.decision==="recommended"&&assessment.postSuitable&&assessment.fingerprint===fingerprint);
+  private canLike(scope:string,resource:string,fingerprint:string,origin?:"local-policy"){
+    if(origin==="local-policy")return this.localEligible(scope,resource,fingerprint);
+    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource),local=this.localCheck(scope,resource);
+    return Boolean(human?.decision==="approved"&&human.postSuitable&&human.verifiedUsefulFreeAndQuality&&human.fingerprint===fingerprint)||Boolean(assessment?.decision==="recommended"&&assessment.postSuitable&&assessment.fingerprint===fingerprint)||Boolean(local?.eligible&&local.postSuitable&&local.fingerprint===fingerprint&&Date.parse(local.expiresAt)>Date.now()&&!local.relatedResources?.some(url=>this.rejected(scope,url)));
+  }
+  localCheck(scope:string,url:string){return this.data.localChecks?.[scope+"|"+this.identity(scope,url)];}
+  localEligible(scope:string,url:string,fingerprint?:string){const check=this.localCheck(scope,url);return Boolean(check?.eligible&&check.postSuitable&&(!fingerprint||check.fingerprint===fingerprint)&&Date.parse(check.expiresAt)>Date.now()&&!this.rejected(scope,url)&&!check.relatedResources?.some(related=>this.rejected(scope,related)));}
+  recordLocalCheck(scope:string,url:string,input:LocalResourceCheck){
+    if(typeof input.eligible!=="boolean"||typeof input.postSuitable!=="boolean"||input.reasons?.length>20)throw Error("INVALID_LOCAL_RESOURCE_CHECK");
+    if(input.policy!==UI_POLICY||!/^[a-f0-9]{64}$/.test(input.fingerprint)||!Number.isFinite(Date.parse(input.expiresAt))||Date.parse(input.expiresAt)>Date.now()+86400000+1000||!Array.isArray(input.evidence)||input.evidence.length>12||input.evidence.some(e=>typeof e.quote!=="string"||e.quote.length>4000)||!Array.isArray(input.reasons)||input.reasons.some(r=>typeof r!=="string"||r.length>2000)||LOCAL_CHECKS.some(k=>typeof input.checks?.[k]!=="boolean")||input.eligible&&(!LOCAL_CHECKS.every(k=>input.checks[k])||!input.postSuitable||!input.evidence.length))throw Error("INVALID_LOCAL_RESOURCE_CHECK");
+    for(const e of input.evidence)resourceIdentity(e.url);if(input.relatedResources&&(!Array.isArray(input.relatedResources)||input.relatedResources.length>4))throw Error("INVALID_LOCAL_RESOURCE_CHECK");for(const url of input.relatedResources??[])resourceIdentity(url);
+    this.data.localChecks??={};const resource=this.identity(scope,url),record=structuredClone(input);this.data.localChecks[scope+"|"+resource]=record;
+    for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.origin==="local-policy"&&a.state==="pending"&&(!record.eligible||record.fingerprint!==a.fingerprint))a.state="cancelled";
+    this.data.history.push({kind:"local-resource-check",scope,resource,record});this.save();return record;
   }
   assessment(scope:string,url:string){return this.data.assessments[scope+"|"+this.identity(scope,url)];}
   get enabled(){return !this.closed&&this.data.feedbackEnabled;}
@@ -87,13 +99,14 @@ export class ResourceMemory{
   queue(scope:string,details:Omit<FeedbackAction,"scope"|"id"|"state"|"requestedAt"|"updatedAt"|"attempts">){
     const resource=this.identity(scope,details.resource);
     if(this.rejected(scope,resource))throw Error("RESOURCE_REJECTED");
-    if(!this.canLike(scope,resource,details.fingerprint))throw Error("RESOURCE_NOT_EVALUATED");
+    if(!this.canLike(scope,resource,details.fingerprint,details.origin))throw Error("RESOURCE_NOT_EVALUATED");
     if(!/^[a-f0-9]{64}$/.test(details.postTextHash))throw Error("POST_SNAPSHOT_REQUIRED");
     if(!/^\d{1,30}$/.test(details.postId)||!/^\d{1,30}$/.test(details.accountId)||!new RegExp("^https://x\\.com/[A-Za-z0-9_]{1,15}/status/"+details.postId+"$").test(details.postUrl))throw Error("INVALID_POST_IDENTITY");
     const prior=this.data.actions.find(a=>a.accountId===details.accountId&&a.postId===details.postId&&a.state!=="cancelled");if(prior){if(prior.state==="pending"&&prior.attempts===0){this.data.history.push({kind:"action-refreshed",previous:structuredClone(prior),at:new Date().toISOString()});Object.assign(prior,details,{resource,scope,updatedAt:new Date().toISOString()});this.save();}return prior;}
     const at=new Date().toISOString(),a:FeedbackAction={...details,resource,scope,id:randomUUID(),state:"pending",requestedAt:at,updatedAt:at,attempts:0};this.data.actions.push(a);this.save();return a;
   }
   actions(scope?:string){return structuredClone(this.data.actions.filter(a=>!scope||a.scope===scope));}
+  hasAction(accountId:string,postId:string){return this.data.actions.some(a=>a.accountId===accountId&&a.postId===postId&&a.state!=="cancelled");}
   async dispatch(io:{verify:(a:FeedbackAction)=>Promise<boolean>;send:(a:FeedbackAction)=>Promise<void>;stillValid:(a:FeedbackAction)=>Promise<boolean>},now=Date.now()){
     if(this.busy||!this.enabled)return;this.busy=true;
     try{
@@ -101,11 +114,11 @@ export class ResourceMemory{
       if(recent.length>=5||recent.some(a=>Date.parse(a.updatedAt)>now-60000))return;
       const a=this.data.actions.find(a=>["pending","uncertain"].includes(a.state));if(!a)return;
       try{
-      if(!this.canLike(a.scope,a.resource,a.fingerprint)||this.rejected(a.scope,a.resource)||!(await io.stillValid(a))){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
+      if(!this.canLike(a.scope,a.resource,a.fingerprint,a.origin)||this.rejected(a.scope,a.resource)||!(await io.stillValid(a))){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
         if(await io.verify(a)){a.state="confirmed";a.updatedAt=new Date(now).toISOString();this.save();return;}
         if(a.state==="uncertain"){a.error="Still unconfirmed; manual reconciliation required";this.save();return;}
         // Reviews and assessments can change while X's preflight is awaiting I/O.
-        if(a.state!=="pending"||!this.canLike(a.scope,a.resource,a.fingerprint)||this.rejected(a.scope,a.resource)){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
+        if(a.state!=="pending"||!this.canLike(a.scope,a.resource,a.fingerprint,a.origin)||this.rejected(a.scope,a.resource)){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
         if(!this.enabled)return;
         a.state="in-progress";a.attempts++;a.updatedAt=new Date(now).toISOString();this.save();
         await io.send(a);a.state=(await io.verify(a))?"confirmed":"uncertain";a.updatedAt=new Date(now).toISOString();this.save();
