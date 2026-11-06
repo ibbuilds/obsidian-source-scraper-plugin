@@ -71,7 +71,7 @@ Expired page selections refresh and discard stale checked rows. Failed queries
 offer Retry loading without closing the library.
 
 The optional locally enabled UI feedback worker requires
-`public-resource-evidence-v1`. It runs without MCP or AI and reports its own
+`public-resource-evidence-v1` and `x-post-resource-urls-v1`. It runs without MCP or AI and reports its own
 status through capabilities and feedback_status. Remote tools cannot enable
 that local policy or its separate like permission. Local checks, human reviews
 and AI recommendations remain different records. No tool name was removed.

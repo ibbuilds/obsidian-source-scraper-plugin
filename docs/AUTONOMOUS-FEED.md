@@ -18,7 +18,7 @@ page windows after a ten-minute cooldown. Pause and Stop still take precedence;
 disabling the policy disables continuous renewal. Obsidian and the computer must
 stay open. No model is downloaded or called.
 
-The ui-resources-v1 policy requires every gate: explicit UI focus, a reusable
+The ui-resources-v2 policy requires every gate: explicit UI focus, a reusable
 package/skill/tool output, recognized open-source access, documented usage,
 declared automated tests with retained test/package structure, examples, an
 active repository and an eligible source post. It reads public GitHub facts,
@@ -38,10 +38,19 @@ runs, not unique high-quality resources.
 
 Local decisions remain separate from AI assessments and human choices. Rejections
 of the resource or its verified related homepage/repository prevent local
-feedback. Dispatch rechecks current evidence and preferences; posts exposing
-additional distinct links require manual review. Confirmed account/post actions
+feedback. The retained original X mention must expose only the checked resource
+or its verified official website/repository links. Mixed lists of unrelated
+resources remain pending before entering the queue, even if one entry passes.
+Missing legacy post-link evidence also stays pending. Dispatch rechecks the
+current live links against that same rule. Confirmed account/post actions
 remain deduplicated. The existing five-attempts/hour and 60-second spacing still
 apply. X credentials never reach public probes. AI assistance is optional.
+
+Policy upgrades invalidate old local eligibility and reset the policy-run
+counters, while preserving the audit history and all human/AI records. A known
+old preflight refusal may be retired only if no mutation was ever attempted and
+fresh whole-post evidence passes the new policy. Confirmed or uncertain actions
+are never reopened or blindly repeated.
 
 ## Daily use
 
