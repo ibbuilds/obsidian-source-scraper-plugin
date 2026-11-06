@@ -80,16 +80,17 @@ export class ResourceMemory{
   humanReview(scope:string,url:string){return this.data.humanReviews[scope+"|"+this.identity(scope,url)];}
   private canLike(scope:string,resource:string,fingerprint:string,origin?:"local-policy"){
     if(origin==="local-policy")return this.localEligible(scope,resource,fingerprint);
-    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource),local=this.localCheck(scope,resource);
-    return Boolean(human?.decision==="approved"&&human.postSuitable&&human.verifiedUsefulFreeAndQuality&&human.fingerprint===fingerprint)||Boolean(assessment?.decision==="recommended"&&assessment.postSuitable&&assessment.fingerprint===fingerprint)||Boolean(local?.eligible&&local.postSuitable&&local.fingerprint===fingerprint&&Date.parse(local.expiresAt)>Date.now()&&!local.relatedResources?.some(url=>this.rejected(scope,url)));
+    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource);
+    return Boolean(human?.decision==="approved"&&human.postSuitable&&human.verifiedUsefulFreeAndQuality&&human.fingerprint===fingerprint)||Boolean(assessment?.decision==="recommended"&&assessment.postSuitable&&assessment.fingerprint===fingerprint)||this.localEligible(scope,resource,fingerprint);
   }
   localCheck(scope:string,url:string){return this.data.localChecks?.[scope+"|"+this.identity(scope,url)];}
-  localEligible(scope:string,url:string,fingerprint?:string){const check=this.localCheck(scope,url);return Boolean(check?.eligible&&check.postSuitable&&(!fingerprint||check.fingerprint===fingerprint)&&Date.parse(check.expiresAt)>Date.now()&&!this.rejected(scope,url)&&!check.relatedResources?.some(related=>this.rejected(scope,related)));}
+  localEligible(scope:string,url:string,fingerprint?:string){const check=this.localCheck(scope,url);return Boolean(check?.policy===UI_POLICY&&check.eligible&&check.postSuitable&&(!fingerprint||check.fingerprint===fingerprint)&&Date.parse(check.expiresAt)>Date.now()&&!this.rejected(scope,url)&&!check.relatedResources?.some(related=>this.rejected(scope,related)));}
   recordLocalCheck(scope:string,url:string,input:LocalResourceCheck){
     if(typeof input.eligible!=="boolean"||typeof input.postSuitable!=="boolean"||input.reasons?.length>20)throw Error("INVALID_LOCAL_RESOURCE_CHECK");
     if(input.policy!==UI_POLICY||!/^[a-f0-9]{64}$/.test(input.fingerprint)||!Number.isFinite(Date.parse(input.expiresAt))||Date.parse(input.expiresAt)>Date.now()+86400000+1000||!Array.isArray(input.evidence)||input.evidence.length>12||input.evidence.some(e=>typeof e.quote!=="string"||e.quote.length>4000)||!Array.isArray(input.reasons)||input.reasons.some(r=>typeof r!=="string"||r.length>2000)||LOCAL_CHECKS.some(k=>typeof input.checks?.[k]!=="boolean")||input.eligible&&(!LOCAL_CHECKS.every(k=>input.checks[k])||!input.postSuitable||!input.evidence.length))throw Error("INVALID_LOCAL_RESOURCE_CHECK");
     for(const e of input.evidence)resourceIdentity(e.url);if(input.relatedResources&&(!Array.isArray(input.relatedResources)||input.relatedResources.length>4))throw Error("INVALID_LOCAL_RESOURCE_CHECK");for(const url of input.relatedResources??[])resourceIdentity(url);
-    this.data.localChecks??={};const resource=this.identity(scope,url),record=structuredClone(input);this.data.localChecks[scope+"|"+resource]=record;
+    this.data.localChecks??={};const resource=this.identity(scope,url),record=structuredClone(input),previous=this.data.localChecks[scope+"|"+resource];this.data.localChecks[scope+"|"+resource]=record;
+    if(record.eligible&&String(previous?.policy)==="ui-resources-v1")for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.origin==="local-policy"&&a.state==="failed"&&a.attempts===0&&a.error==="X_POST_ADDITIONAL_LINKS_NEED_REVIEW"){a.state="cancelled";this.data.history.push({kind:"retired-unsent-policy-preflight",actionId:a.id,at:new Date().toISOString()});}
     for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.origin==="local-policy"&&a.state==="pending"&&(!record.eligible||record.fingerprint!==a.fingerprint))a.state="cancelled";
     this.data.history.push({kind:"local-resource-check",scope,resource,record});this.save();return record;
   }

@@ -7,5 +7,5 @@ export function xPostContext(project:ProjectManifest,entity:{attributes:Record<s
  const match=typeof postUrl==="string"?/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/(\d+)$/.exec(postUrl):null;
  if(!match||requestedPostId!==undefined&&requestedPostId!==match[1])return undefined;
  const source=project.sources.find(source=>source.adapter==="x-for-you-local"&&typeof source.config.accountId==="string"&&/^\d{1,30}$/.test(source.config.accountId)&&mentions.some(m=>m.active===true&&m.connectionId===source.id&&m.itemId===match[1]&&m.url===postUrl));
- return source?{postId:match[1],postUrl:postUrl as string,accountId:source.config.accountId as string}:undefined;
+ return source?{postId:match[1],postUrl:postUrl as string,accountId:source.config.accountId as string,connectionId:source.id}:undefined;
 }
