@@ -14,7 +14,7 @@ The repository retains its original plugin identity, `source-scraper`. This bran
 - A locally enabled provider exposing 26 namespaced tools through the existing Vault as MCP server and existing tunnel.
 - Registered projects, bounded jobs/status/cancel, paginated findings, evidence fingerprints, separate agent assessments, persistent staged references and read-only Markdown previews.
 - Source-independent project JSON inspection and note mapping. Remote project creation is limited to the external registered workspace.
-- Optional local UI feedback without AI: bounded continuous X windows, public resource evidence, separate local check records and guarded likes. Structural policy checks do not certify aesthetics; unsupported evidence stays pending. See [background feedback](docs/AUTONOMOUS-FEED.md).
+- Optional user-configured feedback without AI: private per-project topics and evidence requirements, bounded continuous X windows, separate local check records and guarded likes. No built-in topic or default profile; unsupported evidence stays pending. See [background feedback](docs/AUTONOMOUS-FEED.md).
 
 There is no save-notes tool, write-permission toggle or create-notes button. Historical writer helpers are retained for compatibility tests but are not imported into the active plugin UI/provider bundle. The old embedded `x-feed-scraper` plugin and its data are not migrated or removed.
 

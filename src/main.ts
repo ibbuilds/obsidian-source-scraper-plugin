@@ -26,12 +26,14 @@ import {join} from "node:path";
 import {existsSync,readFileSync,statSync} from "node:fs";
 import {GENERIC_TEMPLATE,parseProjectManifest} from "./project-manifest.ts";
 import {DEFAULT_NOTE_MAPPING_JSON,parseNoteMapping} from "./note-mapping.ts";
+import {OPTIONAL_CHECKS,parseFeedbackProfile,parseFeedbackProfiles,type FeedbackProfile} from "./feedback-policy.ts";
 
 const VIEW_TYPE="source-scraper-view";
 interface Preferences {
   xProviderEnabled:string;
   xLikesEnabled:string;
   xLocalFeedbackEnabled:string;
+  xFeedbackProfilesJson:string;
   xPythonPath:string;
   mcpEnabled:string;
   mcpProjectsJson:string;
@@ -44,7 +46,7 @@ interface Preferences {
   projectFolder:string;
   noteMappingJson:string;
 }
-const defaults:Preferences={xLocalFeedbackEnabled:"false",xLikesEnabled:"false",xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
+const defaults:Preferences={xFeedbackProfilesJson:"{}",xLocalFeedbackEnabled:"false",xLikesEnabled:"false",xProviderEnabled:"false",xPythonPath:"",mcpEnabled:"false",mcpProjectsJson:"[]",mcpCliHash:"",mcpWorkspacePath:"",outputFolder:"",cliPath:"",configPath:"",nodeExecutable:"node",
   projectFolder:"",noteMappingJson:DEFAULT_NOTE_MAPPING_JSON};
 function errorMessage(error:unknown):string {
   const message=error instanceof Error?error.message:String(error);
@@ -584,6 +586,31 @@ class ScraperReview {
     action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
   }
 }
+class FeedbackCriteriaModal extends Modal {
+  constructor(app:Plugin["app"],private plugin:ScraperPlugin,private projectId:string){super(app);}
+  onOpen(){
+    const {body,footer}=dialog(this,"Feedback criteria");this.modalEl.addClass("ss-feedback-criteria");
+    paragraph(body,"These preferences belong to this project on your computer. No topics are supplied by Source Scraper. Likes always require verified original links and the separate Automatic likes permission.");
+    const saved=this.plugin.feedbackProfile(this.projectId),draft:FeedbackProfile=saved?structuredClone(saved):{version:1,includeTerms:[],reuseTerms:[],excludeTerms:[],blockedPostTerms:[],requiredChecks:[]};
+    const fields:Array<["includeTerms"|"reuseTerms"|"excludeTerms"|"blockedPostTerms",string,string]>=[
+      ["includeTerms","Topic keywords","Comma-separated words or phrases. Blank explicitly allows any topic."],
+      ["reuseTerms","Reusable output keywords","Optional words or phrases the repository must mention when reusable output is required."],
+      ["excludeTerms","Excluded keywords","Skip resources matching any of these words or phrases."],
+      ["blockedPostTerms","Excluded post keywords","Keep posts with these words or phrases pending."]
+    ];
+    for(const [key,label,help] of fields)new Setting(body).setName(label).setDesc(help).addTextArea(t=>{t.inputEl.setAttribute("aria-label",label);t.setValue(draft[key].join(", ")).onChange(v=>{draft[key]=v.split(",").map(s=>s.trim()).filter(Boolean);});});
+    const names:Record<typeof OPTIONAL_CHECKS[number],string>={reusableOutput:"Reusable source output",freeAccess:"Recognized open-source license",documentation:"Usage documentation",automatedChecks:"Declared package test suite and test structure",examples:"Published examples",activeSource:"Active repository"};
+    paragraph(body,"Required evidence. Choose what matters for this project; these checks do not certify aesthetics or execute upstream tests.");
+    for(const key of OPTIONAL_CHECKS)new Setting(body).setName(names[key]).addToggle(t=>t.setValue(draft.requiredChecks.includes(key)).onChange(v=>{draft.requiredChecks=v?[...draft.requiredChecks,key]:draft.requiredChecks.filter(k=>k!==key);}));
+    const status=formStatus(footer);let busy=false;
+    const save=(profile?:FeedbackProfile)=>{if(busy)return;busy=true;void this.plugin.saveFeedbackProfile(this.projectId,profile).then(()=>this.close()).catch(e=>{busy=false;status.setText(errorMessage(e));});};
+    action(footer,"Cancel",()=>this.close());
+    if(saved)action(footer,"Remove criteria",()=>save());
+    action(footer,"Save criteria",()=>{try{save(parseFeedbackProfile(draft));}catch(e){status.setText(errorMessage(e));}},true);
+    labelFields(body);
+  }
+  onClose(){this.contentEl.empty();}
+}
 class CycleControlsModal extends Modal {
   private timer?:number;
   constructor(app:Plugin["app"],private plugin:ScraperPlugin){super(app);}
@@ -595,7 +622,8 @@ class CycleControlsModal extends Modal {
     const controls=body.createDiv({cls:"ss-cycle-actions"});
     const run=(kind:"start"|"pause"|"stop")=>{void this.plugin.controlCycle(kind,maxPages).catch(notify);};
     const start=action(controls,"Start collection",()=>run("start"),true),pause=action(controls,"Pause",()=>run("pause")),stop=action(controls,"Stop",()=>run("stop"));
-    new Setting(body).setName("UI feedback without AI").setDesc("Check reusable UI resources against local evidence rules. Unsupported or incomplete evidence stays pending. New collections repeat bounded windows after cooldown; Automatic likes is a separate permission.").addToggle(t=>{t.toggleEl.setAttribute("aria-label","UI feedback without AI");t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true").onChange(v=>{void this.plugin.setLocalUIFeedback(v).catch(e=>{t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true");notify(e);});});});
+    new Setting(body).setName("Automatic resource checks").setDesc("Apply your saved criteria for the selected project without AI. Unknown evidence stays pending. Automatic likes is a separate permission.").addToggle(t=>{t.toggleEl.setAttribute("aria-label","Automatic resource checks");t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true").onChange(v=>{void this.plugin.setLocalFeedback(v).catch(e=>{t.setValue(this.plugin.settings.xLocalFeedbackEnabled==="true");notify(e);});});});
+    new Setting(body).setName("Feedback criteria").setDesc("Choose topics and requirements for this project. No topic is built in.").addButton(b=>b.setButtonText("Edit criteria").onClick(()=>{try{new FeedbackCriteriaModal(this.app,this.plugin,this.plugin.feedbackProjectId()).open();}catch(e){notify(e);}}));
     const localStatus=body.createEl("p",{attr:{role:"status"}});
     new Setting(body).setName("Automatic likes").setDesc("Separate permission to like evaluated, suitable posts. Up to 5 per hour, at least 60 seconds apart. Never follows, reposts, messages or unlikes.").addToggle(t=>t.setValue(this.plugin.settings.xLikesEnabled==="true").onChange(v=>{void this.plugin.setAutomaticLikes(v).catch(e=>{t.setValue(this.plugin.settings.xLikesEnabled==="true");notify(e);});}));
     const rejected=body.createEl("details");rejected.createEl("summary",{text:"Hidden resources"});const list=rejected.createDiv();
@@ -606,7 +634,7 @@ class CycleControlsModal extends Modal {
     const update=()=>{const state=this.plugin.cycleStatus(),active=state?.state==="running"||state?.state==="waiting";
       text(status,state?`${state.state.charAt(0).toUpperCase()+state.state.slice(1)} · ${state.pages} pages · ${state.observations} posts read${state.reason?" · "+state.reason:""}`:"Configure a source to start collection");
       text(start.buttonEl,state?.state==="paused"||state?.state==="blocked"?"Resume collection":"Start collection");start.setDisabled(state?.active===true);visible(start.buttonEl,!active);visible(pause.buttonEl,active);visible(stop.buttonEl,Boolean(state&&state.state!=="stopped"));
-      const local=this.plugin.localUIFeedbackStatus();text(localStatus,local?.enabled?`Local checks: ${local.checked} runs · ${local.eligible} passed · ${local.pending} deferred${local.lastError?" · "+local.lastError:""}`:"Local UI feedback is off. AI assistance remains optional.");
+      const local=this.plugin.localFeedbackStatus();text(localStatus,local?.enabled?(local.configured===false?"Configure feedback criteria for this project.":`Local checks: ${local.checked} runs · ${local.eligible} passed · ${local.pending} deferred${local.lastError?" · "+local.lastError:""}`):"Automatic resource checks are off. AI assistance remains optional.");
       text(log,this.plugin.likeActivity().slice(-30).map(a=>`${a.state}${a.origin?" · "+a.origin:""} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions");};
     update();this.timer=window.setInterval(update,1000);labelFields(body);
   }
@@ -833,7 +861,8 @@ export default class ScraperPlugin extends Plugin {
       const provider=new SourceScraperProvider({cliPath:this.settings.cliPath,cliHash:this.settings.mcpCliHash,
         allowXProvider:this.settings.xProviderEnabled==="true",
         allowXLikes:()=>this.settings.xLikesEnabled==="true",
-        localUIFeedbackEnabled:()=>this.settings.xLocalFeedbackEnabled==="true",
+        localFeedbackEnabled:()=>this.settings.xLocalFeedbackEnabled==="true",
+        feedbackProfile:projectId=>this.feedbackProfile(projectId),
         activeProjectId:()=>this.registeredProjects().find(p=>p.configPath===this.settings.configPath)?.id,
         xPythonPath:this.settings.xPythonPath,
         getXSession:()=>this.memorySession,
@@ -865,8 +894,11 @@ export default class ScraperPlugin extends Plugin {
   rejectedResources(){return this.provider?.memory.listRejected("user")??[];}
   async restoreResource(url:string){this.provider?.restoreResource(url);this.refresh();}
   async setAutomaticLikes(enabled:boolean){this.settings.xLikesEnabled=String(enabled);await this.savePrefs();await this.provider?.localFeedback(enabled);}
-  localUIFeedbackStatus(){return this.provider?.localFeedbackStatus?.();}
-  async setLocalUIFeedback(enabled:boolean){this.settings.xLocalFeedbackEnabled=String(enabled);await this.savePrefs();if(!enabled)this.provider?.cycle.setContinuous(false);}
+  feedbackProjectId(){const id=this.panelSnapshot().projectId;if(!id||!this.registeredProjects().some(p=>p.id===id))throw Error("Select a registered X project first.");return id;}
+  feedbackProfile(projectId:string){return parseFeedbackProfiles(this.settings.xFeedbackProfilesJson)[projectId];}
+  async saveFeedbackProfile(projectId:string,profile?:FeedbackProfile){const profiles=parseFeedbackProfiles(this.settings.xFeedbackProfilesJson);if(profile)profiles[projectId]=parseFeedbackProfile(profile);else delete profiles[projectId];const previous=this.settings.xFeedbackProfilesJson;this.settings.xFeedbackProfilesJson=JSON.stringify(profiles);try{await this.savePrefs();}catch(e){this.settings.xFeedbackProfilesJson=previous;throw e;}}
+  localFeedbackStatus(){return this.provider?.localFeedbackStatus?.();}
+  async setLocalFeedback(enabled:boolean){if(enabled&&!this.feedbackProfile(this.feedbackProjectId()))throw Error("Save feedback criteria for this project first.");this.settings.xLocalFeedbackEnabled=String(enabled);await this.savePrefs();if(!enabled)this.provider?.cycle.setContinuous(false);}
   async controlCycle(action:"start"|"pause"|"stop",maxPages=100){
     const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>(p.isX||p.hasX)&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX||p.hasX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
     const value=await this.provider.execute("source_scraper_control_cycle",{projectId,action,maxPages});this.updateStatus();return value;

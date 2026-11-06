@@ -86,8 +86,10 @@ Background cycles, persistent rejections and the separate like permission are
 documented in [AUTONOMOUS-FEED](AUTONOMOUS-FEED.md). Review resources directly in the plugin, or use a compatible AI through MCP.
 MCP access is optional; no additional model is installed.
 
-For local automatic feedback, enable **UI feedback without AI** under
-**Collection and feedback**, then separately enable **Automatic likes** if you
+For local automatic feedback, first save your own topics and required evidence in
+**Collection and feedback > Feedback criteria > Edit criteria**. No topics or
+profiles ship by default. Then enable **Automatic resource checks**, and separately
+enable **Automatic likes** if you
 want checked posts to be rewarded. Start/resume collection to use repeated
 bounded windows with cooldown. Local checks have their own badge and evidence;
 they never create human approvals or AI recommendations. Unsupported or uncertain

@@ -4,58 +4,58 @@ The existing Source Scraper provider exposes 26 MCP tools. No second server,
 repository, paid X API or extra model is needed. Users can review resources directly in the plugin. AI evaluation is optional
 through the existing MCP connection. Collection and already-evaluated like actions
 can continue with the chat closed while Obsidian and the computer remain open.
-New resources can also be checked by the optional local UI policy, with no AI,
+New resources can also be checked against explicit local criteria, with no AI,
 API key or model. This is not an unattended background ChatGPT inference service.
 
-## Local UI feedback without AI
+## User-owned feedback criteria
 
-Options > Collection and feedback > UI feedback without AI enables a local worker
-for the selected X project. It prioritizes UI-related candidates from retained,
-authentic X mentions, checks one new resource per tick and caches its evidence.
-Automatic likes remains a separate local permission. Enabling checks alone sends
-no like. New collections started with the local policy enabled repeat bounded
-page windows after a ten-minute cooldown. Pause and Stop still take precedence;
-disabling the policy disables continuous renewal. Obsidian and the computer must
-stay open. No model is downloaded or called.
+The application has no built-in topics or mandatory quality preferences. Each
+user configures a profile per project in Options > Collection and feedback >
+Feedback criteria > Edit criteria. Profiles live in private plugin preferences,
+not the shared repository or vault notes. A fresh installation has no profiles;
+without a profile, no new local checks or local-policy likes are generated.
+Previous fixed-policy records are retained as stale audit history, not migrated
+into preferences for other users.
 
-The ui-resources-v2 policy requires every gate: explicit UI focus, a reusable
-package/skill/tool output, recognized open-source access, documented usage,
-declared automated tests with retained test/package structure, examples, an
-active repository and an eligible source post. It reads public GitHub facts,
-README and package data; it never installs or executes the resource. A public
-HTTPS homepage is supported only when it links the repository and that
-repository identifies the same homepage. Other websites, isolated demos,
-unknown access conditions and incomplete evidence remain pending for manual
-review. Source errors back off instead of approving a resource.
+The native form accepts topic keywords, optional reusable-output keywords,
+excluded resource/post keywords, and required evidence checks: reusable output,
+recognized open-source license, usage documentation, a declared package test
+suite with test structure, examples, and an active repository. These requirements
+are individually selected by the user. Blank topic keywords explicitly allow all
+topics when the user saves the form. Terms are literal words/phrases, not executable
+code or regular expressions. Saving criteria never enables likes or local checks.
+Changing/removing a profile invalidates its local eligibility and pending actions;
+results and actions are bound to the project and a fingerprint of the criteria.
 
-Keywords prioritize inspection; stars, likes and matching terms cannot pass
-these gates by themselves. Structural checks are not a visual or aesthetic
-certification. Exceptional aesthetics cannot be established from repository
-metadata alone. The UI says Local checks passed, never AI recommended or human
-approved. Full detail retains facts and reasons. Checks expire after at most 24
-hours and changed retained evidence requires a fresh check. Counters count check
-runs, not unique high-quality resources.
+Automatic resource checks enables the worker for the selected X project. It
+checks one new resource per tick and caches evidence. Automatic likes remains a
+separate local permission. New collections started with checks enabled repeat
+bounded windows after a ten-minute cooldown. Pause and Stop take precedence;
+disabling checks disables continuous renewal. Obsidian and the computer must stay
+open. No model is downloaded or called.
 
-Local decisions remain separate from AI assessments and human choices. Rejections
-of the resource or its verified related homepage/repository prevent local
-feedback. The retained original X mention must expose only the checked resource
-or its verified official website/repository links. Mixed lists of unrelated
-resources remain pending before entering the queue, even if one entry passes.
-Missing legacy post-link evidence also stays pending. Dispatch rechecks the
-current live links against that same rule. Confirmed account/post actions
-remain deduplicated. The existing five-attempts/hour and 60-second spacing still
-apply. X credentials never reach public probes. AI assistance is optional.
+The generic evidence reader gathers public GitHub facts, README and package data;
+it never installs or executes resources. A public HTTPS homepage is supported
+only when it links the repository and the repository identifies the same homepage.
+Unsupported sources, unknown access conditions and missing required evidence stay
+pending. A declared test script is evidence of test structure, not a claim that
+upstream tests passed. Structural checks do not certify aesthetics. Keywords
+select candidates; they cannot replace the configured evidence requirements.
 
-Policy upgrades invalidate old local eligibility and reset the policy-run
-counters, while preserving the audit history and all human/AI records. A known
-old preflight refusal may be retired only if no mutation was ever attempted and
-fresh whole-post evidence passes the new policy. Confirmed or uncertain actions
-are never reopened or blindly repeated.
+Every automatic like still requires a verified original X mention whose complete
+link set refers only to the checked resource or its verified homepage/repository.
+Mixed lists of unrelated repositories and missing original links stay pending.
+Live dispatch rechecks those links, the profile fingerprint and rejection state,
+including after asynchronous preflight. Confirmed/uncertain mutations are never
+blindly repeated. Human reviews, AI recommendations and local checks remain
+separate. Rejecting a resource or its verified related URL blocks local feedback.
 
-Mixed-repository posts are deferred before any public API request. Public-source
-rate limits pause new network probes while local post checks and cached records
-remain usable. Missing individual pages defer only that resource, not the whole
-queue. The worker preserves source cooldowns across policy upgrades.
+Checks expire within 24 hours; changed source evidence or criteria require a fresh
+check. The UI shows actual local check runs, not a count of unique high-quality
+resources. Public-source rate limits pause network probes while local checks and
+cached records can continue. Missing individual pages defer only that source.
+Source cooldowns survive policy/profile updates. X credentials never reach public
+probes. Existing five-attempts/hour and 60-second spacing apply.
 
 ## Daily use
 

@@ -1,7 +1,7 @@
 import {xPostContext,hasXSource} from "./adapter-policy.ts";
-import {ResourceMemory,type Recommendation} from "./resource-memory.ts";
+import {ResourceMemory,type Recommendation,type FeedbackAction} from "./resource-memory.ts";
 import {FeedCycle} from "./feed-cycle.ts";
-import {UI_POLICY,UI_TERMS,uiCandidate,checkUiResource,relatedResourceUrl,hasMixedRepositories,type PublicResourceEvidence} from "./local-ui-policy.ts";
+import {RESOURCE_POLICY,feedbackProfileHash,parseFeedbackProfile,resourceCandidate,checkResource,type FeedbackProfile,relatedResourceUrl,hasMixedRepositories,type PublicResourceEvidence} from "./feedback-policy.ts";
 import {COLLECTION_FILTER_SCHEMA,parseCollectionFilters,compileCollectionFilters,usesThresholdFilters} from "./collection-filters.ts";
 import {createHash,randomUUID} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readFileSync,realpathSync,renameSync,writeFileSync} from "node:fs";
@@ -18,7 +18,8 @@ export interface RegisteredProject {id:string;configPath:string;manifestHash:str
 export interface ProviderOptions {
   allowXProvider?:boolean;
   allowXLikes?:()=>boolean;
-  localUIFeedbackEnabled?:()=>boolean;
+  localFeedbackEnabled?:()=>boolean;
+  feedbackProfile?:(projectId:string)=>FeedbackProfile|undefined;
   activeProjectId?:()=>string|undefined;
   xPythonPath?:string;
   getXSession?:()=>XLocalSession|undefined;
@@ -32,7 +33,7 @@ export interface ProviderOptions {
 type Job={id:string;requestId:string;signature:string;projectId:string;state:string;startedAt:string;endedAt?:string;result?:unknown;error?:string};
 type Queue={projectId:string;keys:string[]};
 type ResourceRequest={requestId:string;projectId:string;signature:string;input:any;origin:"user-interface"|"user-mcp";result?:any;error?:string;terminal?:boolean};
-type LocalFeedbackState={policy?:string;checked:number;eligible:number;pending:number;nextAt:number;publicNextAt?:number;lastError?:string;lastAt?:string;cursor?:{projectId:string;selectionId?:string;offset:number}};
+type LocalFeedbackState={policy?:string;profileHash?:string;checked:number;eligible:number;pending:number;nextAt:number;publicNextAt?:number;lastError?:string;lastAt?:string;cursor?:{projectId:string;selectionId?:string;offset:number}};
 type State={version:1;projects:RegisteredProject[];jobs:Job[];queues:Queue[];resourceRequests?:ResourceRequest[];localFeedback?:LocalFeedbackState};
 const empty=():State=>({version:1,projects:[],jobs:[],queues:[]});
 const string={type:"string",minLength:1,maxLength:4000};
@@ -243,44 +244,50 @@ export class SourceScraperProvider {
     const action=queueLike?this.queueResourcePost(projectId,key,data):undefined;
     return {review,action,notesCreated:0};
   }
-  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string,origin?:"local-policy"){
+  private queueResourcePost(projectId:string,key:string,data:any,requestedPostId?:string,origin?:"local-policy",profileHash?:string){
     const {postUrl,postId,accountId}=this.resourcePostContext(projectId,data,requestedPostId);
-    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint,...(origin?{origin}:{})});
+    return this.memory.queue("user",{resource:data.entity.url,projectId,key,postId,postUrl,accountId,postTextHash:hash(data.entity.attributes.discoveryText||""),fingerprint:data.fingerprint,...(origin?{origin,profileHash}:{})});
   }
   private resourcePostContext(projectId:string,data:any,requestedPostId?:string){
     const manifest=parseProjectManifest(readFileSync(this.project(projectId).project.configPath,"utf8")),context=xPostContext(manifest,data.entity,data.mentions??[],requestedPostId);
     if(!context)throw Error("RESOURCE_POST_PROVENANCE_REQUIRED: likes require a retained post from the X adapter");return context;
   }
+  private localActionCurrent(a:FeedbackAction){return a.origin!=="local-policy"||Boolean(this.options.localFeedbackEnabled?.()&&(!this.options.activeProjectId||this.options.activeProjectId()===a.projectId)&&a.profileHash&&this.currentFeedbackProfile(a.projectId)?.hash===a.profileHash);}
   private async dispatchFeedback(){
     if(this.closed||this.bridge.running||this.collectionBridge.running||this.activeJob||!this.options.allowXLikes?.())return;
     await this.memory.dispatch({
-      stillValid:async a=>{if(a.origin==="local-policy"&&(!this.options.localUIFeedbackEnabled?.()||this.options.activeProjectId&&this.options.activeProjectId()!==a.projectId))return false;const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);let context;try{context=this.resourcePostContext(a.projectId,inspected,a.postId);}catch{return false;}return context.accountId===a.accountId&&inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key);},
+      stillValid:async a=>{if(!this.localActionCurrent(a))return false;const inspected=await this.invoke(a.projectId,"inspect",["--key",a.key]);let context;try{context=this.resourcePostContext(a.projectId,inspected,a.postId);}catch{return false;}return context.accountId===a.accountId&&inspected.fingerprint===a.fingerprint&&this.eligible(inspected.entity)&&await this.matchesProfile(a.projectId,a.key)&&this.localActionCurrent(a);},
       verify:async a=>{const r=await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","inspect_x_like"]);if(r.postTextHash!==a.postTextHash||r.postUrl!==a.postUrl||!Array.isArray(r.urls)||!r.urls.some((url:string)=>this.memory.identity("user",url)===a.resource))throw Error("X_POST_CHANGED_OR_LINK_NOT_EXPOSED: re-evaluate the original post");if(a.origin==="local-policy"&&r.urls.some((url:string)=>!relatedResourceUrl(url,this.memory.localCheck(a.scope,a.resource)?.relatedResources??[])))throw Error("X_POST_ADDITIONAL_LINKS_NEED_REVIEW");a.directUrl=r.urls.find((url:string)=>this.memory.identity("user",url)===a.resource);return r.favorited===true;},
       send:async a=>{await this.invoke(a.projectId,"x-feedback",["--post-id",a.postId,"--operation","like_x_post","--post-text-hash",a.postTextHash,"--direct-url",a.directUrl||"","--resource-memory",join(dirname(this.options.statePath),"resources.json"),"--resource-url",a.resource]);}
     });
   }
   private async feedbackTick(){await this.localFeedbackTick();await this.dispatchFeedback();}
-  localFeedbackStatus(){const s=this.state.localFeedback;return {enabled:this.options.localUIFeedbackEnabled?.()===true,busy:this.localFeedbackBusy,policy:UI_POLICY,modelRequired:false,checked:s?.checked??0,eligible:s?.eligible??0,pending:s?.pending??0,lastAt:s?.lastAt,lastError:s?.lastError,nextAt:s?.nextAt??0,nextPublicProbeAt:s?.publicNextAt??0,qualityScope:"Verified structural signals; no aesthetic certification",sourceCoverage:"Public repositories and verified official homepages; unsupported resources stay pending"};}
+  private currentFeedbackProfile(projectId:string){const input=this.options.feedbackProfile?.(projectId);if(!input)return;const profile=parseFeedbackProfile(input);return {profile,hash:feedbackProfileHash(projectId,profile)};}
+  localFeedbackStatus(){const s=this.state.localFeedback,projectId=this.options.activeProjectId?.()??s?.cursor?.projectId??this.projects()[0]?.id;let configured=false,profileHash:string|undefined;try{const current=projectId?this.currentFeedbackProfile(projectId):undefined;configured=Boolean(current);profileHash=current?.hash;}catch{}return {enabled:this.options.localFeedbackEnabled?.()===true,configured,profileHash,busy:this.localFeedbackBusy,policy:RESOURCE_POLICY,modelRequired:false,checked:s?.checked??0,eligible:s?.eligible??0,pending:s?.pending??0,lastAt:s?.lastAt,lastError:s?.lastError,nextAt:s?.nextAt??0,nextPublicProbeAt:s?.publicNextAt??0,qualityScope:"Verified structural signals; no aesthetic certification",sourceCoverage:"Public repositories and verified official homepages; unsupported resources stay pending"};}
   /** Local bounded worker. It owns no human reviews and never calls an AI. */
   async localFeedbackTick(now=Date.now()){
-    if(this.closed||!this.options.localUIFeedbackEnabled?.()||this.localFeedbackBusy||this.bridge.running||this.activeJob||this.state.resourceRequests?.some(r=>!r.result&&!r.terminal))return;
-    const state=this.state.localFeedback??={checked:0,eligible:0,pending:0,nextAt:0};if(state.policy!==UI_POLICY){const publicNextAt=state.publicNextAt??(/rate|limit|incomplete/i.test(state.lastError??"")?state.nextAt:0);Object.assign(state,{policy:UI_POLICY,checked:0,eligible:0,pending:0,nextAt:0,cursor:undefined,publicNextAt});}if(state.nextAt>now)return;
+    if(this.closed||!this.options.localFeedbackEnabled?.()||this.localFeedbackBusy||this.bridge.running||this.activeJob||this.state.resourceRequests?.some(r=>!r.result&&!r.terminal))return;
+    const state=this.state.localFeedback??={checked:0,eligible:0,pending:0,nextAt:0};if(state.policy!==RESOURCE_POLICY){const publicNextAt=state.publicNextAt??(/rate|limit|incomplete/i.test(state.lastError??"")?state.nextAt:0);Object.assign(state,{policy:RESOURCE_POLICY,checked:0,eligible:0,pending:0,nextAt:0,cursor:undefined,publicNextAt});}
     this.localFeedbackBusy=true;
     try{
       const projects=this.projects().filter(p=>(!this.options.activeProjectId||this.options.activeProjectId()===p.id)&&parseProjectManifest(readFileSync(this.project(p.id).project.configPath,"utf8")).sources.filter(s=>s.adapter==="x-for-you-local").length===1);
       if(!projects.length){state.lastError="Select an X project to run local checks";state.nextAt=now+60000;this.persist();return;}
+      const selected=projects.find(p=>p.id===state.cursor?.projectId)??projects[0];
+      const currentProfile=this.currentFeedbackProfile(selected.id);if(!currentProfile){state.lastError="Configure feedback criteria for this project";state.nextAt=now+60000;this.persist();return;}
+      const {profile,hash:profileHash}=currentProfile;if(state.profileHash!==profileHash){Object.assign(state,{profileHash,checked:0,eligible:0,pending:0,cursor:{projectId:selected.id,offset:0},nextAt:0});}if(state.nextAt>now)return;
       if(!state.cursor||!projects.some(p=>p.id===state.cursor!.projectId))state.cursor={projectId:projects[0].id,offset:0};
       const cursor=state.cursor;
-      const page=await this.getResources({projectId:cursor.projectId,review:"all",selectionId:cursor.selectionId,offset:cursor.offset,limit:40,filters:{version:1,entity:{fields:["title","attributes.description","attributes.discoveryText"],includeTerms:UI_TERMS,matchMode:"word"}}});
-      if(this.closed||!this.options.localUIFeedbackEnabled?.())return;cursor.selectionId=page.selectionId;
+      const page=await this.getResources({projectId:cursor.projectId,review:"all",selectionId:cursor.selectionId,offset:cursor.offset,limit:40,filters:{version:1,entity:{fields:["title","attributes.description","attributes.discoveryText"],...(profile.includeTerms.length?{includeTerms:profile.includeTerms}:{}),...(profile.excludeTerms.length?{excludeTerms:profile.excludeTerms}:{}),matchMode:"word"}}});
+      if(this.closed||!this.options.localFeedbackEnabled?.())return;cursor.selectionId=page.selectionId;
       if(!this.engineCapabilities.includes("x-post-resource-urls-v1"))throw Error("LOCAL_FEEDBACK_ENGINE_UPDATE_REQUIRED");
       if(!page.records.length){const next=(projects.findIndex(p=>p.id===cursor.projectId)+1)%projects.length;state.cursor={projectId:projects[next].id,offset:0};state.nextAt=now+60000;this.persist();return;}
       const details=await this.inspectResources(cursor.projectId,page.records.map((r:any)=>r.key));
+      if(this.closed||!this.options.localFeedbackEnabled?.()||this.currentFeedbackProfile(cursor.projectId)?.hash!==profileHash)return;
       for(let index=0;index<details.records.length;index++){
-        const data=details.records[index];if(!data.entity?.url||data.rejected||!uiCandidate(data.entity))continue;
+        const data=details.records[index];if(!data.entity?.url||data.rejected||!resourceCandidate(data.entity,profile))continue;
         let context;try{context=this.resourcePostContext(cursor.projectId,data);}catch{continue;}
         let check=this.memory.localCheck("user",data.entity.url);
-        const fresh=!check||check.policy!==UI_POLICY||check.fingerprint!==data.fingerprint||Date.parse(check.expiresAt)<=now;
+        const fresh=!check||check.policy!==RESOURCE_POLICY||check.profileHash!==profileHash||check.fingerprint!==data.fingerprint||Date.parse(check.expiresAt)<=now;
         if(fresh){
           const mention=data.mentions?.find((m:any)=>m.active===true&&m.connectionId===context.connectionId&&m.itemId===context.postId&&m.url===context.postUrl),urls=Array.isArray(mention?.resourceUrls)?mention.resourceUrls:undefined;
           const earlyReason=!urls?.length?"Original source-post links need verification":hasMixedRepositories(urls)?"Original post mixes unrelated repositories; manual review required":undefined;
@@ -288,14 +295,15 @@ export class SourceScraperProvider {
           const proof:PublicResourceEvidence=earlyReason?{version:1,url:data.entity.url,checkedAt:new Date().toISOString(),status:"pending",reason:earlyReason,evidence:[],retryAfterSeconds:3600}:await this.invoke(cursor.projectId,"resource-evidence",["--url",data.entity.url],this.evidenceBridge) as PublicResourceEvidence;
           if(proof?.version!==1||proof.url!==data.entity.url||!Array.isArray(proof.evidence))throw Error("INVALID_PUBLIC_RESOURCE_EVIDENCE");
           if(!this.engineCapabilities.includes("public-resource-evidence-v1"))throw Error("LOCAL_FEEDBACK_ENGINE_UPDATE_REQUIRED");
-          if(this.closed||!this.options.localUIFeedbackEnabled?.())return;
+          if(this.closed||!this.options.localFeedbackEnabled?.()||this.currentFeedbackProfile(cursor.projectId)?.hash!==profileHash)return;
           const current=(await this.inspectResources(cursor.projectId,[data.entity.key])).records[0];
+          if(this.closed||!this.options.localFeedbackEnabled?.()||this.currentFeedbackProfile(cursor.projectId)?.hash!==profileHash)return;
           if(current.fingerprint!==data.fingerprint){state.nextAt=now+10000;this.persist();return;}
-          check=this.memory.recordLocalCheck("user",data.entity.url,checkUiResource(data.entity,data.fingerprint,proof,now,urls));
+          check=this.memory.recordLocalCheck("user",data.entity.url,checkResource(data.entity,data.fingerprint,proof,profile,profileHash,now,urls));
           if(!earlyReason&&proof.rateLimited&&proof.retryAfterSeconds)state.publicNextAt=now+proof.retryAfterSeconds*1000;
           state.checked++;if(check.eligible)state.eligible++;else state.pending++;state.lastAt=new Date().toISOString();if(!earlyReason||!(state.publicNextAt&&state.publicNextAt>now))state.lastError=proof.reason;state.nextAt=now+10000;
         }
-        if(this.memory.localEligible("user",data.entity.url,data.fingerprint)&&!this.memory.hasAction(context.accountId,context.postId))this.queueResourcePost(cursor.projectId,data.entity.key,data,context.postId,"local-policy");
+        if(this.memory.localEligible("user",data.entity.url,data.fingerprint,profileHash)&&!this.memory.hasAction(context.accountId,context.postId))this.queueResourcePost(cursor.projectId,data.entity.key,data,context.postId,"local-policy",profileHash);
         if(fresh){cursor.offset+=index+1;this.persist();return;}
       }
       cursor.offset+=page.records.length;state.nextAt=now+10000;if(!(state.publicNextAt&&state.publicNextAt>now))state.lastError=undefined;this.persist();
@@ -313,9 +321,9 @@ export class SourceScraperProvider {
     if(!this.engineCapabilities.includes("resource-batch-v1"))throw Error("RESOURCE_BATCH_UNAVAILABLE: update the trusted engine");
     return this.bridge.resourceBatch(config,input);
   }
-  private localCheckView(url:string,fingerprint?:string){const check=this.memory.localCheck("user",url);return check?{...check,eligible:this.memory.localEligible("user",url,fingerprint),stale:check.policy!==UI_POLICY||Boolean(fingerprint&&check.fingerprint!==fingerprint)||Date.parse(check.expiresAt)<=Date.now()}:undefined;}
-  async getResources(args:any){await this.recoverResourceReviews();const result=await this.resourceCommand(text(args.projectId,"projectId"),{...args,operation:"query",context:this.memory.queryContext()});for(const e of result.records??[]){const check=e.url?this.localCheckView(e.url):undefined;if(check)e.localResourceCheck={policy:check.policy,eligible:check.eligible,checkedAt:check.checkedAt,expiresAt:check.expiresAt,reasons:check.reasons.slice(0,3),stale:e.updatedAt>check.checkedAt||check.stale};}return {...result,recovery:(this.state.resourceRequests??[]).filter(r=>!r.result&&!r.terminal).map(r=>({projectId:r.projectId,requestId:r.requestId,error:r.error??"Review needs reconciliation"}))};}
-  async inspectResources(projectId:string,keys:string[]){const value=await this.resourceCommand(projectId,{operation:"inspect",keys});for(const r of value.records){if(r.entity?.url){r.humanReview=this.memory.humanReview("user",r.entity.url);const saved=this.memory.assessment("user",r.entity.url);r.resourceAssessment=saved?{...saved,stale:saved.fingerprint!==r.fingerprint}:undefined;r.localResourceCheck=this.localCheckView(r.entity.url,r.fingerprint);r.rejected=this.memory.rejected("user",r.entity.url);}}return value;}
+  private localCheckView(projectId:string,url:string,fingerprint?:string){const check=this.memory.localCheck("user",url);let profileHash:string|undefined;try{profileHash=this.currentFeedbackProfile(projectId)?.hash;}catch{}return check?{...check,eligible:Boolean(profileHash)&&this.memory.localEligible("user",url,fingerprint,profileHash),stale:check.policy!==RESOURCE_POLICY||!profileHash||check.profileHash!==profileHash||Boolean(fingerprint&&check.fingerprint!==fingerprint)||Date.parse(check.expiresAt)<=Date.now()}:undefined;}
+  async getResources(args:any){await this.recoverResourceReviews();const result=await this.resourceCommand(text(args.projectId,"projectId"),{...args,operation:"query",context:this.memory.queryContext()});for(const e of result.records??[]){const check=e.url?this.localCheckView(args.projectId,e.url):undefined;if(check)e.localResourceCheck={policy:check.policy,eligible:check.eligible,checkedAt:check.checkedAt,expiresAt:check.expiresAt,reasons:check.reasons.slice(0,3),stale:e.updatedAt>check.checkedAt||check.stale};}return {...result,recovery:(this.state.resourceRequests??[]).filter(r=>!r.result&&!r.terminal).map(r=>({projectId:r.projectId,requestId:r.requestId,error:r.error??"Review needs reconciliation"}))};}
+  async inspectResources(projectId:string,keys:string[]){const value=await this.resourceCommand(projectId,{operation:"inspect",keys});for(const r of value.records){if(r.entity?.url){r.humanReview=this.memory.humanReview("user",r.entity.url);const saved=this.memory.assessment("user",r.entity.url);r.resourceAssessment=saved?{...saved,stale:saved.fingerprint!==r.fingerprint}:undefined;r.localResourceCheck=this.localCheckView(projectId,r.entity.url,r.fingerprint);r.rejected=this.memory.rejected("user",r.entity.url);}}return value;}
   async reviewResources(args:any,origin:"user-interface"|"user-mcp"="user-interface"){
     const projectId=text(args.projectId,"projectId"),requestId=text(args.requestId,"requestId",100),signature=hash(canonical(args));this.project(projectId);
     this.state.resourceRequests??=[];let job=this.state.resourceRequests.find(r=>r.projectId===projectId&&r.requestId===requestId);
@@ -400,7 +408,7 @@ export class SourceScraperProvider {
         return {projectId,records,humanReviewChanged:false};
       }
       case "cycle_status":return this.cycle.snapshot();
-      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");if(!parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local"))throw Error("X_SOURCE_REQUIRED: background feed cycles belong to the X adapter");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000),this.options.localUIFeedbackEnabled?.()===true);}
+      case "control_cycle":{this.project(args.projectId);if(args.action==="pause")return this.cycle.pause();if(args.action==="stop")return this.cycle.stop();if(args.action!=="start")throw Error("INVALID_CYCLE_ACTION");if(!parseProjectManifest(readFileSync(this.project(args.projectId).project.configPath,"utf8")).sources.some(s=>s.adapter==="x-for-you-local"))throw Error("X_SOURCE_REQUIRED: background feed cycles belong to the X adapter");return this.cycle.start(text(args.projectId,"projectId"),integer(args.maxPages,100,1,1000),this.options.localFeedbackEnabled?.()===true);}
       case "feedback_status":return this.feedbackStatus();
       case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
       case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
