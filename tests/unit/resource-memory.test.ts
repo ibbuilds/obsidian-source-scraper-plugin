@@ -29,3 +29,14 @@ test("bulk ledger writes are atomic and query context preserves canonical reject
  assert.throws(()=>memory.transaction(()=>{memory.reject("user",url);throw Error("Abort");}));assert.equal(memory.rejected("user",url),false);assert.equal(new ResourceMemory(path).rejected("user",url),false);
  memory.transaction(()=>{memory.reject("user",url);memory.alias("user","https://short.example/resource",url);});assert.equal(memory.rejected("user","https://short.example/resource"),true);const c=memory.queryContext();assert.equal(c.rejected[0],url);memory.restore("user",url);assert.equal(memory.queryContext().reviews[url],"pending");assert.equal(new ResourceMemory(path).rejected("user",url),false);
 }));
+
+for(const change of ["discard","undo","replace"] as const)test(`feedback rechecks ${change} during asynchronous preflight before sending`,()=>fixture(async memory=>{
+ memory.assess("user",url,proof());memory.queue("user",details);memory.setFeedback(true);let sends=0;
+ await memory.dispatch({stillValid:async()=>true,verify:async()=>{
+  if(change==="discard")memory.assess("user",url,{...proof(),decision:"discarded"});
+  else if(change==="replace")memory.assess("user",url,proof("c".repeat(64)));
+  else memory.recordHumanReview("user",url,{decision:"pending",reason:"",fingerprint:details.fingerprint,postSuitable:false,verifiedUsefulFreeAndQuality:false,origin:"user-interface"});
+  return false;
+ },send:async()=>{sends++;}});
+ assert.equal(sends,0);assert.equal(memory.actions()[0].state,"cancelled");
+}));

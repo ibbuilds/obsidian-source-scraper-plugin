@@ -222,10 +222,13 @@ export class SourceScraperProvider {
     return result.records.some((e:EntityExport["records"][number])=>e.key===key&&this.eligible(e,manifest.pipeline.includes("x-discovery")));
   }
   async saveHumanReview(projectId:string,key:string,decision:"pending"|"approved"|"rejected",reason="",queueLike=false,origin:"user-interface"|"user-mcp"="user-interface"){
+    this.requireRecoveredReviews();
     if(!["pending","approved","rejected"].includes(decision)||typeof reason!=="string"||reason.length>1000||typeof queueLike!=="boolean"||queueLike&&decision!=="approved")throw Error("INVALID_HUMAN_REVIEW");
     const before=await this.invoke(projectId,"inspect",["--key",key]);
+    this.requireRecoveredReviews();
     if(!before.entity.url||before.entity.type!=="web-resource")throw Error("RESOURCE_LINK_REQUIRED");
     if(queueLike){this.resourcePostContext(projectId,before);if(!await this.matchesProfile(projectId,key))throw Error("RESOURCE_POST_PROVENANCE_REQUIRED");}
+    this.requireRecoveredReviews();
     if(decision==="rejected")this.memory.reject("user",before.entity.url,reason,origin);
     await this.invoke(projectId,"review",["--key",key,"--decision",decision,"--reason",reason.trim()||`User marked this resource ${decision}.`]);
     const data=await this.invoke(projectId,"inspect",["--key",key]);
@@ -268,7 +271,7 @@ export class SourceScraperProvider {
     if(job&&job.signature!==signature&&Object.keys(args).some(k=>!["projectId","requestId"].includes(k)))throw Error("REQUEST_CONFLICT");
     if(job?.terminal)throw Error(job.error||"Review request was rejected; query current resources and use a new requestId");
     if(job?.result)return job.result;
-    if(!job){if(Boolean(args.selectionId)===Boolean(args.changes))throw Error("Choose a selectionId or changes");
+    if(!job){this.requireRecoveredReviews();if(Boolean(args.selectionId)===Boolean(args.changes))throw Error("Choose a selectionId or changes");
       if(args.reason!==undefined&&(typeof args.reason!=="string"||args.reason.length>1000))throw Error("INVALID_REVIEW_REASON");
       if(args.selectionId&&(typeof args.selectionId!=="string"||!["pending","approved","rejected"].includes(args.decision)))throw Error("INVALID_SELECTION_DECISION");
       if(args.changes&&(!Array.isArray(args.changes)||!args.changes.length||args.changes.length>5000||new Set(args.changes.map((c:any)=>c?.key)).size!==args.changes.length||args.changes.some((c:any)=>!c||typeof c.key!=="string"||!c.key||c.key.length>4000||!["pending","approved","rejected"].includes(c.decision)||c.reason!==undefined&&(typeof c.reason!=="string"||c.reason.length>1000))))throw Error("INVALID_BATCH_REVIEW");
@@ -277,11 +280,14 @@ export class SourceScraperProvider {
   }
   private async finishResourceReview(job:ResourceRequest){
     const response=await this.resourceCommand(job.projectId,job.input);
-    this.memory.transaction(()=>{for(const r of response.records)if(!r.error&&!(response.committedAt&&String(this.memory.humanReview("user",r.url)?.at??"")>response.committedAt)){this.memory.recordHumanReview("user",r.url,{decision:r.decision,reason:job.input.reason??job.input.changes?.find((c:any)=>c.key===r.key)?.reason??"",fingerprint:r.fingerprint,postSuitable:false,verifiedUsefulFreeAndQuality:false,origin:job.origin});}});
+    const reasons=new Map<string,string>((job.input.changes??[]).map((c:any)=>[c.key,c.reason??""]));
+    this.memory.transaction(()=>{for(const r of response.records)if(!r.error&&!(response.committedAt&&String(this.memory.humanReview("user",r.url)?.at??"")>response.committedAt)){this.memory.recordHumanReview("user",r.url,{decision:r.decision,reason:job.input.reason??reasons.get(r.key)??"",fingerprint:r.fingerprint,postSuitable:false,verifiedUsefulFreeAndQuality:false,origin:job.origin});}});
     job.result={projectId:job.projectId,requestId:job.requestId,saved:response.saved,failed:response.failed,errors:response.records.filter((r:any)=>r.error).map((r:any)=>({key:r.key,error:r.error})),notesCreated:0,likesQueued:0};
     const completed=this.state.resourceRequests!.filter(r=>r.result);if(completed.length>100)this.state.resourceRequests=this.state.resourceRequests!.filter(r=>!r.result||completed.slice(-100).includes(r));job.input={};this.persist();return job.result;
   }
   private recoveryTried=new Set<string>();
+  private requireRecoveredReviews(){if(this.state.resourceRequests?.some(r=>!r.result&&!r.terminal))throw Error("REVIEW_RECOVERY_REQUIRED: recover the previous review before saving new choices");}
+  restoreResource(url:string){this.requireRecoveredReviews();this.memory.restore("user",url);}
   private recordReviewError(job:ResourceRequest,error:unknown){job.error=error instanceof Error?error.message:"Review needs reconciliation";job.terminal=error instanceof CliCommandError&&error.exitCode===1&&/SELECTION_CHANGED|SELECTION_EXPIRED|INVALID_|REQUEST_CONFLICT|REQUEST_ID_REQUIRED|REQUEST_LIMIT|Select 1/.test(job.error);if(job.terminal)job.input={};this.persist();}
   private async recoverResourceReviews(){for(const job of this.state.resourceRequests??[]){const key=job.projectId+"|"+job.requestId;if(!job.result&&!job.terminal&&!this.recoveryTried.has(key)){this.recoveryTried.add(key);try{await this.finishResourceReview(job);}catch(e){this.recordReviewError(job,e);}}}}
   private feedbackStatus(){return {enabled:this.memory.enabled,localLikePermission:this.options.allowXLikes?.()===true,actions:this.memory.actions(),limits:{maxPerHour:5,minIntervalSeconds:60},algorithmEffect:"Not guaranteed"};}
@@ -348,11 +354,13 @@ export class SourceScraperProvider {
       case "control_feedback":{if(typeof args.enabled!=="boolean")throw Error("INVALID_FEEDBACK_SETTING");return this.localFeedback(args.enabled);}
       case "list_rejected":{this.project(args.projectId);return {scope:"This vault's local user, across registered projects",records:this.memory.listRejected("user")};}
       case "resource_decision":{
+        this.requireRecoveredReviews();
         if(["approve","pending"].includes(String(args.action)))return this.saveHumanReview(text(args.projectId,"projectId"),text(args.key,"key"),args.action==="approve"?"approved":"pending",typeof args.reason==="string"?args.reason:"",args.queueLike===true,"user-mcp");
         const data=await this.invoke(args.projectId,"inspect",["--key",text(args.key,"key")]);const entity=data.entity;
+        this.requireRecoveredReviews();
         if(entity.type!=="web-resource"||!entity.url)throw Error("RESOURCE_LINK_REQUIRED");
         if(args.action==="reject")this.memory.reject("user",entity.url,typeof args.reason==="string"?args.reason:"","user-mcp");
-        else if(args.action==="restore")this.memory.restore("user",entity.url);
+        else if(args.action==="restore")this.restoreResource(entity.url);
         else if(args.action==="alias")this.memory.alias("user",text(args.alias,"alias"),entity.url);
         else throw Error("INVALID_RESOURCE_DECISION");
         for(const q of this.state.queues){if(!q.keys.length)continue;const visible=await this.invoke(q.projectId,"export",["--keys-json",JSON.stringify(q.keys)]);q.keys=visible.records.filter((e:EntityExport["records"][number])=>this.eligible(e)).map((e:EntityExport["records"][number])=>e.key);}
@@ -379,7 +387,7 @@ export class SourceScraperProvider {
         sources:["json-file","json-snapshot","rss","public-json","public-product","x-for-you-local"],executableSources:false,
         collectionFilters:{version:1,requiresEngineCapability:"collection-filters-v1",sourceSelection:true,requestFilters:true,numericRanges:true,dateRanges:true,thresholdCapability:"candidate-thresholds-v1",
           appliesTo:["candidate-query","entity-export"],editorialQuality:false,schema:COLLECTION_FILTER_SCHEMA},
-        xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,
+        xFeed:{collector:"twifork",feed:"for-you",localGrant:this.options.allowXProvider===true,liveVerified:false,liveVerification:"not-probed",verificationNote:"This capability report does not contact X. Inspect successful collection runs for live access evidence.",
           csrfConfigured:Boolean(this.options.getXSession?.()?.csrf||process.env.SOURCE_SCRAPER_X_CSRF),accountSessionConfigured:Boolean(this.options.getXSession?.()?.accountSession||process.env.SOURCE_SCRAPER_X_ACCOUNT_SESSION),
           pythonConfigured:Boolean(this.options.xPythonPath||process.env.SOURCE_SCRAPER_X_PYTHON),
           credentialDestination:"x.com",apiKeyRequired:false,paidFallback:false,maxPagesPerRun:10}};

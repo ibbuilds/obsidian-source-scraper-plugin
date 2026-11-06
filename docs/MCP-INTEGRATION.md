@@ -29,6 +29,17 @@ All names below have the `source_scraper_` prefix. Inputs reject unknown fields.
 | Tool | Main input | Result/effect |
 | --- | --- | --- |
 | capabilities | none | Supported surface, limits, local availability; noteWritesSupported is always false |
+| get_resources | projectId, optional search/review/evaluation/selectionId/offset/limit/filters | Compact stable resource page and outstanding review recovery |
+| inspect_resources | projectId, keys (up to 50) | Retained evidence and current fingerprints in one call |
+| review_resources | projectId, requestId, explicit changes or explicitly requested whole selection | Replay-safe human choices; up to 5,000 per transaction, zero likes/notes |
+| assess_resources | projectId, items (up to 50) | Separate evidence-based AI records, never human approvals |
+| cycle_status | none | Saved X cycle progress, budget and waiting reason |
+| control_cycle | projectId, action, optional maxPages | Start/resume, pause or stop the X connections only |
+| resource_decision | projectId, key, action | Explicit human decision, rejection, restore or alias |
+| list_rejected | projectId | Canonical persistent user rejections |
+| assess_resource | projectId, key, assessment | Separate resource evaluation; verified X provenance required for likes |
+| feedback_status | none | Like requests, confirmations, errors and local permission |
+| control_feedback | enabled | Stop feedback, or enable it only with the separate local like permission |
 | list_projects | none | Configured project IDs |
 | validate_project | projectId | Structural validation without collection |
 | create_project | manifest | Create-only project JSON outside the vault; no source execution |
@@ -49,6 +60,20 @@ There is no `source_scraper_save_selected_notes` tool, write toggle or create-no
 ## State and errors
 
 Engine SQLite remains authoritative for findings and histories. Lightweight provider state stores registered project references, job receipts and staged entity keys in private application state outside note folders. It is not a second findings database. Restart restores candidates without collecting sources. Interrupted jobs are reported; they are not restarted silently. Reusing a job request ID returns its existing receipt and rejects a changed request with the same ID.
+
+Uncertain resource reviews retain their original request identity and input.
+`get_resources` reports outstanding recovery; replay `review_resources` with that
+projectId/requestId to reconcile it. Until reconciliation, new batch and individual
+human decisions fail with `REVIEW_RECOVERY_REQUIRED`. A rejected request with a
+definite validation error is terminal and does not block corrected new work.
+The library exposes Retry operation and never invents a new identity for a retry.
+Expired page selections refresh and discard stale checked rows. Failed queries
+offer Retry loading without closing the library.
+
+Capabilities do not probe X. The legacy `xFeed.liveVerified: false` is accompanied
+by `liveVerification: "not-probed"`; it is not a failed access check. Inspect a
+successful collection result for live evidence. The evaluation owner is the user
+or optional AI through MCP; no background model is installed.
 
 Queries return at most 500 records; staged/draft selections accept 1–200 keys; imports/drafts are bounded to 8 MB. The CLI bridge caps stdout at 9 MB, uses fixed argument vectors without a shell, preserves UTF-8 chunk boundaries, serializes subprocess use and redacts stderr. Nonzero engine exits retain valid structured partial results. A busy engine operation does not prevent reading its local job status or requesting cancellation.
 

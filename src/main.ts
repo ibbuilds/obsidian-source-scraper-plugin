@@ -601,7 +601,7 @@ class CycleControlsModal extends Modal {
     const visible=(el:HTMLElement,value:boolean)=>{if(el.hidden===value)el.hidden=!value;};
     const update=()=>{const state=this.plugin.cycleStatus(),active=state?.state==="running"||state?.state==="waiting";
       text(status,state?`${state.state.charAt(0).toUpperCase()+state.state.slice(1)} · ${state.pages} pages · ${state.observations} posts read${state.reason?" · "+state.reason:""}`:"Configure a source to start collection");
-      text(start.buttonEl,state?.state==="paused"||state?.state==="blocked"?"Resume collection":"Start collection");visible(start.buttonEl,!active);visible(pause.buttonEl,active);visible(stop.buttonEl,Boolean(state&&state.state!=="stopped"));
+      text(start.buttonEl,state?.state==="paused"||state?.state==="blocked"?"Resume collection":"Start collection");start.setDisabled(state?.active===true);visible(start.buttonEl,!active);visible(pause.buttonEl,active);visible(stop.buttonEl,Boolean(state&&state.state!=="stopped"));
       text(log,this.plugin.likeActivity().slice(-30).map(a=>`${a.state} · ${a.postUrl}${a.error?" · "+a.error:""}`).join("\n")||"No like actions");};
     update();this.timer=window.setInterval(update,1000);labelFields(body);
   }
@@ -856,7 +856,7 @@ export default class ScraperPlugin extends Plugin {
   cycleStatus(){return this.provider?.cycle?.snapshot();}
   likeActivity(){return this.provider?.memory.actions()??[];}
   rejectedResources(){return this.provider?.memory.listRejected("user")??[];}
-  async restoreResource(url:string){this.provider?.memory.restore("user",url);this.refresh();}
+  async restoreResource(url:string){this.provider?.restoreResource(url);this.refresh();}
   async setAutomaticLikes(enabled:boolean){this.settings.xLikesEnabled=String(enabled);await this.savePrefs();await this.provider?.localFeedback(enabled);}
   async controlCycle(action:"start"|"pause"|"stop",maxPages=100){
     const snapshot=this.panelSnapshot();const projectId=(action!=="start"?this.provider?.cycle?.snapshot().projectId:undefined)||snapshot.projects.find(p=>(p.isX||p.hasX)&&p.id===snapshot.projectId)?.id||snapshot.projects.find(p=>p.isX||p.hasX)?.id;if(!this.provider||!projectId)throw Error("Connect X and register its project first.");
@@ -880,7 +880,6 @@ export default class ScraperPlugin extends Plugin {
   }
   async saveHumanReview(entity:EntityRecord,decision:"pending"|"approved"|"rejected",reason:string,queueLike=false){
     if(this.provider&&entity.type==="web-resource"&&entity.url){
-      if(decision==="rejected")this.provider.memory.reject("user",entity.url,reason,"user-interface");
       await this.provider.saveHumanReview(entity.projectId,entity.key,decision,reason,queueLike);
       if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));const visible=new Set(this.imported.records.map(e=>e.key));for(const key of this.selected)if(!visible.has(key))this.selected.delete(key);}
     }else{const s=this.settings;await this.cli.review({cliPath:s.cliPath,configPath:s.configPath,nodeExecutable:s.nodeExecutable},entity.projectId,entity.key,decision,reason.trim()||`User marked this resource ${decision}.`);}
