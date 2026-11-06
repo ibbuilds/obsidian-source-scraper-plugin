@@ -70,10 +70,12 @@ The library exposes Retry operation and never invents a new identity for a retry
 Expired page selections refresh and discard stale checked rows. Failed queries
 offer Retry loading without closing the library.
 
-The optional locally enabled UI feedback worker requires
+The optional locally enabled, user-configured feedback worker requires
 `public-resource-evidence-v1` and `x-post-resource-urls-v1`. It runs without MCP or AI and reports its own
 status through capabilities and feedback_status. Remote tools cannot enable
-that local policy or its separate like permission. Local checks, human reviews
+local checks, edit private feedback criteria, or grant like permission. Profiles are
+configured in the local UI, with no built-in topics. The current profile fingerprint
+is checked before queueing and again before dispatch. Local checks, human reviews
 and AI recommendations remain different records. No tool name was removed.
 
 Capabilities do not probe X. The legacy `xFeed.liveVerified: false` is accompanied
