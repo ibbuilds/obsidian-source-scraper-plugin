@@ -76,7 +76,8 @@ explicit instruction, creates or updates final notes.
 ## Limits
 
 Imports: 5,000 records / 8 MB. MCP queries: up to 500 records per page.
-Selections: 1–200 keys. One engine command runs at a time. Cancellation retains
+Draft/imported-result selections: 1–200 keys. Registered-library decisions accept
+up to 5,000 explicitly selected resources. One engine command per bridge runs at a time. Cancellation retains
 committed work. Interrupted jobs do not restart automatically. Review queues
 persist without collecting sources again.
 
@@ -106,6 +107,6 @@ Batch approval never queues a like. Selected links and full Markdown drafts rema
 available through Copy links and Preview drafts. No AI calls or note writes are needed.
 
 
-The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit selections and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.
+The resource library is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit selections and the four optimized MCP entry points. The comparison flow above remains available for imported/offline results.
 
 See [adapter boundaries](ADAPTER-BOUNDARIES.md) for built-in sources, custom local adapters and the separate X capabilities.

@@ -26,6 +26,7 @@ export class ResourceInbox {
  private busy=false;
  private dirty=true;
  private lastMessage="";
+ private loadFailed=false;
  private recovery:Array<{projectId:string;requestId:string}>=[];
  private rows:EntityRecord[]=[];
  private total=0;
@@ -43,7 +44,7 @@ export class ResourceInbox {
   const previous=button(pagination,"Previous",()=>{this.offset=Math.max(0,this.offset-40);request(false);});const range=pagination.createSpan();
   const next=button(pagination,"Next",()=>{this.offset+=40;request(false);});
   const status=root.createDiv({cls:"ss-inbox-status",attr:{role:"status","aria-live":"polite"}});
-  const retry=button(status,"Retry operation",()=>{void reconcile();});const message=status.createSpan();
+  const retry=button(status,"Retry operation",()=>{if(this.recovery.length)void reconcile();else request(false);});const message=status.createSpan();
   const footer=root.createDiv({cls:"ss-inbox-footer"});
   const selectionLine=footer.createDiv({cls:"ss-inbox-selection"});const selection=selectionLine.createSpan({attr:{role:"status","aria-live":"polite"}});
   const clear=button(selectionLine,"Clear",()=>{this.selected.clear();syncCheckboxes();update();});clear.setAttribute("aria-label","Clear selection");
@@ -58,11 +59,11 @@ export class ResourceInbox {
    count.textContent=format(this.total)+(this.total===1?" resource":" resources");selection.textContent=n?`${format(n)} selected`:"Select resources to copy, keep or hide";
    clear.hidden=drafts.hidden=actions.hidden=!n;clear.disabled=this.busy;drafts.disabled=blocked||n>200;drafts.title=n>200?"Select up to 200 resources for Markdown previews":"Preview the selected resources as Markdown";copy.disabled=keep.disabled=hide.disabled=blocked||!n||n>5000;
    keep.hidden=this.review==="rejected";keep.textContent=this.review==="approved"?"Undo keep":"Keep";if(this.review!=="approved"&&n>0&&[...this.selected.values()].every(e=>e.review==="approved")){keep.textContent="Kept";keep.disabled=true;}hide.textContent=this.review==="rejected"?"Restore":"Hide";
-   retry.hidden=!this.recovery.length;retry.disabled=this.busy||this.loading;
+   retry.hidden=!this.recovery.length&&!this.loadFailed;retry.textContent=this.recovery.length?"Retry operation":"Retry loading";retry.disabled=this.busy||this.loading;
    filter.disabled=search.inputEl.disabled=this.busy;root.setAttribute("aria-busy",String(this.loading||this.busy));
    const checked=this.rows.filter(e=>this.selected.has(e.key)).length;pageBox.checked=this.rows.length>0&&checked===this.rows.length;pageBox.indeterminate=checked>0&&checked<this.rows.length;pageBox.disabled=blocked||!this.rows.length;
    for(const box of Array.from(list.querySelectorAll<HTMLInputElement>(".ss-select-control")))box.disabled=blocked;
-   for(const details of Array.from(list.querySelectorAll<HTMLButtonElement>(".ss-resource-details")))details.disabled=this.busy;
+   for(const details of Array.from(list.querySelectorAll<HTMLButtonElement>(".ss-resource-details")))details.disabled=blocked;
    previous.disabled=this.offset===0||this.loading||this.busy;next.disabled=this.offset+40>=this.total||this.loading||this.busy;pagination.hidden=this.total<=40;
    range.textContent=this.total?`${format(this.offset+1)}–${format(Math.min(this.offset+40,this.total))} of ${format(this.total)}`:"0 resources";
    message.textContent=this.recovery.length?"An earlier operation needs recovery before saving new choices":this.lastMessage;
@@ -88,8 +89,8 @@ export class ResourceInbox {
   const load=async()=>{
    if(this.disposed)return;this.loading=true;const generation=this.generation;update();
    try{const result=await this.host.query({projectId:this.host.projectId(),review:this.review,search:this.search,selectionId:this.selectionId,offset:this.offset,limit:40});
-    if(this.disposed||generation!==this.generation)return;this.selectionId=result.selectionId;this.total=result.total;if(this.offset>=this.total&&this.offset>0){this.offset=Math.max(0,Math.floor((this.total-1)/40)*40);this.queued=true;return;}this.rows=result.records;this.recovery=result.recovery??[];this.dirty=false;renderRows();
-   }catch(e){if(!this.disposed&&generation===this.generation)this.lastMessage=this.host.error(e);}
+    if(this.disposed||generation!==this.generation)return;if(this.loadFailed)this.lastMessage="";this.loadFailed=false;this.selectionId=result.selectionId;this.total=result.total;if(this.offset>=this.total&&this.offset>0){this.offset=Math.max(0,Math.floor((this.total-1)/40)*40);this.queued=true;return;}this.rows=result.records;this.recovery=result.recovery??[];this.dirty=false;renderRows();
+   }catch(e){if(!this.disposed&&generation===this.generation){this.lastMessage=this.host.error(e);this.loadFailed=true;if(this.selectionId&&/SELECTION_CHANGED|SELECTION_EXPIRED/.test(this.lastMessage)){this.selectionId=undefined;this.selected.clear();this.offset=0;this.queued=true;}}}
    finally{this.loading=false;if(!this.disposed){update();if(this.queued){this.queued=false;void load();}}}
   };
   const apply=async(decision:"approved"|"rejected"|"pending")=>{
@@ -98,7 +99,7 @@ export class ResourceInbox {
    this.busy=true;this.lastMessage="Saving your choices…";update();
    const args=selectedReviewRequest(this.host.projectId(),crypto.randomUUID(),[...this.selected.values()],actual);
    try{const result=await this.host.review(args);if(this.disposed)return;this.selected.clear();this.lastMessage=`${result.saved} saved${result.failed?` · ${result.failed} changed or unavailable; refresh before reviewing them`:""}.`;this.selectionId=undefined;this.offset=0;this.generation++;this.queued=true;}
-   catch(e){if(!this.disposed){this.lastMessage=this.host.error(e);if(/SELECTION_CHANGED|SELECTION_EXPIRED/.test(this.lastMessage)){this.selectionId=undefined;this.selected.clear();this.offset=0;this.generation++;this.queued=true;}}}
+   catch(e){if(!this.disposed){this.lastMessage=this.host.error(e);this.recovery=[{projectId:args.projectId,requestId:args.requestId}];this.dirty=true;this.selectionId=undefined;this.generation++;this.queued=true;if(/SELECTION_CHANGED|SELECTION_EXPIRED/.test(this.lastMessage)){this.selected.clear();this.offset=0;}}}
    finally{this.busy=false;if(!this.disposed){update();if(this.queued){this.queued=false;void load();}}}
   };
   const reconcile=async()=>{if(this.busy||!this.recovery.length)return;this.busy=true;update();try{for(const pending of this.recovery)await this.host.review(pending);this.lastMessage="Previous review recovered.";}catch(e){this.lastMessage=this.host.error(e);}finally{this.busy=false;this.selectionId=undefined;request();}};

@@ -104,7 +104,9 @@ export class ResourceMemory{
       if(!this.canLike(a.scope,a.resource,a.fingerprint)||this.rejected(a.scope,a.resource)||!(await io.stillValid(a))){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
         if(await io.verify(a)){a.state="confirmed";a.updatedAt=new Date(now).toISOString();this.save();return;}
         if(a.state==="uncertain"){a.error="Still unconfirmed; manual reconciliation required";this.save();return;}
-        if(!this.enabled||this.rejected(a.scope,a.resource))return;
+        // Reviews and assessments can change while X's preflight is awaiting I/O.
+        if(a.state!=="pending"||!this.canLike(a.scope,a.resource,a.fingerprint)||this.rejected(a.scope,a.resource)){a.state="cancelled";a.updatedAt=new Date(now).toISOString();this.save();return;}
+        if(!this.enabled)return;
         a.state="in-progress";a.attempts++;a.updatedAt=new Date(now).toISOString();this.save();
         await io.send(a);a.state=(await io.verify(a))?"confirmed":"uncertain";a.updatedAt=new Date(now).toISOString();this.save();
       }catch(error){a.state=a.attempts?"uncertain":"failed";a.error=error instanceof Error?error.message.slice(0,160):"Feedback request failed";a.updatedAt=new Date(now).toISOString();if(/401|403|429/.test(a.error))this.data.feedbackEnabled=false;this.save();}

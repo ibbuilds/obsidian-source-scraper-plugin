@@ -8,9 +8,9 @@ The header, content and navigation/footer actions use whitespace instead of sepa
 
 ## Main journey
 
-1. Home: X / For You, actual connection state, one action (Connect X, Find resources, Stop or Retry), then Resources with its count. Configured example data must remain labeled examples. Fixed panel size: 400 × 500 px, clamped to the viewport.
-2. Resources: native search, native selection checkboxes, title opening source evidence, official domain, concise description, selected count and Preview drafts. A back arrow returns home. Scores and full evidence remain in the detail dialog. Non-pending human decisions remain visible.
-3. Options: import results, change/disconnect X, other registered sources, collapsed advanced tools, plugin settings and diagnostics. The back arrow returns to the originating screen. All advanced functionality remains available.
+1. Home: the selected source project and its own readiness, one action (Connect X, Find resources, Stop or Retry), then Resources with its count. Generic projects require no X session or Python reader. Configured example data must remain labeled examples. Fixed panel size: 400 × 500 px, clamped to the viewport.
+2. Resources: native search, explicit selection checkboxes, titles opening external resources and separate evidence buttons, official domain, concise description and Copy links / Keep / Hide. All resources, Kept and Hidden are views, not quality verdicts. Select page chooses only the 40 visible rows. Preview drafts is optional. A back arrow returns home.
+3. Options: import results, Add source, registered projects, relevant X session/collection controls, collapsed advanced tools, plugin settings and diagnostics. The back arrow returns to the originating screen. All advanced functionality remains available.
 4. Drafts: previews only. Source Scraper never writes notes. ChatGPT uses the existing separate connector only on the user's explicit order.
 
 ## Verification
@@ -19,4 +19,5 @@ The header, content and navigation/footer actions use whitespace instead of sepa
 - Genuine isolated Obsidian Desktop: status ordering and fixed label width; keyboard activation, back navigation, focus restoration, Escape/outside click; no idle DOM rewrites; import and invalid-import recovery; native filtering and clear button; native selection and preview; evidence; advanced tools; masked session setup, no plaintext preferences and Windows DPAPI restore across a genuine plugin reload; explicit collection/cancel/no duplicate runs; completed empty results; light/dark and narrow layout, including long names; passive MCP arrivals and cleanup on unload.
 - Existing isolated-vault files remain byte-for-byte unchanged throughout all scenarios.
 - Screenshots come from the genuine running plugin, with illustrative fixtures explicitly marked. They are not stand-alone HTML mockups.
-- Remaining external gate: load the owner's X session locally and inspect a real For You sample. Neither fixture success nor loading a local session certifies live feed access or quality.
+- Native recovery checks: a failed query can be retried in place; expired selections refresh without retaining stale checked rows; uncertain saves block new decisions and retry the original request identity. A stopped batch must finish before a new cycle starts.
+- Bounded live X reads have recorded acceptance, separate from CI. Neither fixture success nor loading a local session certifies current feed access or resource quality. Do not repeat an account mutation to smoke-test a build.
