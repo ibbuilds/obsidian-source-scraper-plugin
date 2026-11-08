@@ -13,9 +13,9 @@ The preset accepts either design or frontend usefulness. Categories cover UX res
 ## Browse and review without AI
 
 - **Qualified** is the default with category review enabled. It contains only current evidence reviews meeting configured requirements.
-- **To review** applies candidate filters to resource titles and descriptions before pagination. These are relevance signals, not a quality verdict. Missing metadata can leave relevant links outside this queue.
-- **Captured** preserves all visible collected links, including candidates missed by screening. No existing collection is deleted or mass-rejected.
-- **Excluded** contains evidence reviews below criteria. This is separate from Hide and can be reviewed again.
+- **To review** contains admitted candidates whose quality is not established. Admission rules apply automatically to every result view, evidence decision and direct-key staging/export route before pagination.
+- **All matches** contains only resources satisfying admission rules that have not failed current qualification. It cannot recover mismatches or failed sources. Raw observations remain private engine provenance, outside the working library.
+- Failed qualification is automatically discarded from ordinary results, even when previously kept. Explicit MCP quality=excluded remains available for diagnostics, separate from human Hide.
 - **Kept / Hidden** remain explicit human organization choices.
 
 Select up to 50 resources, choose **Review quality**, and open the resources you want to review. Choose a category and decision for each resource. The dialog shows eight resources per page and saves explicit decisions as one batch. There is no inferred whole-selection qualification. Qualification requires:
@@ -31,7 +31,7 @@ Unknown access, incomplete evidence and stale reviews remain pending. Reviewers 
 
 ## Use the existing MCP
 
-**source_scraper_research_packet** returns stable bounded batches, policy/profile hashes, reference sections, fingerprints, and the qualification input shape. With category review enabled, it reads screened pending candidates. For broader discovery, explicitly query **source_scraper_get_resources** with quality set to **all**.
+**source_scraper_research_packet** returns stable bounded batches, policy/profile hashes, reference sections, fingerprints, and the qualification input shape. With category review enabled, it reads screened pending candidates. Quality set to **all** still enforces admission and discards failed qualification; it never means an unfiltered capture list.
 
 After inspecting resources and references, submit up to 50 reviews to **source_scraper_qualify_resources**. The server validates every item before one ledger transaction. Invalid or stale evidence cannot partially qualify the batch. This tool never changes human reviews, writes notes or queues likes.
 
@@ -41,4 +41,4 @@ AI **assess_resources** remains a separate recommendation operation. Recommended
 
 ## Compatibility
 
-Category-enabled projects require an engine advertising **resource-quality-v1**. Earlier engines fail with an explicit update error rather than showing an unfiltered qualified list. Unconfigured projects retain the prior workflow. Private reviews are project-scoped and survive restart; raw engine records remain intact.
+Category-enabled projects require an engine advertising **resource-quality-v1** and **resource-admission-v1**. Earlier engines fail with an explicit update error rather than showing an unfiltered qualified list. Unconfigured projects retain the prior workflow. Private reviews are project-scoped and survive restart; raw engine records remain intact.

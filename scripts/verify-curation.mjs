@@ -16,12 +16,20 @@ try{
  const review={version:1,fingerprint:data.fingerprint,profileHash:packet.profileHash,baselineHash:packet.baseline.hash,category:"inspiration",decision:"qualified",reason:note,relevance:note,access:{mode:"unmetered-free",scope:"The substantial core collection is freely usable indefinitely; optional paid MCP integration is separate.",evidence:[proof]},criteria:packet.curation.categories.find(c=>c.id==="inspiration").criteria.map(c=>({id:c.id,verdict:"meets",note,evidence:[proof]})),comparisons:packet.baseline.links.map((r,i)=>({referenceUrl:r.url,sampleUrl:url+"/sample-"+i,note}))};
  await assert.rejects(call("qualify_resources",{items:[{key,review:{...review,access:{...review.access,mode:"metered"}}}]}),/QUALITY_NOT_ESTABLISHED/);assert.equal((await call("get_resources")).total,0);
  assert.equal((await call("qualify_resources",{items:[{key,review}]})).saved,1);assert.equal((await call("get_resources")).total,1);assert.equal((await call("get_resources",{quality:"pending"})).total,0);assert.equal((await call("get_resources",{quality:"all"})).total,1);
+ const excludedReview={...review,decision:"excluded",reason:"The verified core is metered and does not meet the free-use standard.",relevance:"",access:{mode:"metered",scope:"",evidence:[]},criteria:[],comparisons:[]};
+ assert.equal((await call("qualify_resources",{items:[{key,review:excludedReview}]})).saved,1);
+ assert.equal((await call("get_resources",{quality:"all"})).total,0);assert.equal((await call("get_resources",{quality:"excluded"})).total,1);assert.equal((await call("list_findings")).total,0);
+ assert.equal((await call("qualify_resources",{items:[{key,review}]})).saved,1);
  assert.equal(provider.memory.humanReview("user",data.entity.url),undefined);assert.equal(provider.memory.assessment("user",data.entity.url),undefined);assert.equal(provider.memory.actions().length,0);
  provider.dispose();provider=new SourceScraperProvider(options);assert.equal((await call("get_resources")).total,1);
  referenceText+="\nChanged baseline";assert.equal((await call("get_resources")).total,0);assert.equal((await call("get_resources",{quality:"pending"})).total,1);
  await assert.rejects(call("qualify_resources",{items:[{key,review}]}),/STALE/);
  referenceText=referenceText.replace("\nChanged baseline","");profile={...profile,curation:{...profile.curation,maxAgeDays:15}};assert.equal((await call("get_resources")).total,0);
- profile.curation.candidateFilters={version:1,entity:{fields:["title","attributes.description"],includeTerms:["this-term-cannot-match-our-fixture"]}};assert.equal((await call("get_resources",{quality:"pending"})).total,0);assert.equal((await call("get_resources",{quality:"all"})).total,1);
+ profile.curation.candidateFilters={version:1,entity:{fields:["title","attributes.description"],includeTerms:["this-term-cannot-match-our-fixture"]}};assert.equal((await call("get_resources",{quality:"pending"})).total,0);assert.equal((await call("get_resources",{quality:"all"})).total,0);
+ assert.equal((await call("inspect_resources",{keys:[key]})).records[0].profileMatched,false);
+ assert.equal((await call("list_findings")).total,0);
+ await assert.rejects(call("qualify_resources",{items:[{key,review}]}),/OUTSIDE_FILTERS/);
+ await assert.rejects(call("stage_findings",{keys:[key]}),/OUTSIDE_ADMISSION_FILTERS/);
  assert.equal(readFileSync(join(vault,"Existing.md"),"utf8"),"Unchanged user note");
- console.log(JSON.stringify({passed:true,realCli:true,qualified:1,captured:1,freeScopeGuard:true,categoryEvidence:true,defaultQualified:true,staleBaseline:true,stalePolicy:true,restart:true,humanReviewsChanged:0,likes:0,notesChanged:0}));
+ console.log(JSON.stringify({passed:true,realCli:true,qualified:1,captured:1,automaticDiscard:true,allViewsEnforceAdmission:true,directKeysCannotBypass:true,freeScopeGuard:true,categoryEvidence:true,defaultQualified:true,staleBaseline:true,stalePolicy:true,restart:true,humanReviewsChanged:0,likes:0,notesChanged:0}));
 }finally{provider?.dispose();rmSync(root,{recursive:true,force:true});}
