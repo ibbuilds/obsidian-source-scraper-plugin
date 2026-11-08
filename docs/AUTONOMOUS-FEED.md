@@ -201,3 +201,16 @@ store. Source Scraper never creates, edits, moves, renames or deletes vault note
 
 
 The scalable inbox is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit resource choices and the four optimized MCP entry points. The selection/comparison flow below remains available for imported/offline results.
+
+
+## Temporary read failures
+
+A possible temporary X read failure (HTTP 404, 500, 502, 503 or 504) schedules at
+most two automatic retries: after 30 seconds and then 120 seconds. The retry
+counter and deadline survive an Obsidian restart. A successful batch clears the
+counter; Pause/Stop take precedence. Checkpoints, committed pages and the work
+budget remain authoritative, so a retry does not restart the feed from scratch.
+A third consecutive failure blocks collection with an explicit recovery message.
+Manual Resume begins a new retry budget. HTTP 401/403/429, other access errors and
+unsupported operations still block without automatic retry. This policy applies
+to collection reads only; it never retries likes or changes account permissions.
