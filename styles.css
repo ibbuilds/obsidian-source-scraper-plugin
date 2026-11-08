@@ -299,3 +299,16 @@
 .ss-cycle-actions button { flex:1; min-width:max-content; }
 
 .ss-x-options { display:flex; flex-direction:column; gap:8px; }
+
+/* Category evidence stays inside the existing native bounded dialog. */
+.ss-quality-card { border-bottom:1px solid var(--background-modifier-border); padding:12px 0; }
+.ss-quality-card>summary { cursor:pointer; font-weight:var(--font-semibold); overflow-wrap:anywhere; }
+.ss-quality-review .setting-item, .ss-quality-review .setting-item-control { min-width:0; }
+.ss-quality-review textarea { resize:vertical; min-height:72px; max-height:180px; }
+.ss-quality-review input, .ss-quality-review select, .ss-feedback-criteria textarea { max-width:100%; }
+.ss-quality-review .ss-external-link { margin:8px 0; }
+
+.ss-inbox-filters .ss-quality-hint { grid-column:1 / -1; margin:0; color:var(--text-muted); font-size:var(--font-ui-smaller); line-height:1.4; }
+
+.ss-dialog-footer .ss-quality-summary { color:var(--text-muted); }
+.ss-dialog-footer .ss-quality-summary.ss-quality-error { color:var(--text-error); }

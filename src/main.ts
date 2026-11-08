@@ -1,3 +1,6 @@
+import {QualityReviewModal} from "./quality-review-modal.ts";
+import {DESIGN_FRONTEND_PRESET} from "./design-frontend-preset.ts";
+import {parseCurationPolicy} from "./curation-policy.ts";
 import {buildPublicSource} from "./source-project.ts";
 import {xPostContext,hasXSource,isXOnlyProject} from "./adapter-policy.ts";
 import {sourceProfile} from "./source-profile.ts";
@@ -494,7 +497,7 @@ class ScraperReview {
   render():void{
     const root=this.root;if(!root||!root.isConnected)return;
     if(this.plugin.resourceInboxReady()){
-      if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();}const project=this.plugin.resourceInboxProject();if(this.inboxProject!==project)this.inboxState=undefined;this.inboxProject=project;this.inbox=new ResourceInbox({projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
+      if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();}const project=this.plugin.resourceInboxProject();if(this.inboxProject!==project)this.inboxState=undefined;this.inboxProject=project;this.inbox=new ResourceInbox({qualityEnabled:Boolean(this.plugin.feedbackProfile(project)?.curation),qualify:records=>this.plugin.openQualityReview(records),projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
         detail:e=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,e,()=>this.plugin.detailedResource(e),(savedKey)=>{if(savedKey&&this.inboxState)this.inboxState.selected=this.inboxState.selected.filter(row=>row.key!==savedKey);setTimeout(()=>{void this.plugin.openView(true);},0);}).open();},drafts:records=>{this.plugin.closePopover();new ExportModal(this.app,this.plugin,records,()=>{setTimeout(()=>{void this.plugin.openView(true);},0);}).open();}},this.inboxState);
       this.inbox.mount(root);return;
     }
@@ -589,11 +592,17 @@ class ScraperReview {
 class FeedbackCriteriaModal extends Modal {
   constructor(app:Plugin["app"],private plugin:ScraperPlugin,private projectId:string){super(app);}
   onOpen(){
-    const {body,footer}=dialog(this,"Feedback criteria");this.modalEl.addClass("ss-feedback-criteria");
-    paragraph(body,"These preferences belong to this project on your computer. No topics are supplied by Source Scraper. Likes always require verified original links and the separate Automatic likes permission.");
+    const {body,footer}=dialog(this,"Selection criteria");this.modalEl.addClass("ss-feedback-criteria");
+    paragraph(body,"Choose what qualifies for this project. Design and frontend resources can each qualify using their own category. Keep/Hide and X likes remain separate.");
     const saved=this.plugin.feedbackProfile(this.projectId),draft:FeedbackProfile=saved?structuredClone(saved):{version:1,includeTerms:[],reuseTerms:[],excludeTerms:[],blockedPostTerms:[],requiredChecks:[]};
+    let policyText=JSON.stringify(draft.curation??DESIGN_FRONTEND_PRESET,null,2);
+    let qualityToggle:any;
+    new Setting(body).setName("Category quality review").setDesc("Requires evidence of useful free core access and category-specific comparisons with your references.").addToggle(t=>{qualityToggle=t;t.setValue(Boolean(draft.curation)).onChange(v=>{if(v)draft.curation=structuredClone(DESIGN_FRONTEND_PRESET);else delete draft.curation;});});
+    new Setting(body).setName("Design + frontend preset").setDesc("UX research, UI inspiration, design systems, components, effects, typography, frontend tools and accessibility.").addButton(b=>b.setButtonText("Use preset").onClick(()=>{draft.curation=structuredClone(DESIGN_FRONTEND_PRESET);policyText=JSON.stringify(draft.curation,null,2);editor.setValue(policyText);qualityToggle.setValue(true);status.setText("Design + frontend preset selected. Save criteria to apply.");}));
+    const advanced=body.createEl("details");advanced.createEl("summary",{text:"Advanced category rules"});
+    let editor:any;new Setting(advanced).setName("Category rules JSON").setDesc("Edit labels, required criteria and matching reference section names. Changes invalidate old qualification evidence.").addTextArea(t=>{editor=t;t.setValue(policyText).onChange(v=>{policyText=v;});});
     const fields:Array<["includeTerms"|"reuseTerms"|"excludeTerms"|"blockedPostTerms"|"referencePaths",string,string]>=[
-      ["referencePaths","Reference note paths","Comma-separated vault note paths. When configured, structural checks cannot authorize likes; a separate visual comparison is required."],
+      ["referencePaths","Reference note paths","Comma-separated vault note paths. Category reviews compare sources with links under matching headings in these notes. References are examples, not an automatic whitelist."],
       ["includeTerms","Topic keywords","Comma-separated words or phrases. Blank explicitly allows any topic."],
       ["reuseTerms","Reusable output keywords","Optional words or phrases the repository must mention when reusable output is required."],
       ["excludeTerms","Excluded keywords","Skip resources matching any of these words or phrases."],
@@ -607,7 +616,7 @@ class FeedbackCriteriaModal extends Modal {
     const save=(profile?:FeedbackProfile)=>{if(busy)return;busy=true;void this.plugin.saveFeedbackProfile(this.projectId,profile).then(()=>this.close()).catch(e=>{busy=false;status.setText(errorMessage(e));});};
     action(footer,"Cancel",()=>this.close());
     if(saved)action(footer,"Remove criteria",()=>save());
-    action(footer,"Save criteria",()=>{try{save(parseFeedbackProfile(draft));}catch(e){status.setText(errorMessage(e));}},true);
+    action(footer,"Save criteria",()=>{try{if(draft.curation)draft.curation=parseCurationPolicy(JSON.parse(policyText));save(parseFeedbackProfile(draft));}catch(e){status.setText(errorMessage(e));}},true);
     labelFields(body);
   }
   onClose(){this.contentEl.empty();}
@@ -932,6 +941,12 @@ export default class ScraperPlugin extends Plugin {
   }
   resourceInboxReady(){const entries=this.registeredProjects();return Boolean(this.provider&&entries.length&&(!this.imported||entries.some(p=>p.id===this.imported!.projectId)));}
   resourceInboxProject(){const id=this.imported?.projectId;return this.registeredProjects().some(p=>p.id===id)?id!:this.panelSnapshot().projectId;}
+  openSelectionCriteria(){this.closePopover();new FeedbackCriteriaModal(this.app,this,this.resourceInboxProject()).open();}
+  openQualityReview(records:EntityRecord[]){
+    if(!this.provider||!records.length||records.length>50)throw Error("Select 1–50 resources for quality review.");
+    const projectId=this.resourceInboxProject(),provider=this.provider;this.closePopover();
+    new QualityReviewModal(this.app,{load:async()=>({context:await provider.curationContext(projectId),records:(await provider.inspectResources(projectId,records.map(r=>r.key))).records}),save:items=>provider.qualifyResources({projectId,items},"user-interface"),done:()=>{setTimeout(()=>{void this.openView(true);},0);},error:errorMessage}).open();
+  }
   async queryResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");return this.provider.getResources(args);}
   async reviewResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");this.reviewRequest++;const result=await this.provider.reviewResources(args,"user-interface");if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));for(const e of this.imported.records)if(e.url){const human=this.provider.memory.humanReview("user",e.url);if(human)e.review=human.decision;}}return result;}
   private batchSaving=false;
@@ -972,7 +987,7 @@ export default class ScraperPlugin extends Plugin {
       snapshot:()=>this.panelSnapshot(),icon:(root,name)=>setIcon(root,name),
       settings:()=>{(this.app as unknown as {setting:{open():void;openTabById(id:string):void}}).setting.open();(this.app as unknown as {setting:{openTabById(id:string):void}}).setting.openTabById(this.manifest.id);},
       setup:()=>new XFeedSetupModal(this.app,this).open(),addSource:()=>new SourceSetupModal(this.app,this).open(),filters:()=>new FeedFiltersModal(this.app,this).open(),
-      cycle:()=>this.openCycleControls(),
+      cycle:()=>this.openCycleControls(),criteria:()=>this.openSelectionCriteria(),
       importFindings:()=>new ImportModal(this.app,this).open(),
       disconnect:()=>{void this.forgetLocalSession().catch(notify);},
       collect:id=>{void this.collectSelected(id);},

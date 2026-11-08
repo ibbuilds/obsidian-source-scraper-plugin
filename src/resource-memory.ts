@@ -1,3 +1,4 @@
+import type {Qualification} from "./curation-policy.ts";
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from "node:fs";
 import {dirname} from "node:path";
 import {randomUUID} from "node:crypto";
@@ -19,7 +20,7 @@ export type FeedbackAction={id:string;scope:string;resource:string;projectId:str
   state:"pending"|"in-progress"|"confirmed"|"failed"|"uncertain"|"cancelled";requestedAt:string;updatedAt:string;error?:string;attempts:number};
 export type HumanReview={decision:"pending"|"approved"|"rejected";reason:string;fingerprint:string;postSuitable:boolean;verifiedUsefulFreeAndQuality:boolean;at:string;origin:"user-interface"|"user-mcp"};
 type Rejection={scope:string;resource:string;reason:string;at:string;origin:string;active:boolean};
-type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];assessments:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean;localChecks?:Record<string,LocalResourceCheck>};
+type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];assessments:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean;qualifications?:Record<string,Qualification>;localChecks?:Record<string,LocalResourceCheck>};
 /** One provider owns this ledger. Scope is the authenticated account, shared across projects. */
 export class ResourceMemory{
   private data:State;
@@ -95,6 +96,9 @@ export class ResourceMemory{
     for(const a of this.data.actions)if(a.scope===scope&&this.identity(scope,a.resource)===resource&&a.origin==="local-policy"&&a.state==="pending"&&(!record.eligible||record.fingerprint!==a.fingerprint||record.profileHash!==a.profileHash))a.state="cancelled";
     this.data.history.push({kind:"local-resource-check",scope,resource,record});this.save();return record;
   }
+  qualification(projectId:string,url:string){return this.data.qualifications?.[projectId+"|"+this.identity("user",url)];}
+  qualifications(projectId:string){const prefix=projectId+"|";return Object.fromEntries(Object.entries(this.data.qualifications??{}).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[this.identity("user",k.slice(prefix.length)),structuredClone(v)]));}
+  recordQualification(projectId:string,url:string,record:Qualification){this.data.qualifications??={};const resource=this.identity("user",url);this.data.qualifications[projectId+"|"+resource]=structuredClone(record);this.data.history.push({kind:"qualification",projectId,resource,decision:record.decision,category:record.category,fingerprint:record.fingerprint,at:record.at,origin:record.origin,reason:record.reason});this.save();return structuredClone(record);}
   assessment(scope:string,url:string){return this.data.assessments[scope+"|"+this.identity(scope,url)];}
   get enabled(){return !this.closed&&this.data.feedbackEnabled;}
   setFeedback(enabled:boolean){this.data.feedbackEnabled=enabled;this.save();}

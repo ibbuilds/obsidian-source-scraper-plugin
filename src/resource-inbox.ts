@@ -2,6 +2,8 @@ import {ButtonComponent,SearchComponent,DropdownComponent,setIcon} from "obsidia
 import type {EntityRecord} from "./contracts.ts";
 import {selectedReviewRequest,resourceAccess} from "./resource-actions.ts";
 interface InboxHost {
+ qualityEnabled?:boolean;
+ qualify?:(records:EntityRecord[])=>void;
  projectId:()=>string;
  query:(args:Record<string,unknown>)=>Promise<any>;
  review:(args:Record<string,unknown>)=>Promise<any>;
@@ -30,7 +32,7 @@ export class ResourceInbox {
  private recovery:Array<{projectId:string;requestId:string}>=[];
  private rows:EntityRecord[]=[];
  private total=0;
- constructor(private host:InboxHost,state?:ResourceViewState){if(state){this.search=state.search;this.review=state.review;this.offset=state.offset;this.selected=new Map(state.selected.map(e=>[e.key,e]));}}
+ constructor(private host:InboxHost,state?:ResourceViewState){if(host.qualityEnabled)this.review="qualified";if(state){this.search=state.search;this.review=state.review;this.offset=state.offset;this.selected=new Map(state.selected.map(e=>[e.key,e]));}}
  viewState():ResourceViewState{return {search:this.search,review:this.review,offset:this.offset,selected:[...this.selected.values()]};}
  mount(root:HTMLElement){
   this.unmount();this.root=root;this.disposed=false;this.selectionId=undefined;root.empty();root.addClass("source-scraper-view","ss-inbox");
@@ -38,7 +40,8 @@ export class ResourceInbox {
   const selectLabel=summary.createEl("label",{cls:"ss-select-page"});const pageBox=selectLabel.createEl("input",{type:"checkbox",attr:{"aria-label":"Select visible resources"}});selectLabel.createSpan({text:"Select page"});
   const bar=root.createDiv({cls:"ss-inbox-filters"});const search=new SearchComponent(bar).setPlaceholder("Search resources").setValue(this.search);search.inputEl.setAttribute("aria-label","Search resources");
   const icon=search.inputEl.parentElement!.createSpan({cls:"ss-search-icon",attr:{"aria-hidden":"true"}});setIcon(icon,"search");
-  const view=new DropdownComponent(bar);for(const [value,label] of [["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]])view.addOption(value,label);view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
+  const view=new DropdownComponent(bar);for(const [value,label] of (this.host.qualityEnabled?[["qualified","Qualified"],["quality-pending","To review"],["quality-excluded","Excluded"],["all","Captured"],["approved","Kept"],["rejected","Hidden"]]:[["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]]))view.addOption(value,label);view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
+  if(this.host.qualityEnabled){const hint=bar.createEl("p",{cls:"ss-quality-hint",text:"To review narrows by topic. Captured keeps all links. Qualified requires evidence."});hint.setAttribute("role","note");}
   const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0","aria-label":"Resources"}});list.createDiv({cls:"ss-empty-results",text:"Loading resources…"});
   const pagination=root.createDiv({cls:"ss-pagination"});
   const previous=button(pagination,"Previous",()=>{this.offset=Math.max(0,this.offset-40);request(false);});const range=pagination.createSpan();
@@ -48,6 +51,7 @@ export class ResourceInbox {
   const footer=root.createDiv({cls:"ss-inbox-footer"});
   const selectionLine=footer.createDiv({cls:"ss-inbox-selection"});const selection=selectionLine.createSpan({attr:{role:"status","aria-live":"polite"}});
   const clear=button(selectionLine,"Clear",()=>{this.selected.clear();syncCheckboxes();update();});clear.setAttribute("aria-label","Clear selection");
+  const qualify=this.host.qualityEnabled?button(selectionLine,"Review quality",()=>{if(this.selected.size)this.host.qualify?.([...this.selected.values()]);}):undefined;
   const drafts=button(selectionLine,"Preview drafts",()=>{if(this.selected.size)this.host.drafts([...this.selected.values()]);});
   const actions=footer.createDiv({cls:"ss-inbox-actions"});
   const copy=button(actions,"Copy links",()=>{if(!this.selected.size)return;void navigator.clipboard.writeText([...this.selected.values()].map(e=>e.url).filter(Boolean).join("\n")).then(()=>{this.lastMessage="Links copied";update();},e=>{this.lastMessage=this.host.error(e);update();});},true);
@@ -56,8 +60,8 @@ export class ResourceInbox {
   const update=()=>{
    if(this.disposed)return;
    const n=this.selected.size,blocked=this.loading||this.dirty||this.busy||this.recovery.length>0,format=(n:number)=>n.toLocaleString("en-US");
-   count.textContent=format(this.total)+(this.total===1?" resource":" resources");selection.textContent=n?`${format(n)} selected`:"Select resources to copy, keep or hide";
-   clear.hidden=drafts.hidden=actions.hidden=!n;clear.disabled=this.busy;drafts.disabled=blocked||n>200;drafts.title=n>200?"Select up to 200 resources for Markdown previews":"Preview the selected resources as Markdown";copy.disabled=keep.disabled=hide.disabled=blocked||!n||n>5000;
+   count.textContent=format(this.total)+(this.review==="qualified"?(this.total===1?" qualified source":" qualified sources"):(this.total===1?" resource":" resources"));selection.textContent=n?`${format(n)} selected`:"Select resources to copy, keep or hide";
+   clear.hidden=drafts.hidden=actions.hidden=!n;clear.disabled=this.busy;if(qualify){qualify.hidden=!n;qualify.disabled=blocked||!n||n>50;qualify.title="Review up to 50 selected sources against category criteria";}drafts.disabled=blocked||n>200;drafts.title=n>200?"Select up to 200 resources for Markdown previews":"Preview the selected resources as Markdown";copy.disabled=keep.disabled=hide.disabled=blocked||!n||n>5000;
    keep.hidden=this.review==="rejected";keep.textContent=this.review==="approved"?"Undo keep":"Keep";if(this.review!=="approved"&&n>0&&[...this.selected.values()].every(e=>e.review==="approved")){keep.textContent="Kept";keep.disabled=true;}hide.textContent=this.review==="rejected"?"Restore":"Hide";
    retry.hidden=!this.recovery.length&&!this.loadFailed;retry.textContent=this.recovery.length?"Retry operation":"Retry loading";retry.disabled=this.busy||this.loading;
    filter.disabled=search.inputEl.disabled=this.busy;root.setAttribute("aria-busy",String(this.loading||this.busy));
@@ -71,7 +75,7 @@ export class ResourceInbox {
   };
   const renderRows=()=>{
    list.empty();
-   if(!this.rows.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:this.search?"No matches":this.review==="approved"?"No kept resources":this.review==="rejected"?"No hidden resources":"No resources here"});empty.createEl("p",{text:this.search?"Try another search or view.":"Collect links or choose another view."});}
+   if(!this.rows.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:this.search?"No matches":this.review==="approved"?"No kept resources":this.review==="rejected"?"No hidden resources":this.review==="qualified"?"No qualified sources yet":"No resources here"});empty.createEl("p",{text:this.search?"Try another search or view.":this.review==="qualified"?"Open To review or Captured, select sources, then Review quality.":"Collect links or choose another view."});}
    for(const e of this.rows){
     const row=list.createEl("article",{cls:"ss-record"}),head=row.createDiv({cls:"ss-resource-heading"});
     const box=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{"aria-label":"Select "+e.title}});box.dataset.key=e.key;box.checked=this.selected.has(e.key);box.disabled=this.busy;box.onchange=()=>{if(box.checked){if(this.selected.size>=5000){box.checked=false;this.lastMessage="Choose up to 5,000 resources per action";}else this.selected.set(e.key,e);}else this.selected.delete(e.key);update();};
@@ -79,17 +83,18 @@ export class ResourceInbox {
     const details=iconButton(head,"info","Details: "+e.title,()=>this.host.detail(e));details.classList.add("ss-resource-details");
     if(typeof e.attributes.description==="string")row.createEl("p",{cls:"ss-record-description",text:e.attributes.description});
     const source=row.createDiv({cls:"ss-record-source"});source.createSpan({text:e.url?new URL(e.url).hostname.replace(/^www\./,""):""});
+    if(e.resourceQuality)source.createSpan({cls:"ss-resource-state",text:e.resourceQuality.state==="qualified"?"Qualified · "+e.resourceQuality.category:e.resourceQuality.state==="excluded"?"Below criteria":"Needs evidence"});
     if(e.review==="approved")source.createSpan({cls:"ss-resource-state",text:"Kept"});else if(e.review==="rejected")source.createSpan({cls:"ss-resource-state",text:"Hidden"});
     else if(e.resourceAssessment?.decision==="recommended"&&!e.resourceAssessment.stale)source.createSpan({cls:"ss-resource-state",text:"AI recommended"});
     if(e.localResourceCheck?.eligible&&!e.localResourceCheck.stale)source.createSpan({cls:"ss-resource-state",text:"Local checks passed"});
-    row.createEl("p",{cls:"ss-resource-access",text:resourceAccess(e.attributes)});
+    row.createEl("p",{cls:"ss-resource-access",text:e.resourceQuality?.state==="qualified"?"Verified free core":resourceAccess(e.attributes)});
    }
   };
   pageBox.onchange=()=>{if(pageBox.checked)for(const e of this.rows){if(this.selected.size<5000)this.selected.set(e.key,e);else this.lastMessage="Choose up to 5,000 resources per action";}else for(const e of this.rows)this.selected.delete(e.key);syncCheckboxes();update();};
   const request=(reset=true)=>{this.dirty=true;if(reset){this.offset=0;this.selectionId=undefined;this.selected.clear();syncCheckboxes();}this.generation++;if(this.loading){this.queued=true;return;}void load();};
   const load=async()=>{
    if(this.disposed)return;this.loading=true;const generation=this.generation;update();
-   try{const result=await this.host.query({projectId:this.host.projectId(),review:this.review,search:this.search,selectionId:this.selectionId,offset:this.offset,limit:40});
+   try{const result=await this.host.query({projectId:this.host.projectId(),review:["qualified","quality-pending","quality-excluded"].includes(this.review)?"all":this.review,...(this.host.qualityEnabled?{quality:this.review==="qualified"?"qualified":this.review==="quality-pending"?"pending":this.review==="quality-excluded"?"excluded":"all"}:{}),search:this.search,selectionId:this.selectionId,offset:this.offset,limit:40});
     if(this.disposed||generation!==this.generation)return;if(this.loadFailed)this.lastMessage="";this.loadFailed=false;this.selectionId=result.selectionId;this.total=result.total;if(this.offset>=this.total&&this.offset>0){this.offset=Math.max(0,Math.floor((this.total-1)/40)*40);this.queued=true;return;}this.rows=result.records;this.recovery=result.recovery??[];this.dirty=false;renderRows();
    }catch(e){if(!this.disposed&&generation===this.generation){this.lastMessage=this.host.error(e);this.loadFailed=true;if(this.selectionId&&/SELECTION_CHANGED|SELECTION_EXPIRED/.test(this.lastMessage)){this.selectionId=undefined;this.selected.clear();this.offset=0;this.queued=true;}}}
    finally{this.loading=false;if(!this.disposed){update();if(this.queued){this.queued=false;void load();}}}
