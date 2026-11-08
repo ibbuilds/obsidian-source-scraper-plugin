@@ -12,7 +12,7 @@ describe("Category selection and batched evidence in native Obsidian",()=>{
   p.provider={cycle:{snapshot:()=>({state:"stopped"})},activity:()=>({running:false}),memory:{actions:()=>[],listRejected:()=>[]},curationContext:async()=>context,inspectResources:async(_id:string,keys:string[])=>({records:keys.map(key=>({key,entity:rows.find(e=>e.key===key),fingerprint:"a".repeat(64)}))}),qualifyResources:async(args:any,origin:string)=>{p.__quality.calls.push({args,origin});return {saved:args.items.length};}};
  });});
  after(async()=>{await browser.executeObsidian(({plugins})=>{const p=(plugins as any).sourceScraper,b=p.__qualityBefore;p.closePopover();p.settings=b.settings;p.provider=b.provider;p.review=b.review;p.panelSnapshot=b.panel;p.resourceInboxReady=b.ready;p.queryResourceInbox=b.query;p.resourceInboxProject=b.project;p.feedbackProfile=b.profile;p.connectMcp=b.connect;});});
- it("opens an honest empty qualified view and keeps captured links accessible",async()=>{
+ it("opens an honest empty qualified view and keeps only admitted matches accessible",async()=>{
   await browser.executeObsidian(async({plugins})=>{await (plugins as any).sourceScraper.openView(true);});
   await browser.$(".ss-inbox").waitForDisplayed();await browser.waitUntil(async()=>(await browser.$(".ss-count").getText()).includes("0 qualified"));
   expect(await browser.$('select[aria-label="Resource view"]').getValue()).toBe("qualified");expect(await browser.$(".ss-empty-results").getText()).toContain("No qualified sources");

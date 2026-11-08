@@ -32,7 +32,7 @@ export class ResourceInbox {
  private recovery:Array<{projectId:string;requestId:string}>=[];
  private rows:EntityRecord[]=[];
  private total=0;
- constructor(private host:InboxHost,state?:ResourceViewState){if(host.qualityEnabled)this.review="qualified";if(state){this.search=state.search;this.review=state.review;this.offset=state.offset;this.selected=new Map(state.selected.map(e=>[e.key,e]));}}
+ constructor(private host:InboxHost,state?:ResourceViewState){if(host.qualityEnabled)this.review="qualified";if(state){this.search=state.search;this.review=host.qualityEnabled&&state.review==="quality-excluded"?"qualified":state.review;this.offset=state.offset;this.selected=new Map(state.selected.map(e=>[e.key,e]));}}
  viewState():ResourceViewState{return {search:this.search,review:this.review,offset:this.offset,selected:[...this.selected.values()]};}
  mount(root:HTMLElement){
   this.unmount();this.root=root;this.disposed=false;this.selectionId=undefined;root.empty();root.addClass("source-scraper-view","ss-inbox");
@@ -40,8 +40,8 @@ export class ResourceInbox {
   const selectLabel=summary.createEl("label",{cls:"ss-select-page"});const pageBox=selectLabel.createEl("input",{type:"checkbox",attr:{"aria-label":"Select visible resources"}});selectLabel.createSpan({text:"Select page"});
   const bar=root.createDiv({cls:"ss-inbox-filters"});const search=new SearchComponent(bar).setPlaceholder("Search resources").setValue(this.search);search.inputEl.setAttribute("aria-label","Search resources");
   const icon=search.inputEl.parentElement!.createSpan({cls:"ss-search-icon",attr:{"aria-hidden":"true"}});setIcon(icon,"search");
-  const view=new DropdownComponent(bar);for(const [value,label] of (this.host.qualityEnabled?[["qualified","Qualified"],["quality-pending","To review"],["quality-excluded","Excluded"],["all","Captured"],["approved","Kept"],["rejected","Hidden"]]:[["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]]))view.addOption(value,label);view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
-  if(this.host.qualityEnabled){const hint=bar.createEl("p",{cls:"ss-quality-hint",text:"To review narrows by topic. Captured keeps all links. Qualified requires evidence."});hint.setAttribute("role","note");}
+  const view=new DropdownComponent(bar);for(const [value,label] of (this.host.qualityEnabled?[["qualified","Qualified"],["quality-pending","To review"],["all","All matches"],["approved","Kept"],["rejected","Hidden"]]:[["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]]))view.addOption(value,label);view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
+  if(this.host.qualityEnabled){const hint=bar.createEl("p",{cls:"ss-quality-hint",text:"Mismatches are discarded automatically. Only qualified sources are final results."});hint.setAttribute("role","note");}
   const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0","aria-label":"Resources"}});list.createDiv({cls:"ss-empty-results",text:"Loading resources…"});
   const pagination=root.createDiv({cls:"ss-pagination"});
   const previous=button(pagination,"Previous",()=>{this.offset=Math.max(0,this.offset-40);request(false);});const range=pagination.createSpan();
@@ -75,7 +75,7 @@ export class ResourceInbox {
   };
   const renderRows=()=>{
    list.empty();
-   if(!this.rows.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:this.search?"No matches":this.review==="approved"?"No kept resources":this.review==="rejected"?"No hidden resources":this.review==="qualified"?"No qualified sources yet":"No resources here"});empty.createEl("p",{text:this.search?"Try another search or view.":this.review==="qualified"?"Open To review or Captured, select sources, then Review quality.":"Collect links or choose another view."});}
+   if(!this.rows.length){const empty=list.createDiv({cls:"ss-empty-results"});empty.createEl("strong",{text:this.search?"No matches":this.review==="approved"?"No kept resources":this.review==="rejected"?"No hidden resources":this.review==="qualified"?"No qualified sources yet":"No resources here"});empty.createEl("p",{text:this.search?"Try another search or view.":this.review==="qualified"?"Candidates that pass the automatic filters still need quality evidence before they become results.":"Collect links or choose another view."});}
    for(const e of this.rows){
     const row=list.createEl("article",{cls:"ss-record"}),head=row.createDiv({cls:"ss-resource-heading"});
     const box=head.createEl("input",{type:"checkbox",cls:"ss-select-control",attr:{"aria-label":"Select "+e.title}});box.dataset.key=e.key;box.checked=this.selected.has(e.key);box.disabled=this.busy;box.onchange=()=>{if(box.checked){if(this.selected.size>=5000){box.checked=false;this.lastMessage="Choose up to 5,000 resources per action";}else this.selected.set(e.key,e);}else this.selected.delete(e.key);update();};
