@@ -17,6 +17,7 @@ export interface EntityRecord {
   revision?:string;
   updatedAt:string;
   observationCount:number;
+  resourceQuality?:{state:"qualified"|"pending"|"excluded";category:string;reason:string;stale?:boolean};
   resourceAssessment?:{decision:"recommended"|"pending"|"discarded";at:string;utility:string;stale?:boolean};
   localResourceCheck?:{policy:string;eligible:boolean;checkedAt:string;expiresAt:string;reasons:string[];stale?:boolean;checks?:Record<string,boolean>;evidence?:Array<{url:string;quote:string}>};
   provenance?:{

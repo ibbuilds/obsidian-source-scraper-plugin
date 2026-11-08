@@ -140,7 +140,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ibbuilds/source-scraper
-          ref: 62553f7262c68a29e8cb22f54daa3d3748e5ae4a
+          ref: f261d3e2d431ecfc5423f180b9579b8190cd6ff3
           path: engine
       - uses: actions/setup-node@v4
         with:
@@ -152,6 +152,8 @@ jobs:
         run: node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs engine/dist/source-scraper.mjs
       - name: Verify generic/custom adapter boundaries and X-only effects
         run: node --experimental-strip-types plugin/scripts/verify-adapter-boundaries.mjs engine/dist/source-scraper.mjs
+      - name: Verify category qualification, free access, freshness and raw inventory
+        run: node --experimental-strip-types plugin/scripts/verify-curation.mjs engine/dist/source-scraper.mjs
       - name: Verify fast inbox, bulk evaluation and interrupted commit recovery
         run: node --experimental-strip-types plugin/scripts/verify-fast-workflow.mjs engine/dist/source-scraper.mjs
 

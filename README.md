@@ -37,3 +37,7 @@ The current provider admits json-file, json-snapshot, rss, public-json, public-p
 The MCP endpoint can advertise new tools while an already open ChatGPT/Codex session retains an older inventory. Refresh/reconnect the existing connector to discover them. No new tunnel or second server is required.
 
 MIT license. Historical release documentation describes historical behavior; this branch's read-only vault boundary is authoritative for this integration.
+
+## Evidence-based selection
+
+Optional [category selection](docs/selection-criteria.md) supports UI/UX design or frontend resources, useful unmetered free access, editable reference benchmarks, native batch review without AI, and the same evidence workflow through MCP. Captured links, qualified sources, human choices and AI recommendations remain separate.

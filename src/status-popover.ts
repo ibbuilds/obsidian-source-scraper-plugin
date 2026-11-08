@@ -9,7 +9,7 @@ export interface PopoverHost {
   refreshResults?:(force?:boolean)=>Promise<void>;
   hasReviewInbox?:()=>boolean;
   reviewInboxKey?:()=>string;
-  cycle?:()=>void;addSource?:()=>void;
+  cycle?:()=>void;addSource?:()=>void;criteria?:()=>void;
   selectProject:(id:string)=>void;renderReview:(root:HTMLElement)=>void;unmountReview?:()=>void;renderTools:(root:HTMLElement)=>void;
 }
 let sequence=0;
@@ -145,6 +145,7 @@ export class ScraperPopover {
   private renderOptions(options:HTMLElement,snapshot:PanelSnapshot):void{
     options.classList.add("ss-options");
     const addSource=this.host.addSource?this.button(options,"Add source",()=>{this.close(false);this.host.addSource?.();},"ss-button ss-secondary"):undefined;
+    if(this.host.criteria)this.button(options,"Selection criteria",()=>{this.close(false);this.host.criteria?.();},"ss-button ss-secondary");
     const cycle=this.host.cycle?this.button(options,"Collection and feedback",()=>{this.close(false);this.host.cycle?.();},"ss-button ss-secondary"):undefined;
     this.button(options,"Import results",()=>{this.close(false);this.host.importFindings();},"ss-button ss-secondary");
     const xOptions=this.el(options,"div","ss-x-options");this.el(xOptions,"h3","ss-section-label","X account");
