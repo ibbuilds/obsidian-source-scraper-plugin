@@ -17,3 +17,28 @@ test("explicit continuous mode repeats bounded windows after cooldown and still 
  const cycle=new FeedCycle(join(root,"cycle.json"),async state=>{calls++;return {pages:state.pagesPerBatch,observations:2,duplicates:0,endReason:"work-limit"};},()=>{});
  try{cycle.start("feed",1,true);await settle();await cycle.tick(Date.now()+10000);const waiting=cycle.snapshot();assert.equal(waiting.state,"waiting");assert.equal(waiting.pages,1);assert.equal(waiting.budgetStartPages,1);await cycle.tick(waiting.nextAt-1);assert.equal(calls,1);await cycle.tick(waiting.nextAt+1);assert.equal(calls,2);await cycle.tick(waiting.nextAt+20000);assert.equal(cycle.snapshot().state,"waiting");cycle.setContinuous(false);assert.equal(cycle.snapshot().state,"paused");await cycle.tick(waiting.nextAt+999999);assert.equal(calls,2);cycle.pause();cycle.stop();assert.equal(cycle.snapshot().continuous,false);}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
 });
+
+for(const code of [404,500,502,503,504])test(`temporary X ${code} waits before retry and resets failures after success`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-cycle-retry-"));let calls=0;const cycle=new FeedCycle(join(root,"cycle.json"),async()=>{if(++calls===1)throw Error(`X_LOCAL_HTTP_${code}`);return {pages:1,observations:20,duplicates:0,endReason:"end-of-window"};},()=>{});
+ try{cycle.start("feed",10);await settle();const waiting=cycle.snapshot(),id=waiting.cycleId;assert.equal(waiting.state,"waiting");assert.equal(waiting.transientFailures,1);await cycle.tick(waiting.nextAt-1);assert.equal(calls,1);await cycle.tick(waiting.nextAt);assert.equal(calls,2);assert.equal(cycle.snapshot().transientFailures,0);assert.equal(cycle.snapshot().pages,1);assert.equal(cycle.snapshot().cycleId,id);}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});
+
+test("transient retry budget and cooldown survive restart, then stop after two retries",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-cycle-retry-restart-")),path=join(root,"cycle.json");let calls=0;const fail=async()=>{calls++;throw Error("X_LOCAL_HTTP_404");};let cycle=new FeedCycle(path,fail,()=>{});
+ try{cycle.start("feed",10);await settle();const first=cycle.snapshot();cycle.dispose();cycle=new FeedCycle(path,fail,()=>{});await cycle.tick(first.nextAt-1);assert.equal(calls,1);await cycle.tick(first.nextAt);const second=cycle.snapshot();assert.equal(second.state,"waiting");assert.equal(second.transientFailures,2);assert.equal(second.nextAt-first.nextAt,120000);await cycle.tick(second.nextAt);assert.equal(calls,3);assert.equal(cycle.snapshot().state,"blocked");assert.match(cycle.snapshot().reason,/retries exhausted/);await cycle.tick(second.nextAt+999999);assert.equal(calls,3);cycle.start("feed",10);await settle();assert.equal(cycle.snapshot().transientFailures,1);}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});
+
+for(const code of [403,429,400])test(`X ${code} remains blocked without automatic retries`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-cycle-no-retry-"));let calls=0;const cycle=new FeedCycle(join(root,"cycle.json"),async()=>{calls++;throw Error(`X_LOCAL_HTTP_${code}`);},()=>{});
+ try{cycle.start("feed",10);await settle();await cycle.tick(Date.now()+999999);assert.equal(calls,1);assert.equal(cycle.snapshot().state,"blocked");}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});
+
+test("pause cancels a scheduled read retry without losing the checkpoint",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-cycle-pause-retry-"));let calls=0;const cycle=new FeedCycle(join(root,"cycle.json"),async()=>{calls++;throw Error("X_LOCAL_HTTP_503");},()=>{});
+ try{cycle.start("feed",10);await settle();const waiting=cycle.snapshot();cycle.pause();await cycle.tick(waiting.nextAt+999999);assert.equal(calls,1);assert.equal(cycle.snapshot().state,"paused");assert.equal(cycle.snapshot().cycleId,waiting.cycleId);}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});
+
+test("retry reconciles committed pages and obeys the remaining budget",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"ss-cycle-retry-progress-"));let committed=0;const requested:number[]=[];const cycle=new FeedCycle(join(root,"cycle.json"),async state=>{requested.push(state.pagesPerBatch);committed++;if(committed===1)throw Object.assign(Error("X_LOCAL_HTTP_404"),{progress:{pages:1,observations:10,duplicates:0}});return {pages:1,observations:10,duplicates:0,endReason:"work-limit"};},()=>{},async()=>({pages:committed,observations:committed*10,duplicates:0}));
+ try{cycle.start("feed",2);await settle();assert.equal(cycle.snapshot().pages,1);await cycle.tick(cycle.snapshot().nextAt);assert.deepEqual(requested,[2,1]);assert.equal(cycle.snapshot().pages,2);assert.equal(cycle.snapshot().observations,20);await cycle.tick(cycle.snapshot().nextAt);assert.equal(cycle.snapshot().state,"paused");}finally{cycle.dispose();rmSync(root,{recursive:true,force:true});}
+});
