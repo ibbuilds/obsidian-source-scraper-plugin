@@ -1,0 +1,103 @@
+name: Integration bundle
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: integration-bundle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  integration:
+    name: Pinned engine, plugin and existing MCP host
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ibbuilds/source-scraper
+          ref: ad13a3bed258ed0c37f23291ad57026be152e5b2
+          path: engine
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ebullient/obsidian-vault-mcp
+          ref: 0f801bdb94cbf543a8f303b1ca950f30b2783595
+          path: host
+          persist-credentials: false
+      - name: Preserve exact source snapshots without credentials or local state
+        run: |
+          mkdir -p sources
+          git -C engine archive --format=tar.gz --output="$PWD/sources/engine.tar.gz" HEAD
+          git -C plugin archive --format=tar.gz --output="$PWD/sources/plugin.tar.gz" HEAD
+          git -C host archive --format=tar.gz --output="$PWD/sources/host.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-scraper-integration-sources
+          path: sources/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify and apply the reviewed host extension
+        run: |
+          node --input-type=module - <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          const policy=JSON.parse(readFileSync('plugin/compat/provider-api.json','utf8'));
+          const digest=createHash('sha256').update(readFileSync('plugin/compat/vault-as-mcp-1.2.0-provider-api.patch')).digest('hex');
+          const revision=execFileSync('git',['-C','host','rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(policy.apiVersion!==1||digest!==policy.patchSHA256||revision!==policy.upstreamCommit)throw Error('Host source or patch does not match the reviewed contract');
+          NODE
+          git -C host apply --check ../plugin/compat/vault-as-mcp-1.2.0-provider-api.patch
+          git -C host apply ../plugin/compat/vault-as-mcp-1.2.0-provider-api.patch
+      - run: npm ci --prefix engine --no-audit --no-fund
+      - run: npm ci --prefix plugin --no-audit --no-fund
+      - run: npm ci --prefix host --no-audit --no-fund
+      - name: Check and build the exact integration candidates
+        run: |
+          npm run check --prefix engine
+          npm test --prefix engine
+          npm run build:cli --prefix engine
+          npm run package --prefix plugin
+          npm exec --prefix host -- tsc --noEmit --project host/tsconfig.json
+          npm test --prefix host
+          npm run build --prefix host
+      - name: Exercise real CLI, curation, recovery and adapter boundaries
+        run: |
+          node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs "$PWD/engine/dist/source-scraper.mjs"
+          node --experimental-strip-types plugin/scripts/verify-curation.mjs "$PWD/engine/dist/source-scraper.mjs"
+          node --experimental-strip-types plugin/scripts/verify-fast-workflow.mjs "$PWD/engine/dist/source-scraper.mjs"
+          node --experimental-strip-types plugin/scripts/verify-adapter-boundaries.mjs "$PWD/engine/dist/source-scraper.mjs"
+      - name: Package verified components and immutable provenance
+        run: |
+          mkdir -p bundle/engine bundle/source-scraper bundle/vault-as-mcp
+          cp engine/dist/source-scraper.mjs bundle/engine/
+          cp plugin/main.js plugin/manifest.json plugin/styles.css bundle/source-scraper/
+          cp host/build/main.js host/build/manifest.json host/build/styles.css bundle/vault-as-mcp/
+          cp plugin/compat/provider-api.json bundle/
+          node --input-type=module - <<'NODE'
+          import {readFileSync,readdirSync,writeFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          const revision=path=>execFileSync('git',['-C',path,'rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const files={};
+          for(const directory of ['engine','source-scraper','vault-as-mcp'])for(const name of readdirSync('bundle/'+directory)){
+            const path=directory+'/'+name;files[path]=createHash('sha256').update(readFileSync('bundle/'+path)).digest('hex');
+          }
+          writeFileSync('bundle/integration.json',JSON.stringify({schemaVersion:1,engineCommit:revision('engine'),pluginCommit:revision('plugin'),hostCommit:revision('host'),hostPatch:JSON.parse(readFileSync('plugin/compat/provider-api.json','utf8')).patchSHA256,files,noteWritesSupported:false,deviceAcceptance:'not-tested',cloudConnectorAcceptance:'not-tested'},null,2)+'\n');
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-scraper-integration-bundle
+          path: bundle/
+          retention-days: 30
+          if-no-files-found: error
