@@ -24,6 +24,8 @@ The CLI must advertise entity schema v1, `agent-assessments-v1`, and `selected-e
 
 ## Tools
 
+The current inventory contains 28 tools. `src/mcp-provider.ts` exports the same definitions used by the runtime; regression tests check names, isolation and external-action annotations.
+
 All names below have the `source_scraper_` prefix. Inputs reject unknown fields. Project IDs resolve through the local registry; no tool accepts a shell command, arbitrary executable, extension path or database path.
 
 | Tool | Main input | Result/effect |
@@ -33,6 +35,8 @@ All names below have the `source_scraper_` prefix. Inputs reject unknown fields.
 | inspect_resources | projectId, keys (up to 50) | Retained evidence and current fingerprints in one call |
 | review_resources | projectId, requestId, explicit changes or explicitly requested whole selection | Replay-safe human choices; up to 5,000 per transaction, zero likes/notes |
 | assess_resources | projectId, items (up to 50) | Separate evidence-based AI records, never human approvals |
+| research_packet | projectId, optional selectionId/offset/limit | Screened research batches, configured category policy, reference baseline and fingerprints |
+| qualify_resources | projectId, items (up to 50) | Evidence-based category qualification, separate from human choices and AI recommendations; zero notes/likes |
 | cycle_status | none | Saved X cycle progress, budget and waiting reason |
 | control_cycle | projectId, action, optional maxPages | Start/resume, pause or stop the X connections only |
 | resource_decision | projectId, key, action | Explicit human decision, rejection, restore or alias |

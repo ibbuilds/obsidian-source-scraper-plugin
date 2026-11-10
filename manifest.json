@@ -1,7 +1,7 @@
 {
   "id": "source-scraper",
   "name": "Source Scraper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "1.9.2",
   "description": "Collect, filter and review linked resources. Manage findings and copy Markdown drafts locally, with optional AI assistance through MCP.",
   "author": "Source Scraper contributors",

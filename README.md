@@ -4,14 +4,14 @@ A general-purpose review client for [Source Scraper](https://github.com/ibbuilds
 
 **This development integration never creates or changes user vault notes.** ChatGPT consumes its findings and uses the separate existing Obsidian connector to write only when the user explicitly orders it. A score, recommendation, run, import or staged candidate is not write permission.
 
-The repository retains its original plugin identity, `source-scraper`. This branch extends the published 1.0.0 baseline; it is not a newly published release.
+The repository retains its original plugin identity, `source-scraper`. Version 1.1.0 includes the current 28-tool integration, read-only setup diagnostics and a verified offline installation bundle. Historical 1.0.0 downloads retain their original behavior.
 
 ## What works
 
 - A status-bar indicator immediately after ChatGPT, opening an anchored floating panel. No automatic sidebar or workspace tab.
 - Bounded entity JSON/NDJSON v1 import and generic evidence browsing, including records without URLs.
 - Optional explicit trusted CLI collection, export/import and human engine review; no automatic collection.
-- A locally enabled provider exposing 27 namespaced tools through the existing Vault as MCP server and existing tunnel.
+- A locally enabled provider exposing 28 namespaced tools through the existing Vault as MCP server and existing tunnel.
 - Registered projects, bounded jobs/status/cancel, paginated findings, evidence fingerprints, separate agent assessments, persistent staged references and read-only Markdown previews.
 - Source-independent project JSON inspection and note mapping. Remote project creation is limited to the external registered workspace.
 - Optional user-configured feedback without AI: private per-project topics and evidence requirements, bounded continuous X windows, separate local check records and guarded likes. No built-in topic or default profile; unsupported evidence stays pending. See [background feedback](docs/AUTONOMOUS-FEED.md).
@@ -19,6 +19,9 @@ The repository retains its original plugin identity, `source-scraper`. This bran
 There is no save-notes tool, write-permission toggle or create-notes button. Historical writer helpers are retained for compatibility tests but are not imported into the active plugin UI/provider bundle. The old embedded `x-feed-scraper` plugin and its data are not migrated or removed.
 
 ## Installation and configuration
+
+For the complete engine + plugin + existing MCP-host package, use the [integration installation guide](docs/INSTALL-INTEGRATION.md). The installer defaults to a read-only plan, preserves existing settings/projects and backs up each changed file. Run **Integration diagnostics** in plugin settings after installation. Neither installation nor diagnostics collect sources or write notes.
+
 
 Build this development checkout at `<vault>/.obsidian/plugins/source-scraper` with `npm ci`, `npm run check`, `npm test`, and `npm run build`, then enable Source Scraper in Obsidian. Preserve an existing engine checkout before reusing that directory. Import-only use needs neither the CLI nor MCP.
 
