@@ -1,0 +1,107 @@
+diff --git a/README.md b/README.md
+index 3dd6c3a..16bd33f 100644
+--- a/README.md
++++ b/README.md
+@@ -7 +7 @@
+-The repository retains its original plugin identity, `source-scraper`. This branch extends the published 1.0.0 baseline; it is not a newly published release.
++The repository retains its original plugin identity, `source-scraper`. Version 1.1.0 includes the current 28-tool integration, read-only setup diagnostics and a verified offline installation bundle. Historical 1.0.0 downloads retain their original behavior.
+@@ -14 +14 @@
+-- A locally enabled provider exposing 27 namespaced tools through the existing Vault as MCP server and existing tunnel.
++- A locally enabled provider exposing 28 namespaced tools through the existing Vault as MCP server and existing tunnel.
+@@ -22,0 +23,3 @@
++For the complete engine + plugin + existing MCP-host package, use the [integration installation guide](docs/INSTALL-INTEGRATION.md). The installer defaults to a read-only plan, preserves existing settings/projects and backs up each changed file. Run **Integration diagnostics** in plugin settings after installation. Neither installation nor diagnostics collect sources or write notes.
++
++
+diff --git a/docs/MCP-INTEGRATION.md b/docs/MCP-INTEGRATION.md
+index 9e532ad..835666d 100644
+--- a/docs/MCP-INTEGRATION.md
++++ b/docs/MCP-INTEGRATION.md
+@@ -26,0 +27,2 @@
++The current inventory contains 28 tools. `src/mcp-provider.ts` exports the same definitions used by the runtime; regression tests check names, isolation and external-action annotations.
++
+@@ -35,0 +38,2 @@
++| research_packet | projectId, optional selectionId/offset/limit | Screened research batches, configured category policy, reference baseline and fingerprints |
++| qualify_resources | projectId, items (up to 50) | Evidence-based category qualification, separate from human choices and AI recommendations; zero notes/likes |
+diff --git a/docs/USER-GUIDE.md b/docs/USER-GUIDE.md
+index 757857b..7c335a8 100644
+--- a/docs/USER-GUIDE.md
++++ b/docs/USER-GUIDE.md
+@@ -69 +69 @@
+-The optional connector exposes 26 Source Scraper tools to validate sources,
++The optional connector exposes 28 Source Scraper tools to validate sources,
+@@ -122,0 +123,5 @@
++
++
++## Integration diagnostics
++
++Use **Settings → Source Scraper → Integration diagnostics → Check setup**, or the command **Source Scraper: Check integration setup**. The report checks host provider support, local enablement, registration, trusted CLI bytes, required engine contracts and registered manifests without collecting a source or changing notes. ChatGPT discovery always remains a separate pending check: refresh the existing app tools, then call `source_scraper_capabilities` from the chat.
+diff --git a/manifest.json b/manifest.json
+index 261e37c..fc5002a 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -4 +4 @@
+-  "version": "1.0.0",
++  "version": "1.1.0",
+diff --git a/package-lock.json b/package-lock.json
+index cf4949b..0bf69d7 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -3 +3 @@
+-  "version": "1.0.0",
++  "version": "1.1.0",
+@@ -9 +9 @@
+-      "version": "1.0.0",
++      "version": "1.1.0",
+diff --git a/package.json b/package.json
+index 2494b0b..84a5c76 100644
+--- a/package.json
++++ b/package.json
+@@ -3 +3 @@
+-  "version": "1.0.0",
++  "version": "1.1.0",
+diff --git a/src/main.ts b/src/main.ts
+index 71dd353..839b9d7 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -0,0 +1,2 @@
++import {diagnoseIntegration} from "./integration-health.ts";
++import {IntegrationDiagnosticsModal} from "./integration-diagnostics-modal.ts";
+@@ -667,0 +670 @@
++    new Setting(connection).setName("Integration diagnostics").setDesc("Check engine trust, host compatibility and tool registration without collecting sources.").addButton(b=>b.setButtonText("Check setup").onClick(()=>this.plugin.showIntegrationDiagnostics()));
+@@ -736,0 +740 @@
++    this.addCommand({id:"integration-diagnostics",name:"Check integration setup",callback:()=>this.showIntegrationDiagnostics()});
+@@ -853,0 +858,6 @@
++  showIntegrationDiagnostics():void{
++    const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
++    new IntegrationDiagnosticsModal(this.app,()=>diagnoseIntegration({pluginVersion:this.manifest.version,
++      vaultPath:this.app.vault.adapter instanceof FileSystemAdapter?this.app.vault.adapter.getBasePath():"",settings:this.settings,
++      host:{present:Boolean(host),apiVersion:host?.toolProviderApiVersion,providerEnabled:host?.settings?.enabledToolProviders?.includes("source-scraper")===true,registeredTools:this.disposeProvider?this.provider?.tools.length??0:0}})).open();
++  }
+diff --git a/src/mcp-provider.ts b/src/mcp-provider.ts
+index 4bb5475..26e8439 100644
+--- a/src/mcp-provider.ts
++++ b/src/mcp-provider.ts
+@@ -117,0 +118,9 @@
++/** Fresh definitions for host registration, diagnostics and build-time inventory. */
++export function sourceScraperToolDefinitions():Definition[]{
++  const external=new Set(["run_project","control_cycle","resource_decision","assess_resource","assess_resources","control_feedback"]);
++  return definitions.map(([name,description,properties,required,readOnlyHint])=>({
++    name:"source_scraper_"+name,description,inputSchema:{type:"object",properties:structuredClone(properties),required:[...required],additionalProperties:false},
++    annotations:{readOnlyHint,destructiveHint:false,openWorldHint:external.has(name)}
++  }));
++}
++
+@@ -122,4 +131 @@
+-  readonly tools:Definition[]=definitions.map(([name,description,properties,required,readOnlyHint])=>({
+-    name:"source_scraper_"+name,description,inputSchema:{type:"object",properties,required,additionalProperties:false},
+-    annotations:{readOnlyHint,destructiveHint:false,openWorldHint:name==="run_project"}
+-  }));
++  readonly tools:Definition[]=sourceScraperToolDefinitions();
+diff --git a/versions.json b/versions.json
+index f8ce13e..d5edda8 100644
+--- a/versions.json
++++ b/versions.json
+@@ -3 +3,2 @@
+-  "1.0.0": "1.9.2"
++  "1.0.0": "1.9.2",
++  "1.1.0": "1.9.2"
