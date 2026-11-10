@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ibbuilds/source-scraper
-          ref: ad13a3bed258ed0c37f23291ad57026be152e5b2
+          ref: c60e0cbbe41a2ab9376318951917778ac5a8f422
           path: engine
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -66,9 +66,8 @@ jobs:
         run: |
           npm run check --prefix engine
           npm test --prefix engine
-          npm run build:cli --prefix engine
           npm run package --prefix plugin
-          npm exec --prefix host -- tsc --noEmit --project host/tsconfig.json
+          (cd host && npx tsc --noEmit)
           npm test --prefix host
           npm run build --prefix host
       - name: Exercise real CLI, curation, recovery and adapter boundaries
@@ -79,11 +78,17 @@ jobs:
           node --experimental-strip-types plugin/scripts/verify-adapter-boundaries.mjs "$PWD/engine/dist/source-scraper.mjs"
       - name: Package verified components and immutable provenance
         run: |
-          mkdir -p bundle/engine bundle/source-scraper bundle/vault-as-mcp
+          mkdir -p bundle/engine bundle/source-scraper bundle/vault-as-mcp bundle/licenses
           cp engine/dist/source-scraper.mjs bundle/engine/
           cp plugin/main.js plugin/manifest.json plugin/styles.css bundle/source-scraper/
           cp host/build/main.js host/build/manifest.json host/build/styles.css bundle/vault-as-mcp/
+          cp engine/LICENSE bundle/licenses/engine.txt
+          cp plugin/LICENSE bundle/licenses/plugin.txt
+          cp host/LICENSE bundle/licenses/vault-as-mcp.txt
           cp plugin/compat/provider-api.json bundle/
+          cp plugin/compat/vault-as-mcp-1.2.0-provider-api.patch bundle/
+          cp plugin/scripts/install-integration.mjs bundle/install.mjs
+          cp plugin/docs/INSTALL-INTEGRATION.md bundle/README.md
           node --input-type=module - <<'NODE'
           import {readFileSync,readdirSync,writeFileSync} from 'node:fs';
           import {createHash} from 'node:crypto';
@@ -95,6 +100,8 @@ jobs:
           }
           writeFileSync('bundle/integration.json',JSON.stringify({schemaVersion:1,engineCommit:revision('engine'),pluginCommit:revision('plugin'),hostCommit:revision('host'),hostPatch:JSON.parse(readFileSync('plugin/compat/provider-api.json','utf8')).patchSHA256,files,noteWritesSupported:false,deviceAcceptance:'not-tested',cloudConnectorAcceptance:'not-tested'},null,2)+'\n');
           NODE
+      - name: Install the actual bundle in an isolated vault and run the offline starter
+        run: node plugin/scripts/verify-integration-install.mjs "$PWD/bundle"
       - uses: actions/upload-artifact@v4
         with:
           name: source-scraper-integration-bundle
