@@ -66,7 +66,7 @@ session or format changes made meanwhile in other screens.
 
 ## Use from ChatGPT
 
-The optional connector exposes 26 Source Scraper tools to validate sources,
+The optional connector exposes 28 Source Scraper tools to validate sources,
 start bounded jobs, read findings, record AI recommendations separately from
 human decisions and maintain a persistent selection. Recommendations include
 evidence and references; they are not independent verification or permission to
@@ -120,3 +120,8 @@ available through Copy links and Preview drafts. No AI calls or note writes are 
 The resource library is the default for registered projects. See [Resource inbox](RESOURCE-INBOX.md) for explicit selections and the four optimized MCP entry points. The comparison flow above remains available for imported/offline results.
 
 See [adapter boundaries](ADAPTER-BOUNDARIES.md) for built-in sources, custom local adapters and the separate X capabilities.
+
+
+## Integration diagnostics
+
+Use **Settings → Source Scraper → Integration diagnostics → Check setup**, or the command **Source Scraper: Check integration setup**. The report checks host provider support, local enablement, registration, trusted CLI bytes, required engine contracts and registered manifests without collecting a source or changing notes. ChatGPT discovery always remains a separate pending check: refresh the existing app tools, then call `source_scraper_capabilities` from the chat.

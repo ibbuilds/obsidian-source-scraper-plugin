@@ -115,14 +115,20 @@ export function writeWorkspaceProject(workspacePath:string,vaultPath:string,mani
   return {id:manifest.id,configPath,manifestHash:hash(raw)};
 }
 
+/** Fresh definitions for host registration, diagnostics and build-time inventory. */
+export function sourceScraperToolDefinitions():Definition[]{
+  const external=new Set(["run_project","control_cycle","resource_decision","assess_resource","assess_resources","control_feedback"]);
+  return definitions.map(([name,description,properties,required,readOnlyHint])=>({
+    name:"source_scraper_"+name,description,inputSchema:{type:"object",properties:structuredClone(properties),required:[...required],additionalProperties:false},
+    annotations:{readOnlyHint,destructiveHint:false,openWorldHint:external.has(name)}
+  }));
+}
+
 /** Composable provider using public CLI contracts, with no SQLite access. */
 export class SourceScraperProvider {
   readonly apiVersion=1 as const;
   readonly id="source-scraper";
-  readonly tools:Definition[]=definitions.map(([name,description,properties,required,readOnlyHint])=>({
-    name:"source_scraper_"+name,description,inputSchema:{type:"object",properties,required,additionalProperties:false},
-    annotations:{readOnlyHint,destructiveHint:false,openWorldHint:name==="run_project"}
-  }));
+  readonly tools:Definition[]=sourceScraperToolDefinitions();
   private state:State;
   readonly memory:ResourceMemory;
   readonly cycle:FeedCycle;

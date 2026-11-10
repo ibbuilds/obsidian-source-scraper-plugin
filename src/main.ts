@@ -1,3 +1,5 @@
+import {diagnoseIntegration} from "./integration-health.ts";
+import {IntegrationDiagnosticsModal} from "./integration-diagnostics-modal.ts";
 import {QualityReviewModal} from "./quality-review-modal.ts";
 import {DESIGN_FRONTEND_PRESET} from "./design-frontend-preset.ts";
 import {parseCurationPolicy} from "./curation-policy.ts";
@@ -665,6 +667,7 @@ class ScraperSettings extends PluginSettingTab {
     new Setting(xSettings).setName("X session").setDesc("Connect X or renew an existing session.").addButton(b=>b.setButtonText(this.plugin.localSession()?"Change session":"Connect X").onClick(()=>new XFeedSetupModal(this.app,this.plugin).open()));
     new Setting(xSettings).setName("Read from X").setDesc("Allow reading your For You feed. Turning this off deletes the saved session.").addToggle(t=>t.setValue(draft.xProviderEnabled==="true").onChange(v=>{change("xProviderEnabled",String(v));}));
     new Setting(connection).setName("MCP access").setDesc("Optional AI connection through Vault as MCP. Manual controls work without it.").addToggle(t=>t.setValue(draft.mcpEnabled==="true").onChange(v=>{change("mcpEnabled",String(v));}));
+    new Setting(connection).setName("Integration diagnostics").setDesc("Check engine trust, host compatibility and tool registration without collecting sources.").addButton(b=>b.setButtonText("Check setup").onClick(()=>this.plugin.showIntegrationDiagnostics()));
     const notes=section("Drafts");
     new Setting(notes).setName("Suggested folder").setDesc("Drafts are previews. The plugin does not create notes.").addText(t=>t.setPlaceholder("Source Scraper/Imported").setValue(draft.outputFolder).onChange(v=>{change("outputFolder",v);}));
     new Setting(notes).setName("Properties and content").addButton(b=>b.setButtonText("Edit format").onClick(()=>new NoteMappingModal(this.app,this.plugin).open()));
@@ -734,6 +737,7 @@ export default class ScraperPlugin extends Plugin {
       if((event.key==="Enter"||event.key===" ")&&!event.repeat){event.preventDefault();if(this.popover?.isOpen)this.closePopover(true);else void this.openView();}
     });
     this.addCommand({id:"open-panel",name:"Open Source Scraper",callback:()=>{void this.openView();}});
+    this.addCommand({id:"integration-diagnostics",name:"Check integration setup",callback:()=>this.showIntegrationDiagnostics()});
     this.addSettingTab(new ScraperSettings(this.app,this));
     this.app.workspace.onLayoutReady(()=>{
       if(this.unloaded)return;
@@ -850,6 +854,12 @@ export default class ScraperPlugin extends Plugin {
       if(!this.unloaded){this.uiMessage="Collection complete.";this.uiError="";}
     }catch(error){if(!this.unloaded&&provider===this.provider){this.uiError=errorMessage(error);this.uiJobId=undefined;}}
     finally{this.uiStarting=false;this.uiPolling=false;this.updateStatus();}
+  }
+  showIntegrationDiagnostics():void{
+    const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
+    new IntegrationDiagnosticsModal(this.app,()=>diagnoseIntegration({pluginVersion:this.manifest.version,
+      vaultPath:this.app.vault.adapter instanceof FileSystemAdapter?this.app.vault.adapter.getBasePath():"",settings:this.settings,
+      host:{present:Boolean(host),apiVersion:host?.toolProviderApiVersion,providerEnabled:host?.settings?.enabledToolProviders?.includes("source-scraper")===true,registeredTools:this.disposeProvider?this.provider?.tools.length??0:0}})).open();
   }
   private connectMcp():void{
     const host=(this.app as unknown as {plugins:{getPlugin(id:string):any}}).plugins.getPlugin("vault-as-mcp");
