@@ -333,7 +333,8 @@ export class SourceScraperProvider {
     const minimum=manifest.filters?.observation?.numericRanges?.find(r=>r.field==="attributes.metrics.likes")?.min??0;
     return {version:1,includeTerms:p.includeTerms,excludeTerms:[...new Set([...(target==="observations"?(p.postExcludeTerms??p.excludeTerms):p.excludeTerms),...p.blockedPostTerms])].sort(),minimumLikes:Math.max(minimum,p.minimumLikes??1),...(p.description?{description:p.description}:{}),...(p.positiveExamples?{positiveExamples:p.positiveExamples}:{}),...(p.negativeExamples?{negativeExamples:p.negativeExamples}:{})};
   }
-  private async topicCommand(projectId:string,input:any){
+  private topicCommand(projectId:string,input:any){const next=this.resourceLane.then(()=>this.runTopicCommand(projectId,input));this.resourceLane=next.catch(()=>{});return next;}
+  private async runTopicCommand(projectId:string,input:any){
     const {config}=this.project(projectId);if(!this.engineChecked)await this.invoke(projectId,"validate");
     if(!this.engineCapabilities.includes("topic-relevance-v1"))throw Error("TOPIC_REVIEW_UNAVAILABLE: update the trusted engine");
     return this.bridge.topicBatch(config,{...input,profile:this.topicProfile(projectId,input.target)});
