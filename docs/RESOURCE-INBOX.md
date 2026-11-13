@@ -61,3 +61,9 @@ these figures do not measure X, network latency, an AI model or all UI/ledger
 work. Reproduce with the engine scripts/bench-resource-workflow.mjs script.
 
 If a review outcome remains uncertain, the inbox shows Retry operation and temporarily disables further decisions. Reconciliation reuses its durable request ID. A restart also tries each unresolved operation once.
+
+Automatic resource assessments are scoped to the registered project and current
+manifest/feedback profile. Changing criteria makes prior automatic assessments
+inactive; their history and explicit human choices are retained. After inspecting,
+supply each record's `assessmentProfileHash` as `assessment.profileHash` when using
+`assess_resource` or `assess_resources`. Missing or stale hashes are rejected.
