@@ -15,14 +15,14 @@ try{
  const {runProject}=await load("packages/core/engine.ts"),{createDefaultRegistry}=await load("packages/core/extensions.ts");
  const {KnowledgeStore}=await load("packages/storage/knowledge.ts"),registry=createDefaultRegistry();let sourceReads=0;
  const observations=[
-  {id:"101",type:"x-post",url:"https://x.com/designer/status/101",text:"UI typography, hierarchy and spacing study",urls:[],media:["https://pbs.twimg.com/media/ui.jpg"],attributes:{metrics:{likes:120},mediaEvidenceComplete:true}},
+  {id:"101",type:"x-post",url:"https://x.com/designer/status/101",text:"UI typography, hierarchy and spacing study: small demo",urls:[],media:["https://pbs.twimg.com/media/ui.jpg"],attributes:{metrics:{likes:120},mediaEvidenceComplete:true}},
   {id:"102",type:"x-post",url:"https://x.com/designer/status/102",text:"A reusable UI toolkit with direct source files",urls:["https://example.org/toolkit"],media:[],attributes:{metrics:{likes:50},mediaEvidenceComplete:true}},
   {id:"103",type:"x-post",url:"https://x.com/news/status/103",text:"politics and unrelated news",urls:["https://example.org/news"],media:[],attributes:{metrics:{likes:10000},mediaEvidenceComplete:true}}
  ];
  registry.sources.set("x-for-you-local",{id:"x-for-you-local",async collect(){sourceReads++;return {observations,hasMore:false};}});
  const project={id:"topic-contract",name:"Retained X fixture",sources:[{id:"feed",adapter:"x-for-you-local",config:{accountId:"123456"}}],pipeline:["x-discovery"],evaluator:"keyword",policy:{includeKeywords:[],excludeKeywords:[],minimumScore:0},outputs:[]};
  const configPath=join(workspace,"project.json"),raw=JSON.stringify(project),database=join(workspace,".source-scraper.sqlite");writeFileSync(configPath,raw);await runProject(database,project,registry);
- let profile={version:1,description:"Interface design and reusable UI sources",includeTerms:["UI"],excludeTerms:["politics"],blockedPostTerms:[],reuseTerms:[],requiredChecks:[],minimumLikes:10};
+ let profile={version:1,description:"Interface design and reusable UI sources",includeTerms:["UI"],excludeTerms:["politics","small demo"],postExcludeTerms:["politics"],blockedPostTerms:[],reuseTerms:[],requiredChecks:[],minimumLikes:10};
  let likesAllowed=false;
  const options={cliPath:cli,cliHash:digest(readFileSync(cli)),nodeExecutable:process.execPath,projects:[{id:project.id,configPath,manifestHash:digest(raw)}],workspacePath:workspace,statePath:join(root,"private","state.json"),vaultPath:vault,allowXProvider:true,allowXLikes:()=>likesAllowed,feedbackProfile:()=>profile,mapping:()=>DEFAULT_NOTE_MAPPING_JSON,pathExists:()=>false,stage:()=>{throw Error("No staging expected");},checkRead:()=>{},readReference:async()=>""};
  provider=new SourceScraperProvider(options);const call=(name,args={})=>provider.execute("source_scraper_"+name,{projectId:project.id,...args});
