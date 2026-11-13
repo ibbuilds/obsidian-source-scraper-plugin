@@ -13,7 +13,7 @@ try{
  assert.equal(readFileSync(join(vault,'References.md'),'utf8'),'Protected synthetic reference');
  const settings=JSON.parse(readFileSync(join(vault,'.obsidian/plugins/source-scraper/data.json'),'utf8'));
  const invoke=(...args)=>JSON.parse(execFileSync(process.execPath,[settings.cliPath,...args],{encoding:'utf8',maxBuffer:9_000_000,timeout:30000}));
- const version=invoke('version');assert.equal(version.version,'0.15.0');assert.ok(version.capabilities.includes('resource-admission-v1'));
+ const version=invoke('version');assert.equal(version.version,'0.16.0');assert.ok(version.capabilities.includes('topic-relevance-v1'));assert.ok(version.capabilities.includes('resource-admission-v1'));
  const project=JSON.parse(settings.mcpProjectsJson)[0];assert.equal(invoke('validate','--config',project.configPath).valid,true);
  const run=invoke('run','--config',project.configPath);assert.equal(run.result.success,true);
  const data=invoke('export','--config',project.configPath);assert.equal(data.count,1);assert.equal(data.records[0].url,'https://example.org/resource');

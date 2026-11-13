@@ -23,7 +23,7 @@ export class CliBridge {
   cancel():void{this.controller?.abort();}
   private async command(config:CliConfig,command:string,args:string[],timeout=90000,input?:string):Promise<unknown>{
     if(this.running)throw new Error("Another Source Scraper command is running");
-    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress","resource-batch","resource-evidence"]);
+    const cmd=new Set(["version","adapters","projects","validate","run","query","inspect","export","review","reprocess","assessment-record","assessment-list","x-feedback","cycle-progress","resource-batch","resource-evidence","topic-batch","process-pending"]);
     if(!cmd.has(command))throw new Error("Command not allowed");
     const script=realpathSync(config.cliPath);
     const node=config.nodeExecutable.trim()||"node";
@@ -115,9 +115,13 @@ export class CliBridge {
     const raw=JSON.stringify(request);if(Buffer.byteLength(raw)>8_000_000)throw Error("Resource request exceeds 8 MB");
     return this.command(config,"resource-batch",["--config",config.configPath],120000,raw);
   }
+  async topicBatch(config:CliConfig,request:unknown):Promise<any>{
+    const raw=JSON.stringify(request);if(Buffer.byteLength(raw)>8_000_000)throw Error("Topic request exceeds 8 MB");
+    return this.command({...config,allowXProvider:false,allowXLikes:false,xSession:undefined,xPythonPath:undefined},"topic-batch",["--config",config.configPath],120000,raw);
+  }
   /** Public typed consumers supply fixed command/flag vectors; no shell is involved. */
-  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review"|"resource-evidence",args:string[]=[]):Promise<unknown>{
-    return this.command(config,command,args,120000);
+  async invoke(config:CliConfig,command:"version"|"adapters"|"projects"|"validate"|"run"|"query"|"inspect"|"export"|"reprocess"|"assessment-record"|"assessment-list"|"x-feedback"|"cycle-progress"|"review"|"resource-evidence"|"process-pending",args:string[]=[]):Promise<unknown>{
+    return this.command(command==="process-pending"?{...config,allowXProvider:false,allowXLikes:false,xSession:undefined,xPythonPath:undefined}:config,command,args,120000);
   }
   async checkVersion(config:CliConfig):Promise<string>{
     const v=await this.command(config,"version",[],15000) as Record<string,unknown>;

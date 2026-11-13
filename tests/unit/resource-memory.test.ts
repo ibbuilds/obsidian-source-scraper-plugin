@@ -1,6 +1,30 @@
 import {test} from "node:test";import assert from "node:assert/strict";
-import {mkdtempSync,rmSync,readFileSync,writeFileSync} from "node:fs";import {join} from "node:path";import {tmpdir} from "node:os";
+import {mkdtempSync,rmSync,readFileSync,writeFileSync,readdirSync} from "node:fs";import {join} from "node:path";import {tmpdir} from "node:os";
 import {ResourceMemory,resourceIdentity,type Recommendation} from "../../src/resource-memory.ts";
+import type {PostReview} from "../../src/resource-memory.ts";
+
+const postProof=():PostReview=>({id:"review-one",projectId:"one",sourceId:"feed",accountId:"123",postId:"456",postUrl:"https://x.com/example/status/456",postTextHash:"b".repeat(64),fingerprint:"a".repeat(64),profileHash:"c".repeat(64),state:"pertinent",wholePostReviewed:true,uncertainties:[],expiresAt:new Date(Date.now()+3600000).toISOString(),minimumLikes:10,origin:"user-interface",urls:[],media:["https://pbs.twimg.com/media/ui.jpg"]});
+
+test("unlinked posts have an independent dry-run review and replay-safe like queue",()=>fixture(async(memory,path)=>{
+ const review=postProof();memory.recordPostReview(review);assert.equal(memory.actions().length,0);
+ const action={...details,resource:review.postUrl,target:"post" as const,decisionId:review.id,profileHash:review.profileHash,snapshotUrls:review.urls,snapshotMedia:review.media};
+ memory.queue("user",action);memory.setFeedback(true);let sends=0,liked=false;
+ await memory.dispatch({stillValid:async()=>true,verify:async()=>liked,send:async()=>{sends++;liked=true;}});
+ assert.equal(sends,1);const restarted=new ResourceMemory(path);restarted.queue("user",{...action,projectId:"two"});assert.equal(restarted.actions().length,1);assert.equal(restarted.actions()[0].state,"confirmed");
+}));
+test("post uncertainty, replacement and expiry cancel feedback after asynchronous preflight",()=>fixture(async memory=>{
+ const review=postProof();memory.recordPostReview(review);const action={...details,resource:review.postUrl,target:"post" as const,decisionId:review.id,profileHash:review.profileHash};
+ memory.queue("user",action);memory.setFeedback(true);let sends=0;
+ await memory.dispatch({stillValid:async()=>true,verify:async()=>{memory.recordPostReview({...review,id:"new-review",state:"uncertain",uncertainties:["Needs a complete visual check"]});return false;},send:async()=>{sends++;}});
+ assert.equal(sends,0);assert.equal(memory.actions()[0].state,"cancelled");
+ for(const patch of [{state:"uncertain" as const},{expiresAt:new Date(0).toISOString()},{wholePostReviewed:false},{uncertainties:["video unknown"]}]){
+  memory.recordPostReview({...review,...patch});assert.throws(()=>memory.queue("user",action),/NOT_EVALUATED/);
+ }
+}));
+test("history is archived without deleting explicit decisions or confirmed deduplication",()=>fixture((memory,path)=>{
+ memory.reject("user",url,"Keep this explicit exclusion");memory.close();const raw=JSON.parse(readFileSync(path,"utf8"));raw.history=Array.from({length:2100},(_,sequence)=>({kind:"fixture",sequence}));writeFileSync(path,JSON.stringify(raw));
+ const restarted=new ResourceMemory(path),saved=JSON.parse(readFileSync(path,"utf8"));assert.equal(saved.history.length,1000);const archives=readdirSync(path+".history");assert.equal(archives.length,1);assert.equal(readFileSync(join(path+".history",archives[0]),"utf8").trim().split("\n").length,1100);assert.equal(restarted.rejected("user",url),true);
+}));
 const proof=(fingerprint="a".repeat(64)):Recommendation=>({decision:"recommended",fingerprint,utility:"Exports reusable tokens to JSON and CSS files.",reuse:"Shared token systems work across multiple application projects.",quality:"Verified deterministic output against documented token examples.",freeAccess:"MIT licensed code with unrestricted local export available.",usableOutput:"A usable source repository and downloadable JSON/CSS output.",unknowns:[],evidence:[{url:"https://example.org/tool/license",quote:"MIT license grants use and distribution of the source code."}],postSuitable:true,at:""});
 function fixture(work:(memory:ResourceMemory,path:string)=>void|Promise<void>){const root=mkdtempSync(join(tmpdir(),"ss-memory-")),path=join(root,"resources.json");return Promise.resolve().then(()=>work(new ResourceMemory(path),path)).finally(()=>rmSync(root,{recursive:true,force:true}));}
 const url="https://example.org/tool";

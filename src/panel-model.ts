@@ -2,6 +2,7 @@ export interface PanelProject {id:string;name:string;isX:boolean;hasX?:boolean;m
 export interface PanelSnapshot {
   engine:boolean;mcp:boolean;python:boolean;session:boolean;xAllowed:boolean;
   projects:PanelProject[];projectId:string;findings:number;findingProject:string;
+  findingsKnown?:boolean;
   cycle?:{state:string;pages:number;observations:number;reason:string};
   running:boolean;error?:string;message?:string;exampleFindings?:boolean;
 }
