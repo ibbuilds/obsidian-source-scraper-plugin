@@ -2,6 +2,7 @@
   "apiVersion": 1,
   "upstreamRepository": "https://github.com/ebullient/obsidian-vault-mcp",
   "upstreamCommit": "0f801bdb94cbf543a8f303b1ca950f30b2783595",
-  "patchSHA256": "762e6b27bc2951e19b796924441a1b53dd1c89c4b955528f14f9e8b003b64651",
-  "notes": "Trusted local provider hook in the existing server; no separate MCP server. Source Scraper has no vault-note write capability."
+  "patchSHA256": "c4d70a3707fee357bafdb0b2c7221e8941187936a1250cd2709577d51e4c3d4b",
+  "notes": "Trusted local provider hook in the existing server; no separate MCP server. Source Scraper has no vault-note write capability.",
+  "maximumProviderTools": 64
 }
