@@ -70,6 +70,8 @@ jobs:
           (cd host && npx tsc --noEmit)
           npm test --prefix host
           npm run build --prefix host
+      - name: Register the complete provider with the real host registry
+        run: node --experimental-strip-types plugin/scripts/verify-host-provider.mjs host
       - name: Exercise real CLI, curation, recovery and adapter boundaries
         run: |
           node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs "$PWD/engine/dist/source-scraper.mjs"

@@ -176,6 +176,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - run: npm ci --prefix plugin --no-audit --no-fund
       - name: Apply the pinned provider patch
         run: |
           git -C host apply --check ../plugin/compat/vault-as-mcp-1.2.0-provider-api.patch
@@ -186,3 +187,5 @@ jobs:
         run: npx tsc --noEmit
       - run: npm test --prefix host
       - run: npm run build --prefix host
+      - name: Register every real provider tool with the actual patched host
+        run: node --experimental-strip-types plugin/scripts/verify-host-provider.mjs host
