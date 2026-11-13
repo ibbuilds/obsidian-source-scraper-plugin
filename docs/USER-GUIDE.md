@@ -125,3 +125,11 @@ See [adapter boundaries](ADAPTER-BOUNDARIES.md) for built-in sources, custom loc
 ## Integration diagnostics
 
 Use **Settings → Source Scraper → Integration diagnostics → Check setup**, or the command **Source Scraper: Check integration setup**. The report checks host provider support, local enablement, registration, trusted CLI bytes, required engine contracts and registered manifests without collecting a source or changing notes. ChatGPT discovery always remains a separate pending check: refresh the existing app tools, then call `source_scraper_capabilities` from the chat.
+
+## Topic review and optional quality
+
+Resources opens All matches unless Require quality qualification is explicitly enabled in the project criteria. The collection summary uses the same default query. Choose Topic review pending or Outside topic to inspect saved relevance states. Keep/Hide, topic relevance and quality are separate.
+
+Use Collection and feedback > Review feed posts for retained X posts, including posts without links. Read the whole post and every supplied visual, then save Relevant, Not relevant or Unsure with an evidence reason. Incomplete quote/retweet/article context or missing playable video remains unsure. Saving a review defaults to a dry run; Queue eligible likes also requires enabled feedback, the separate local grant, the configured minimum observed likes and final live verification. Reviewing a resource uses Review topic on up to 50 selected resources.
+
+AI clients use get_posts/review_posts and get_relevance/review_relevance through the existing MCP host. There is no hidden model running after the AI client disconnects. Continuous collection and bounded enrichment can continue while Obsidian is open. Accuracy must be measured with independent held-out human labels before making claims about unattended semantic decisions.

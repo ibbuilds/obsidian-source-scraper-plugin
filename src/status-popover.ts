@@ -135,7 +135,7 @@ export class ScraperPopover {
     this.host.icon(this.el(complete,"span","ss-chevron"),"chevron-right");
     this.homeUpdate=s=>{
       const project=selectedProject(s),state=discoveryState(s);sourceName.textContent=project?.isX?"X · For You":project?.name??"Sources";sourceName.title=sourceName.textContent;body.dataset.state=state.state;status.textContent=state.status;hint.textContent=state.hint;primary.textContent=state.button;
-      this.resultsCount!.textContent=s.findings+(s.exampleFindings?" examples":s.findings===1?" available":" available");
+      this.resultsCount!.textContent=s.findingsKnown===false?"Checking…":s.findings+(s.exampleFindings?" examples":" available");
       complete.setAttribute("aria-label",s.findings?"View results":"View empty results");
       filters.disabled=s.running||!selectedProject(s);
       rootBusy(body,s.running);

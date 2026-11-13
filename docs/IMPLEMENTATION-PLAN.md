@@ -1,5 +1,9 @@
 # Current implementation contract
 
+The 1.2.0 delivery separates post topic feedback, linked-resource relevance and
+optional quality. See [the release contract](releases/1.2.0.md) for native/manual
+and MCP operations, compatibility and verification limits.
+
 This branch connects the independent review client to the existing MCP host and public Source Scraper CLI. It follows the user's clarified ownership boundary: Source Scraper never creates or changes user vault notes. ChatGPT alone uses the separate existing Obsidian connector to write on explicit user instruction.
 
 The active tools cover registered projects, bounded jobs, findings/evidence, separate agent recommendations, persistent staging and read-only drafts. There is no Source Scraper save-notes tool, write toggle or creation button. New project manifests belong in an external registered workspace, not user-content folders.

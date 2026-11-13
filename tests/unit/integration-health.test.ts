@@ -21,7 +21,8 @@ test('diagnostics separate host, trust, engine compatibility and cloud discovery
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 test('tool inventory is stable, isolated, namespaced and honest about external actions',()=>{
- const tools=sourceScraperToolDefinitions();assert.equal(tools.length,28);assert.equal(new Set(tools.map(t=>t.name)).size,28);
+ const tools=sourceScraperToolDefinitions();assert.equal(tools.length,33);assert.equal(new Set(tools.map(t=>t.name)).size,33);
+ assert.ok(tools.find(t=>t.name==='source_scraper_review_posts')?.annotations.openWorldHint);
  for(const t of tools){assert.match(t.name,/^source_scraper_/);assert.equal(t.inputSchema.additionalProperties,false);}
  assert.ok(tools.find(t=>t.name==='source_scraper_control_cycle')?.annotations.openWorldHint);
  assert.ok(tools.find(t=>t.name==='source_scraper_control_feedback')?.annotations.openWorldHint);

@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ibbuilds/source-scraper
-          ref: c60e0cbbe41a2ab9376318951917778ac5a8f422
+          ref: b5b9a239c29710271ea1d897a05966b25f02ee59
           path: engine
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -75,6 +75,7 @@ jobs:
           node --experimental-strip-types plugin/scripts/verify-mcp-provider.mjs "$PWD/engine/dist/source-scraper.mjs"
           node --experimental-strip-types plugin/scripts/verify-curation.mjs "$PWD/engine/dist/source-scraper.mjs"
           node --experimental-strip-types plugin/scripts/verify-fast-workflow.mjs "$PWD/engine/dist/source-scraper.mjs"
+          node --experimental-strip-types plugin/scripts/verify-topic-workflow.mjs "$PWD/engine/dist/source-scraper.mjs"
           node --experimental-strip-types plugin/scripts/verify-adapter-boundaries.mjs "$PWD/engine/dist/source-scraper.mjs"
       - name: Package verified components and immutable provenance
         run: |

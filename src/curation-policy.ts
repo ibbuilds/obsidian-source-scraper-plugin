@@ -4,7 +4,7 @@ import {relatedResourceUrl} from "./feedback-policy.ts";
 export type QualityState="qualified"|"pending"|"excluded";
 export type Criterion={id:string;label:string};
 export type QualityCategory={id:string;label:string;referenceSections:string[];criteria:Criterion[]};
-export type CurationPolicy={version:1;maxAgeDays:number;candidateFilters?:CollectionFilters;categories:QualityCategory[]};
+export type CurationPolicy={version:1;maxAgeDays:number;required?:boolean;candidateFilters?:CollectionFilters;categories:QualityCategory[]};
 export type Proof={url:string;quote:string};
 export type QualityReview={version:1;fingerprint:string;profileHash:string;baselineHash:string;category:string;decision:QualityState;reason:string;
  relevance:string;access:{mode:"unmetered-free"|"metered"|"trial"|"paid"|"unknown";scope:string;evidence:Proof[]};
@@ -16,7 +16,7 @@ const bounded=(v:unknown,min=1,max=1500):v is string=>typeof v==="string"&&v.tri
 const keys=(v:Record<string,unknown>,allowed:string[])=>Object.keys(v).every(k=>allowed.includes(k));
 const id=(v:unknown):v is string=>typeof v==="string"&&/^[a-z][a-z0-9-]{1,47}$/.test(v);
 export function parseCurationPolicy(v:unknown):CurationPolicy{
- if(!object(v)||!keys(v,["version","maxAgeDays","candidateFilters","categories"])||v.version!==1||!Number.isInteger(v.maxAgeDays)||v.maxAgeDays<1||v.maxAgeDays>90||!Array.isArray(v.categories)||!v.categories.length||v.categories.length>20)throw Error("INVALID_CURATION_POLICY");
+ if(!object(v)||!keys(v,["version","maxAgeDays","required","candidateFilters","categories"])||v.version!==1||v.required!==undefined&&typeof v.required!=="boolean"||!Number.isInteger(v.maxAgeDays)||v.maxAgeDays<1||v.maxAgeDays>90||!Array.isArray(v.categories)||!v.categories.length||v.categories.length>20)throw Error("INVALID_CURATION_POLICY");
  const unique=new Set<string>();for(const c of v.categories){if(!object(c)||!keys(c,["id","label","referenceSections","criteria"])||!id(c.id)||unique.has(c.id)||!bounded(c.label,1,100)||!Array.isArray(c.referenceSections)||!c.referenceSections.length||c.referenceSections.length>20||c.referenceSections.some((s:unknown)=>!bounded(s,1,150))||!Array.isArray(c.criteria)||!c.criteria.length||c.criteria.length>8)throw Error("INVALID_QUALITY_CATEGORY");unique.add(c.id);const seen=new Set<string>();for(const r of c.criteria){if(!object(r)||!keys(r,["id","label"])||!id(r.id)||seen.has(r.id)||!bounded(r.label,10,400))throw Error("INVALID_CATEGORY_CRITERION");seen.add(r.id);}}
  if(v.candidateFilters!==undefined)parseCollectionFilters(v.candidateFilters);
  return structuredClone(v) as CurationPolicy;

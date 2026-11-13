@@ -1,6 +1,7 @@
 import {diagnoseIntegration} from "./integration-health.ts";
 import {IntegrationDiagnosticsModal} from "./integration-diagnostics-modal.ts";
 import {QualityReviewModal} from "./quality-review-modal.ts";
+import {TopicReviewModal} from "./topic-review-modal.ts";
 import {DESIGN_FRONTEND_PRESET} from "./design-frontend-preset.ts";
 import {parseCurationPolicy} from "./curation-policy.ts";
 import {buildPublicSource} from "./source-project.ts";
@@ -499,7 +500,7 @@ class ScraperReview {
   render():void{
     const root=this.root;if(!root||!root.isConnected)return;
     if(this.plugin.resourceInboxReady()){
-      if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();}const project=this.plugin.resourceInboxProject();if(this.inboxProject!==project)this.inboxState=undefined;this.inboxProject=project;this.inbox=new ResourceInbox({qualityEnabled:Boolean(this.plugin.feedbackProfile(project)?.curation),qualify:records=>this.plugin.openQualityReview(records),projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
+      if(this.inbox){this.inboxState=this.inbox.viewState();this.inbox.unmount();}const project=this.plugin.resourceInboxProject();if(this.inboxProject!==project)this.inboxState=undefined;this.inboxProject=project;this.inbox=new ResourceInbox({qualityEnabled:Boolean(this.plugin.feedbackProfile(project)?.curation),qualityRequired:this.plugin.feedbackProfile(project)?.curation?.required===true,relevance:records=>this.plugin.openTopicReview("resources",records.map(r=>r.key)),qualify:records=>this.plugin.openQualityReview(records),projectId:()=>this.plugin.resourceInboxProject(),query:args=>this.plugin.queryResourceInbox(args),review:args=>this.plugin.reviewResourceInbox(args),error:errorMessage,
         detail:e=>{this.plugin.closePopover();new DetailModal(this.app,this.plugin,e,()=>this.plugin.detailedResource(e),(savedKey)=>{if(savedKey&&this.inboxState)this.inboxState.selected=this.inboxState.selected.filter(row=>row.key!==savedKey);setTimeout(()=>{void this.plugin.openView(true);},0);}).open();},drafts:records=>{this.plugin.closePopover();new ExportModal(this.app,this.plugin,records,()=>{setTimeout(()=>{void this.plugin.openView(true);},0);}).open();}},this.inboxState);
       this.inbox.mount(root);return;
     }
@@ -588,6 +589,8 @@ class ScraperReview {
     action("Edit project",()=>new ProjectModal(this.app,this.plugin).open());
     action("Draft format",()=>new NoteMappingModal(this.app,this.plugin).open());
     action("Run project",()=>new RunModal(this.app,this.plugin).open());
+    if(this.plugin.canReviewPosts())action("Review posts",()=>this.plugin.openTopicReview("posts"));
+    action("Review resource relevance",()=>this.plugin.openTopicReview("resources"));
     action("Diagnostics",()=>new Notice("Engine CLI: "+(this.plugin.settings.cliPath?"configured":"not connected")+"; "+(this.plugin.imported?.records.length??0)+" sources; no automatic writes."));
   }
 }
@@ -597,9 +600,13 @@ class FeedbackCriteriaModal extends Modal {
     const {body,footer}=dialog(this,"Selection criteria");this.modalEl.addClass("ss-feedback-criteria");
     paragraph(body,"Choose what qualifies for this project. Design and frontend resources can each qualify using their own category. Keep/Hide and X likes remain separate.");
     const saved=this.plugin.feedbackProfile(this.projectId),draft:FeedbackProfile=saved?structuredClone(saved):{version:1,includeTerms:[],reuseTerms:[],excludeTerms:[],blockedPostTerms:[],requiredChecks:[]};
-    let policyText=JSON.stringify(draft.curation??DESIGN_FRONTEND_PRESET,null,2);
+    let policyText=JSON.stringify(draft.curation??DESIGN_FRONTEND_PRESET,null,2),requireQuality=draft.curation?.required===true,minimumLikesText=String(draft.minimumLikes??1);
     let qualityToggle:any;
+    new Setting(body).setName("What are you looking for?").setDesc("Describe your topic. This guides manual and AI relevance review independently of quality.").addTextArea(t=>t.setValue(draft.description??"").onChange(value=>{if(value.trim())draft.description=value.trim();else delete draft.description;}));
+    if(this.plugin.canReviewPosts())new Setting(body).setName("Minimum likes for post feedback").setDesc("Supporting evidence only. A popular unrelated post never qualifies; stricter search filters still apply.").addText(t=>{t.setValue(minimumLikesText);t.inputEl.type="number";t.inputEl.min="0";t.onChange(value=>{minimumLikesText=value;});});
     new Setting(body).setName("Category quality review").setDesc("Requires evidence of useful free core access and category-specific comparisons with your references.").addToggle(t=>{qualityToggle=t;t.setValue(Boolean(draft.curation)).onChange(v=>{if(v)draft.curation=structuredClone(DESIGN_FRONTEND_PRESET);else delete draft.curation;});});
+    new Setting(body).setName("Require quality qualification").setDesc("Optional. Start with Qualified and exclude failed quality reviews from ordinary results. Topic relevance and likes remain independent.").addToggle(t=>t.setValue(requireQuality).onChange(v=>{requireQuality=v;}));
+    for(const key of ["positiveExamples","negativeExamples"] as const)new Setting(body).setName(key==="positiveExamples"?"Positive topic examples":"Negative topic examples").setDesc("One verified example or description per line. These are guidance, not an automatic whitelist.").addTextArea(t=>t.setValue((draft[key]??[]).join("\n")).onChange(value=>{draft[key]=value.split("\n").map(s=>s.trim()).filter(Boolean);}));
     new Setting(body).setName("Design + frontend preset").setDesc("UX research, UI inspiration, design systems, components, effects, typography, frontend tools and accessibility.").addButton(b=>b.setButtonText("Use preset").onClick(()=>{draft.curation=structuredClone(DESIGN_FRONTEND_PRESET);policyText=JSON.stringify(draft.curation,null,2);editor.setValue(policyText);qualityToggle.setValue(true);status.setText("Design + frontend preset selected. Save criteria to apply.");}));
     const advanced=body.createEl("details");advanced.createEl("summary",{text:"Advanced category rules"});
     let editor:any;new Setting(advanced).setName("Category rules JSON").setDesc("Edit labels, required criteria and matching reference section names. Changes invalidate old qualification evidence.").addTextArea(t=>{editor=t;t.setValue(policyText).onChange(v=>{policyText=v;});});
@@ -618,7 +625,7 @@ class FeedbackCriteriaModal extends Modal {
     const save=(profile?:FeedbackProfile)=>{if(busy)return;busy=true;void this.plugin.saveFeedbackProfile(this.projectId,profile).then(()=>this.close()).catch(e=>{busy=false;status.setText(errorMessage(e));});};
     action(footer,"Cancel",()=>this.close());
     if(saved)action(footer,"Remove criteria",()=>save());
-    action(footer,"Save criteria",()=>{try{if(draft.curation)draft.curation=parseCurationPolicy(JSON.parse(policyText));save(parseFeedbackProfile(draft));}catch(e){status.setText(errorMessage(e));}},true);
+    action(footer,"Save criteria",()=>{try{if(this.plugin.canReviewPosts()){const minimum=Number(minimumLikesText);if(!minimumLikesText.trim()||!Number.isSafeInteger(minimum)||minimum<0)throw Error("Minimum likes must be a nonnegative whole number");draft.minimumLikes=minimum;}if(draft.curation)draft.curation={...parseCurationPolicy(JSON.parse(policyText)),required:requireQuality};save(parseFeedbackProfile(draft));}catch(e){status.setText(errorMessage(e));}},true);
     labelFields(body);
   }
   onClose(){this.contentEl.empty();}
@@ -629,6 +636,7 @@ class CycleControlsModal extends Modal {
   onOpen(){
     const {body,footer}=dialog(this,"Collection and feedback");action(footer,"Close",()=>this.close());
     paragraph(body,"Collection continues while Obsidian is open. Review links here, with or without AI.");
+    action(body,"Review feed posts",()=>{this.close();this.plugin.openTopicReview("posts");});
     const status=body.createEl("p",{attr:{role:"status"}});let maxPages=this.plugin.cycleStatus()?.maxPages??100;
     new Setting(body).setName("Page budget").setDesc("Maximum pages for this collection cycle (1–1000). Progress is saved after each page.").addText(t=>t.setValue(String(maxPages)).onChange(v=>{maxPages=Number(v);}));
     const controls=body.createDiv({cls:"ss-cycle-actions"});
@@ -711,6 +719,8 @@ export default class ScraperPlugin extends Plugin {
   private uiError="";
   private xSessionError="";
   private uiMessage="";
+  private resourceSummary?:{projectId:string;total:number;at:number};
+  private resourceSummaryPending=false;
   private projectCache?:{key:string;projects:PanelProject[]};
   private provider?:SourceScraperProvider;
   private providerHost?:unknown;
@@ -804,7 +814,8 @@ export default class ScraperPlugin extends Plugin {
     const activity=this.provider?.activity(),activeId=list.find(p=>p.configPath===this.settings.configPath)?.id||"",active=projects.find(p=>p.id===activeId);
     return {engine:Boolean(this.settings.cliPath&&existsSync(this.settings.cliPath)),mcp:Boolean(this.provider),python:Boolean(this.settings.xPythonPath&&existsSync(this.settings.xPythonPath)),
       session:readiness.accountSessionConfigured&&readiness.csrfConfigured,xAllowed:this.settings.xProviderEnabled==="true",
-      projects,projectId:activeId,findings:this.imported?.records.length??0,
+      projects,projectId:activeId,findings:this.provider&&activeId?(this.resourceSummary?.projectId===activeId?this.resourceSummary.total:0):(this.imported?.records.length??0),
+      findingsKnown:!this.provider||!activeId||this.resourceSummary?.projectId===activeId,
       findingProject:projects.find(p=>p.id===this.imported?.projectId)?.name||this.imported?.projectId||"",
       exampleFindings:this.imported?.projectId==="starter-project",
       cycle:this.provider?.cycle?.snapshot().projectId?this.provider.cycle.snapshot():undefined,
@@ -817,6 +828,7 @@ export default class ScraperPlugin extends Plugin {
   }
   private updateStatus(dataChanged=false):void{
     if(this.unloaded||!this.statusItem)return;
+    void this.refreshResourceSummary(dataChanged);
     const state=discoveryState(this.panelSnapshot()),label="Source Scraper. "+state.status+". Open Source Scraper.";
     if(this.statusItem.dataset.state!==state.state)this.statusItem.dataset.state=state.state;
     if(this.statusItem.title!==label)this.statusItem.title=label;
@@ -843,7 +855,7 @@ export default class ScraperPlugin extends Plugin {
       if(this.unloaded||provider!==this.provider||jobId!==this.uiJobId)return;
       if(["running","queued","cancelling"].includes(job.state))return;
       this.uiJobId=undefined;
-      if(job.state!=="succeeded"){this.uiError=job.error||"Collection "+job.state;this.uiMessage="";return;}
+      if(!["succeeded","partial"].includes(job.state)){this.uiError=job.error||"Collection "+job.state;this.uiMessage="";return;}
       this.uiStarting=true;
       const minimum=this.projectsForPanel().find(p=>p.id===job.projectId)?.minimumScore??0;
       const data=await provider.execute("source_scraper_list_findings",{projectId:job.projectId,minScore:minimum,limit:100}) as {records:EntityRecord[]};
@@ -851,7 +863,7 @@ export default class ScraperPlugin extends Plugin {
       const keys:string[]=[];for(const entity of data.records){if(Buffer.byteLength(JSON.stringify([...keys,entity.key]),"utf8")>12000)break;keys.push(entity.key);}
       if(keys.length)await provider.execute("source_scraper_stage_findings",{projectId:job.projectId,keys});
       else this.setImported({schemaVersion:1,dataset:"entities",projectId:job.projectId,records:[]});
-      if(!this.unloaded){this.uiMessage="Collection complete.";this.uiError="";}
+      if(!this.unloaded){this.uiMessage=job.state==="partial"?"Window complete; more pages are available. Continue collection to resume.":"Collection complete.";this.uiError="";}
     }catch(error){if(!this.unloaded&&provider===this.provider){this.uiError=errorMessage(error);this.uiJobId=undefined;}}
     finally{this.uiStarting=false;this.uiPolling=false;this.updateStatus();}
   }
@@ -951,13 +963,23 @@ export default class ScraperPlugin extends Plugin {
   }
   resourceInboxReady(){const entries=this.registeredProjects();return Boolean(this.provider&&entries.length&&(!this.imported||entries.some(p=>p.id===this.imported!.projectId)));}
   resourceInboxProject(){const id=this.imported?.projectId;return this.registeredProjects().some(p=>p.id===id)?id!:this.panelSnapshot().projectId;}
+  canReviewPosts(){const id=this.resourceInboxProject();return this.projectsForPanel().some(p=>p.id===id&&(p.isX||p.hasX));}
+  openTopicReview(kind:"posts"|"resources",keys?:string[]){
+    const projectId=this.resourceInboxProject();if(!this.provider||!projectId){new Notice("Configure a registered source first.");return;}
+    if(!this.feedbackProfile(projectId)){this.openSelectionCriteria();return;}
+    if(kind==="posts"&&!this.canReviewPosts()){new Notice("Select an X source to review its posts.");return;}
+    this.closePopover();new TopicReviewModal(this.app,{projectId,kind,feedbackEnabled:()=>Boolean(this.provider?.memory.enabled&&this.settings.xLikesEnabled==="true"),
+      query:args=>{if(!this.provider)throw Error("Local engine unavailable");return kind==="posts"?this.provider.getPosts(args):this.provider.getResourceRelevance({...args,...(keys?{keys}:{})});},
+      save:args=>{if(!this.provider)throw Error("Local engine unavailable");return kind==="posts"?this.provider.reviewPosts(args,"user-interface"):this.provider.reviewResourceRelevance(args,"user-interface");},
+      changed:()=>this.refresh()}).open();
+  }
   openSelectionCriteria(){this.closePopover();new FeedbackCriteriaModal(this.app,this,this.resourceInboxProject()).open();}
   openQualityReview(records:EntityRecord[]){
     if(!this.provider||!records.length||records.length>50)throw Error("Select 1–50 resources for quality review.");
     const projectId=this.resourceInboxProject(),provider=this.provider;this.closePopover();
     new QualityReviewModal(this.app,{load:async()=>({context:await provider.curationContext(projectId),records:(await provider.inspectResources(projectId,records.map(r=>r.key))).records}),save:items=>provider.qualifyResources({projectId,items},"user-interface"),done:()=>{setTimeout(()=>{void this.openView(true);},0);},error:errorMessage}).open();
   }
-  async queryResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");return this.provider.getResources(args);}
+  async queryResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");const result=await this.provider.getResources(args);if(!args.search&&args.relevance===undefined&&(!args.review||args.review==="all")&&(args.quality??"all")===(this.feedbackProfile(String(args.projectId))?.curation?.required?"qualified":"all")){this.resourceSummary={projectId:String(args.projectId),total:result.total,at:Date.now()};}return result;}
   async reviewResourceInbox(args:Record<string,unknown>){if(!this.provider)throw Error("Configure the local engine first.");this.reviewRequest++;const result=await this.provider.reviewResources(args,"user-interface");if(this.imported){this.imported.records=this.imported.records.filter(e=>!e.url||!this.provider!.memory.rejected("user",e.url));for(const e of this.imported.records)if(e.url){const human=this.provider.memory.humanReview("user",e.url);if(human)e.review=human.decision;}}return result;}
   private batchSaving=false;
   async saveReviewBatch(changes:ReviewChange[],reason:string,stopped:()=>boolean,progress:(results:ReviewResult[])=>void){
@@ -989,6 +1011,19 @@ export default class ScraperPlugin extends Plugin {
   }
   refresh():void{
     this.updateStatus(true);
+  }
+  private resourceSummaryRetryAt=0;
+  private async refreshResourceSummary(force=false):Promise<void>{
+    const provider=this.provider,projectId=this.registeredProjects().find(p=>p.configPath===this.settings.configPath)?.id;
+    if(!provider||!projectId||this.resourceSummaryPending||(!force&&this.resourceSummaryRetryAt>Date.now()))return;
+    if(!force&&this.resourceSummary?.projectId===projectId&&Date.now()-this.resourceSummary.at<30000)return;
+    if(provider.activity().running)return;
+    this.resourceSummaryPending=true;
+    try{const result=await provider.getResources({projectId,review:"all",quality:this.feedbackProfile(projectId)?.curation?.required?"qualified":"all",limit:1});
+      if(this.unloaded||provider!==this.provider||this.settings.configPath!==this.registeredProjects().find(p=>p.id===projectId)?.configPath)return;
+      this.resourceSummary={projectId,total:result.total,at:Date.now()};this.popover?.update(false);
+    }catch{this.resourceSummaryRetryAt=Date.now()+5000;/* Explicit inbox retries own error presentation. */}
+    finally{this.resourceSummaryPending=false;}
   }
   async openView(showResults=false):Promise<void>{
     if(this.unloaded||!this.statusItem)return;
