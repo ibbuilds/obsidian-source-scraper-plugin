@@ -12,6 +12,7 @@ export interface FeedbackProfile {
  negativeExamples?:string[];
  minimumLikes?:number;
  postExcludeTerms?:string[];
+ requireTopicReview?:boolean;
  curation?:CurationPolicy;
  referencePaths?:string[];
  version:1;includeTerms:string[];reuseTerms:string[];excludeTerms:string[];blockedPostTerms:string[];
@@ -20,13 +21,14 @@ export interface FeedbackProfile {
 export function parseFeedbackProfile(input:unknown):FeedbackProfile {
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Invalid feedback criteria");
  const value=input as Record<string,unknown>;
- if(value.version!==1||Object.keys(value).some(k=>!["curation","referencePaths","version","includeTerms","reuseTerms","excludeTerms","blockedPostTerms","requiredChecks","description","positiveExamples","negativeExamples","minimumLikes","postExcludeTerms"].includes(k)))throw Error("Unsupported feedback criteria");
+ if(value.version!==1||Object.keys(value).some(k=>!["curation","referencePaths","version","includeTerms","reuseTerms","excludeTerms","blockedPostTerms","requiredChecks","description","positiveExamples","negativeExamples","minimumLikes","postExcludeTerms","requireTopicReview"].includes(k)))throw Error("Unsupported feedback criteria");
+ if(value.requireTopicReview!==undefined&&typeof value.requireTopicReview!=="boolean")throw Error("Invalid topic review requirement");
  if(value.description!==undefined&&(typeof value.description!=="string"||!value.description.trim()||value.description.length>4000)||value.minimumLikes!==undefined&&(!Number.isSafeInteger(value.minimumLikes)||Number(value.minimumLikes)<0))throw Error("Invalid topic criteria");
  for(const name of ["positiveExamples","negativeExamples"])if(value[name]!==undefined&&(!Array.isArray(value[name])||value[name].length>64||value[name].some((v:unknown)=>typeof v!=="string"||!v.trim()||v.length>2000)))throw Error("Invalid topic examples");
  const terms=(key:string)=>{const items=value[key];if(!Array.isArray(items)||items.length>64||items.some(s=>typeof s!=="string"||!s.trim()||s.length>128))throw Error("Invalid feedback terms: "+key);return [...new Set((items as string[]).map(s=>s.trim().toLowerCase()))].sort();};
  if(!Array.isArray(value.requiredChecks)||value.requiredChecks.length>OPTIONAL_CHECKS.length||value.requiredChecks.some(k=>!OPTIONAL_CHECKS.includes(k)))throw Error("Invalid feedback requirements");
  if(value.referencePaths!==undefined&&(!Array.isArray(value.referencePaths)||value.referencePaths.length>25||value.referencePaths.some(p=>typeof p!=="string"||!p.trim()||p.length>1000||p.startsWith("/")||p.includes("..")||p.includes(":"))))throw Error("Invalid reference paths");
- return {...(value.postExcludeTerms!==undefined?{postExcludeTerms:terms("postExcludeTerms")}:{}),...(value.description!==undefined?{description:value.description as string}:{}),...(value.minimumLikes!==undefined?{minimumLikes:value.minimumLikes as number}:{}),...(value.positiveExamples!==undefined?{positiveExamples:value.positiveExamples as string[]}:{}),...(value.negativeExamples!==undefined?{negativeExamples:value.negativeExamples as string[]}:{}),...(value.curation!==undefined?{curation:parseCurationPolicy(value.curation)}:{}),...(value.referencePaths?{referencePaths:[...new Set(value.referencePaths as string[])].sort()}:{}),version:1,includeTerms:terms("includeTerms"),reuseTerms:terms("reuseTerms"),excludeTerms:terms("excludeTerms"),blockedPostTerms:terms("blockedPostTerms"),requiredChecks:[...new Set(value.requiredChecks)].sort()};
+ return {...(value.requireTopicReview!==undefined?{requireTopicReview:value.requireTopicReview as boolean}:{}),...(value.postExcludeTerms!==undefined?{postExcludeTerms:terms("postExcludeTerms")}:{}),...(value.description!==undefined?{description:value.description as string}:{}),...(value.minimumLikes!==undefined?{minimumLikes:value.minimumLikes as number}:{}),...(value.positiveExamples!==undefined?{positiveExamples:value.positiveExamples as string[]}:{}),...(value.negativeExamples!==undefined?{negativeExamples:value.negativeExamples as string[]}:{}),...(value.curation!==undefined?{curation:parseCurationPolicy(value.curation)}:{}),...(value.referencePaths?{referencePaths:[...new Set(value.referencePaths as string[])].sort()}:{}),version:1,includeTerms:terms("includeTerms"),reuseTerms:terms("reuseTerms"),excludeTerms:terms("excludeTerms"),blockedPostTerms:terms("blockedPostTerms"),requiredChecks:[...new Set(value.requiredChecks)].sort()};
 }
 export function parseFeedbackProfiles(raw:string):Record<string,FeedbackProfile> {
  if(raw.length>1_000_000)throw Error("Feedback criteria limit");

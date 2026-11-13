@@ -90,8 +90,8 @@ For local automatic feedback, first save your own topics and required evidence i
 **Collection and feedback > Feedback criteria > Edit criteria**. No topics or
 profiles ship by default. Then enable **Automatic resource checks**, and separately
 enable **Automatic likes** if you
-want checked posts to be rewarded. Start/resume collection to use repeated
-bounded windows with cooldown. Local checks have their own badge and evidence;
+want checked posts to be rewarded. Enable **Continuous collection** independently
+to repeat bounded windows with cooldown. Local checks have their own badge and evidence;
 they never create human approvals or AI recommendations. Unsupported or uncertain
 resources stay pending. Turn off Automatic likes to stop account actions, and
 Pause/Stop collection to stop reading X.
@@ -133,3 +133,9 @@ Resources opens All matches unless Require quality qualification is explicitly e
 Use Collection and feedback > Review feed posts for retained X posts, including posts without links. Read the whole post and every supplied visual, then save Relevant, Not relevant or Unsure with an evidence reason. Incomplete quote/retweet/article context or missing playable video remains unsure. Saving a review defaults to a dry run; Queue eligible likes also requires enabled feedback, the separate local grant, the configured minimum observed likes and final live verification. Reviewing a resource uses Review topic on up to 50 selected resources.
 
 AI clients use get_posts/review_posts and get_relevance/review_relevance through the existing MCP host. There is no hidden model running after the AI client disconnects. Continuous collection and bounded enrichment can continue while Obsidian is open. Accuracy must be measured with independent held-out human labels before making claims about unattended semantic decisions.
+
+Public enrichment continues from its durable queue while Obsidian is open, without
+AI, X credentials or another source read. **Collection and feedback** shows queued,
+unavailable and blocked work, the oldest pending observation and the last successful
+processing time. **Continue enrichment** runs one bounded pass; **Retry unavailable
+pages** explicitly restarts exhausted failures. It does not resolve missing raw evidence.

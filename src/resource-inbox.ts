@@ -2,6 +2,7 @@ import {ButtonComponent,SearchComponent,DropdownComponent,setIcon} from "obsidia
 import type {EntityRecord} from "./contracts.ts";
 import {selectedReviewRequest,resourceAccess} from "./resource-actions.ts";
 interface InboxHost {
+ topicRequired?:boolean;
  qualityEnabled?:boolean;
  qualityRequired?:boolean;
  relevance?:(records:EntityRecord[])=>void;
@@ -42,7 +43,7 @@ export class ResourceInbox {
   const selectLabel=summary.createEl("label",{cls:"ss-select-page"});const pageBox=selectLabel.createEl("input",{type:"checkbox",attr:{"aria-label":"Select visible resources"}});selectLabel.createSpan({text:"Select page"});
   const bar=root.createDiv({cls:"ss-inbox-filters"});const search=new SearchComponent(bar).setPlaceholder("Search resources").setValue(this.search);search.inputEl.setAttribute("aria-label","Search resources");
   const icon=search.inputEl.parentElement!.createSpan({cls:"ss-search-icon",attr:{"aria-hidden":"true"}});setIcon(icon,"search");
-  const view=new DropdownComponent(bar);for(const [value,label] of (this.host.qualityEnabled?[["qualified","Qualified"],["quality-pending","To review"],["all","All matches"],["approved","Kept"],["rejected","Hidden"]]:[["all","All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]]))view.addOption(value,label);if(this.host.relevance){view.addOption("topic-pending","Topic review pending");view.addOption("topic-irrelevant","Outside topic");}view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
+  const view=new DropdownComponent(bar);for(const [value,label] of (this.host.qualityEnabled?[["qualified","Qualified"],["quality-pending","To review"],["all",this.host.topicRequired?"Reviewed topic matches":"All matches"],["approved","Kept"],["rejected","Hidden"]]:[["all",this.host.topicRequired?"Reviewed topic matches":"All resources"],["pending","Unreviewed"],["approved","Kept"],["rejected","Hidden"]]))view.addOption(value,label);if(this.host.topicRequired)view.addOption("topic-all","All topic candidates");if(this.host.relevance){view.addOption("topic-pending","Topic review pending");view.addOption("topic-irrelevant","Outside topic");}view.setValue(this.review);const filter=view.selectEl;filter.setAttribute("aria-label","Resource view");
   if(this.host.qualityEnabled){const hint=bar.createEl("p",{cls:"ss-quality-hint",text:"Matching resources are ready to review. Quality reviews and Keep/Hide are separate choices."});hint.setAttribute("role","note");}
   const list=root.createDiv({cls:"ss-candidate-list",attr:{tabindex:"0","aria-label":"Resources"}});list.createDiv({cls:"ss-empty-results",text:"Loading resources…"});
   const pagination=root.createDiv({cls:"ss-pagination"});
@@ -98,7 +99,7 @@ export class ResourceInbox {
   const request=(reset=true)=>{this.dirty=true;if(reset){this.offset=0;this.selectionId=undefined;this.selected.clear();syncCheckboxes();}this.generation++;if(this.loading){this.queued=true;return;}void load();};
   const load=async()=>{
    if(this.disposed)return;this.loading=true;const generation=this.generation;update();
-   try{const result=await this.host.query({projectId:this.host.projectId(),review:["qualified","quality-pending","quality-excluded","topic-pending","topic-irrelevant"].includes(this.review)?"all":this.review,...(this.host.qualityEnabled?{quality:this.review==="qualified"?"qualified":this.review==="quality-pending"?"pending":this.review==="quality-excluded"?"excluded":"all"}:{}),...(this.review==="topic-pending"?{relevance:"uncertain"}:this.review==="topic-irrelevant"?{relevance:"irrelevant"}:{}),search:this.search,selectionId:this.selectionId,offset:this.offset,limit:40});
+   try{const result=await this.host.query({projectId:this.host.projectId(),review:["qualified","quality-pending","quality-excluded","topic-pending","topic-irrelevant","topic-all"].includes(this.review)?"all":this.review,...(this.host.qualityEnabled?{quality:this.review==="qualified"?"qualified":this.review==="quality-pending"?"pending":this.review==="quality-excluded"?"excluded":"all"}:{}),...(this.review==="topic-all"?{relevance:"all"}:this.review==="topic-pending"?{relevance:"uncertain"}:this.review==="topic-irrelevant"?{relevance:"irrelevant"}:{}),search:this.search,selectionId:this.selectionId,offset:this.offset,limit:40});
     if(this.disposed||generation!==this.generation)return;if(this.loadFailed)this.lastMessage="";this.loadFailed=false;this.selectionId=result.selectionId;this.total=result.total;if(this.offset>=this.total&&this.offset>0){this.offset=Math.max(0,Math.floor((this.total-1)/40)*40);this.queued=true;return;}this.rows=result.records;this.recovery=result.recovery??[];this.dirty=false;renderRows();
    }catch(e){if(!this.disposed&&generation===this.generation){this.lastMessage=this.host.error(e);this.loadFailed=true;if(this.selectionId&&/SELECTION_CHANGED|SELECTION_EXPIRED/.test(this.lastMessage)){this.selectionId=undefined;this.selected.clear();this.offset=0;this.queued=true;}}}
    finally{this.loading=false;if(!this.disposed){update();if(this.queued){this.queued=false;void load();}}}

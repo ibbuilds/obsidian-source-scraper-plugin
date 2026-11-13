@@ -13,16 +13,17 @@ export function resourceIdentity(raw:string):string{
   u.searchParams.sort();u.pathname=u.pathname.replace(/\/+$/,"")||"/";
   return u.toString();
 }
-export type Recommendation={decision:"recommended"|"pending"|"discarded";fingerprint:string;
+export type AssessmentBinding={projectId:string;profileHash:string};
+export type Recommendation={decision:"recommended"|"pending"|"discarded";fingerprint:string;projectId?:string;profileHash?:string;
   utility:string;reuse:string;quality:string;freeAccess:string;usableOutput:string;unknowns:string[];
   evidence:Array<{url:string;quote:string}>;postSuitable:boolean;at:string;visualReview?:VisualReview};
 export type FeedbackAction={id:string;scope:string;resource:string;projectId:string;key:string;accountId:string;postId:string;postUrl:string;postTextHash:string;directUrl?:string;fingerprint:string;origin?:"local-policy";profileHash?:string;
-  target?:"post";decisionId?:string;snapshotUrls?:string[];snapshotMedia?:string[];
+  target?:"post";decisionId?:string;snapshotUrls?:string[];snapshotMedia?:string[];assessmentProfileHash?:string;
   state:"pending"|"in-progress"|"confirmed"|"failed"|"uncertain"|"cancelled";requestedAt:string;updatedAt:string;error?:string;attempts:number};
 export type HumanReview={decision:"pending"|"approved"|"rejected";reason:string;fingerprint:string;postSuitable:boolean;verifiedUsefulFreeAndQuality:boolean;at:string;origin:"user-interface"|"user-mcp"};
 type Rejection={scope:string;resource:string;reason:string;at:string;origin:string;active:boolean};
 export type PostReview={id:string;projectId:string;sourceId:string;accountId:string;postId:string;postUrl:string;postTextHash:string;fingerprint:string;profileHash:string;state:"pertinent"|"irrelevant"|"uncertain";wholePostReviewed:boolean;uncertainties:string[];expiresAt:string;minimumLikes:number;origin:"user-interface"|"agent-mcp";urls:string[];media:string[]};
-type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];historyArchives?:Array<{file:string;sha256:string;records:number}>;assessments:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean;postReviews?:Record<string,PostReview>;qualifications?:Record<string,Qualification>;localChecks?:Record<string,LocalResourceCheck>};
+type State={version:1;aliases:Record<string,string>;rejections:Rejection[];history:unknown[];historyArchives?:Array<{file:string;sha256:string;records:number}>;assessments:Record<string,Recommendation>;projectAssessments?:Record<string,Recommendation>;humanReviews:Record<string,HumanReview>;actions:FeedbackAction[];feedbackEnabled:boolean;postReviews?:Record<string,PostReview>;qualifications?:Record<string,Qualification>;localChecks?:Record<string,LocalResourceCheck>};
 /** One provider owns this ledger. Scope is the authenticated account, shared across projects. */
 export class ResourceMemory{
   private data:State;
@@ -68,17 +69,18 @@ export class ResourceMemory{
   }
   restore(scope:string,url:string){const resource=this.identity(scope,url);for(const r of this.rejectionRows(scope,resource))r.active=false;const old=this.humanReview(scope,resource);if(old?.decision==="rejected")this.data.humanReviews[scope+"|"+resource]={...old,decision:"pending",postSuitable:false,verifiedUsefulFreeAndQuality:false,at:new Date().toISOString()};this.data.history.push({kind:"restore",scope,resource,at:new Date().toISOString()});this.save();}
   transaction<T>(work:()=>T):T{if(this.batchDepth)return work();const before=structuredClone(this.data);this.batchDepth++;try{const result=work();this.batchDepth--;this.save();return result;}catch(e){this.batchDepth=0;this.data=before;this.rejectionIndex=undefined;throw e;}}
-  queryContext(scope="user"){
+  queryContext(scope="user",binding?:AssessmentBinding){
     const prefix=scope+"|",aliases=Object.fromEntries(Object.entries(this.data.aliases).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[k.slice(prefix.length),v]));
     const reviews:Record<string,"pending"|"approved"|"rejected">={};for(const r of this.data.rejections)if(r.scope===scope&&!r.active)reviews[this.identity(scope,r.resource)]="pending";
     for(const [k,v] of Object.entries(this.data.humanReviews))if(k.startsWith(prefix))reviews[this.identity(scope,k.slice(prefix.length))]=v.decision;
     for(const r of this.listRejected(scope))reviews[this.identity(scope,r.resource)]="rejected";
-    const assessments=Object.fromEntries(Object.entries(this.data.assessments).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[this.identity(scope,k.slice(prefix.length)),{decision:v.decision,at:v.at,utility:v.utility.slice(0,400)}]));
+    const source=binding?Object.entries(this.data.projectAssessments??{}).filter(([k,v])=>JSON.parse(k)[0]===scope&&v.projectId===binding.projectId&&v.profileHash===binding.profileHash).map(([k,v])=>[JSON.parse(k)[2] as string,v] as const):Object.entries(this.data.assessments).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[k.slice(prefix.length),v] as const);
+    const assessments=Object.fromEntries(source.map(([url,v])=>[this.identity(scope,url),{decision:v.decision,at:v.at,utility:v.utility.slice(0,400)}]));
     return {aliases,rejected:this.listRejected(scope).map(r=>this.identity(scope,r.resource)),reviews,assessments};
   }
   listRejected(scope:string){return this.data.rejections.filter(r=>r.scope===scope&&r.active);}
   alias(scope:string,alias:string,target:string){const a=this.identity(scope,alias),b=this.identity(scope,target);if(a===b)return;this.data.aliases[scope+"|"+a]=b;this.rejectionIndex=undefined;for(const action of this.data.actions)if(action.scope===scope&&action.state==="pending"&&this.rejected(scope,action.resource))action.state="cancelled";this.data.history.push({kind:"alias",scope,alias:a,target:b,at:new Date().toISOString()});this.save();}
-  assess(scope:string,url:string,input:unknown){
+  assess(scope:string,url:string,input:unknown,binding?:AssessmentBinding){
     const x=input as Recommendation;
     if(!x||!["recommended","pending","discarded"].includes(x.decision)||!/^([a-f0-9]{64})$/.test(x.fingerprint))throw Error("INVALID_RESOURCE_ASSESSMENT");
     for(const k of ["utility","reuse","quality","freeAccess","usableOutput"] as const)if(typeof x[k]!=="string"||x[k].length>4000||(x.decision==="recommended"&&x[k].trim().length<20))throw Error("ASSESSMENT_EVIDENCE_REQUIRED: "+k);
@@ -86,7 +88,10 @@ export class ResourceMemory{
     if(!Array.isArray(x.evidence)||x.evidence.length>20||x.evidence.some(e=>!e||typeof e.url!=="string"||typeof e.quote!=="string"||e.quote.length>4000||(x.decision==="recommended"&&e.quote.trim().length<20)))throw Error("INVALID_RESOURCE_EVIDENCE");
     for(const e of x.evidence)resourceIdentity(e.url);
     if(x.decision==="recommended"&&(!x.evidence.length||x.unknowns.length))throw Error("UNRESOLVED_RECOMMENDATION");
-    const record={...structuredClone(x),postSuitable:x.postSuitable===true,at:new Date().toISOString()};this.data.assessments[scope+"|"+this.identity(scope,url)]=record;this.data.history.push({kind:"assessment",scope,resource:this.identity(scope,url),record});this.save();return record;
+    if(binding&&(!/^[a-z][a-z0-9_-]{1,63}$/.test(binding.projectId)||!/^[a-f0-9]{64}$/.test(binding.profileHash)||x.profileHash!==binding.profileHash))throw Error("ASSESSMENT_PROFILE_REQUIRED_OR_STALE: inspect current resources and include assessment.profileHash");
+    const record={...structuredClone(x),...(binding?binding:{}),postSuitable:x.postSuitable===true,at:new Date().toISOString()};
+    if(binding){this.data.projectAssessments??={};this.data.projectAssessments[JSON.stringify([scope,binding.projectId,this.identity(scope,url)])]=record;}else this.data.assessments[scope+"|"+this.identity(scope,url)]=record;
+    this.data.history.push({kind:"assessment",scope,resource:this.identity(scope,url),record});this.save();return record;
   }
   recordHumanReview(scope:string,url:string,review:Omit<HumanReview,"at">){
     if(!["pending","approved","rejected"].includes(review.decision)||typeof review.reason!=="string"||review.reason.length>1000||!/^[a-f0-9]{64}$/.test(review.fingerprint)||typeof review.postSuitable!=="boolean"||typeof review.verifiedUsefulFreeAndQuality!=="boolean"||!["user-interface","user-mcp"].includes(review.origin))throw Error("INVALID_HUMAN_REVIEW");
@@ -98,10 +103,10 @@ export class ResourceMemory{
     this.save();return record;
   }
   humanReview(scope:string,url:string){return this.data.humanReviews[scope+"|"+this.identity(scope,url)];}
-  private canLike(scope:string,resource:string,fingerprint:string,origin?:"local-policy",profileHash?:string,action?:Pick<FeedbackAction,"target"|"accountId"|"postId"|"decisionId">){
+  private canLike(scope:string,resource:string,fingerprint:string,origin?:"local-policy",profileHash?:string,action?:Pick<FeedbackAction,"target"|"accountId"|"postId"|"decisionId"|"projectId"|"assessmentProfileHash">){
     if(action?.target==="post"){const record=this.data.postReviews?.[action.accountId+"|"+action.postId];return Boolean(record&&record.id===action.decisionId&&record.state==="pertinent"&&record.wholePostReviewed&&!record.uncertainties.length&&record.fingerprint===fingerprint&&record.profileHash===profileHash&&Date.parse(record.expiresAt)>Date.now());}
     if(origin==="local-policy")return Boolean(profileHash)&&this.localEligible(scope,resource,fingerprint,profileHash);
-    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource);
+    const human=this.humanReview(scope,resource),assessment=this.assessment(scope,resource,action?.assessmentProfileHash?{projectId:action.projectId,profileHash:action.assessmentProfileHash}:undefined);
     return Boolean(human?.decision==="approved"&&human.postSuitable&&human.verifiedUsefulFreeAndQuality&&human.fingerprint===fingerprint)||Boolean(assessment?.decision==="recommended"&&assessment.postSuitable&&assessment.fingerprint===fingerprint);
   }
   localCheck(scope:string,url:string){return this.data.localChecks?.[scope+"|"+this.identity(scope,url)];}
@@ -125,7 +130,7 @@ export class ResourceMemory{
   qualification(projectId:string,url:string){return this.data.qualifications?.[projectId+"|"+this.identity("user",url)];}
   qualifications(projectId:string){const prefix=projectId+"|";return Object.fromEntries(Object.entries(this.data.qualifications??{}).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>[this.identity("user",k.slice(prefix.length)),structuredClone(v)]));}
   recordQualification(projectId:string,url:string,record:Qualification){this.data.qualifications??={};const resource=this.identity("user",url);this.data.qualifications[projectId+"|"+resource]=structuredClone(record);this.data.history.push({kind:"qualification",projectId,resource,decision:record.decision,category:record.category,fingerprint:record.fingerprint,at:record.at,origin:record.origin,reason:record.reason});this.save();return structuredClone(record);}
-  assessment(scope:string,url:string){return this.data.assessments[scope+"|"+this.identity(scope,url)];}
+  assessment(scope:string,url:string,binding?:AssessmentBinding){const record=binding?this.data.projectAssessments?.[JSON.stringify([scope,binding.projectId,this.identity(scope,url)])]:this.data.assessments[scope+"|"+this.identity(scope,url)];return record&&(!binding||record.profileHash===binding.profileHash)?record:undefined;}
   get enabled(){return !this.closed&&this.data.feedbackEnabled;}
   setFeedback(enabled:boolean){this.data.feedbackEnabled=enabled;this.save();}
   queue(scope:string,details:Omit<FeedbackAction,"scope"|"id"|"state"|"requestedAt"|"updatedAt"|"attempts">){

@@ -29,9 +29,9 @@ results and actions are bound to the project and a fingerprint of the criteria.
 
 Automatic resource checks enables the worker for the selected X project. It
 checks one new resource per tick and caches evidence. Automatic likes remains a
-separate local permission. New collections started with checks enabled repeat
-bounded windows after a ten-minute cooldown. Pause and Stop take precedence;
-disabling checks disables continuous renewal. Obsidian and the computer must stay
+separate local permission. The separate **Continuous collection** toggle repeats
+bounded windows after a ten-minute cooldown. Resource checks do not control
+collection renewal. Pause and Stop take precedence. Obsidian and the computer must stay
 open. No model is downloaded or called.
 
 The generic evidence reader gathers public GitHub facts, README and package data;
@@ -106,7 +106,7 @@ recovers committed progress before enforcing the remaining budget, including
 after an interrupted CLI process. EOF/empty windows clear the exhausted cursor;
 new cycles can start at the current feed head after a ten-minute wait. Three
 pages without new post identities end a no-new-items window. Work limits,
-window endings and access errors are distinct. 401/403/429 block collection;
+window endings and access errors are distinct. 401/403 block collection; 429 schedules a bounded cooldown;
 credentials are retained and no challenge or access restriction is bypassed.
 
 The local runtime remains available when MCP access is disabled or the optional
@@ -149,8 +149,11 @@ recommendation stale. Automatic discard is reversible by reassessment and does
 not create a user rejection. Discarded resources can be explicitly queried with
 `evaluation: discarded`; normal results hide them.
 
-Passing the original postId with a recommended, suitable assessment queues that
-post. The provider verifies retained provenance, current configured collection
+Passing the original postId with a recommended, suitable assessment can request
+that post only after a separate, current full-post topic review exists and
+feedback is locally granted and enabled. Resource checks alone never queue a
+like. Legacy resource-only actions cannot dispatch; reviewed post actions use the
+whole-post snapshot and topic decision. The provider verifies retained provenance, current configured collection
 filters and the authenticated account. Only the actual post sharing the resource
 is eligible. Human review is never changed by this assessment.
 
@@ -211,6 +214,16 @@ counter and deadline survive an Obsidian restart. A successful batch clears the
 counter; Pause/Stop take precedence. Checkpoints, committed pages and the work
 budget remain authoritative, so a retry does not restart the feed from scratch.
 A third consecutive failure blocks collection with an explicit recovery message.
-Manual Resume begins a new retry budget. HTTP 401/403/429, other access errors and
-unsupported operations still block without automatic retry. This policy applies
+Manual Resume begins a new temporary-failure retry budget. HTTP 401/403, other access errors and
+unsupported operations still block without automatic retry. HTTP 429 uses a separate
+persisted cooldown: 15, 30 and 60 minutes, or longer when a validated server
+Retry-After/reset deadline requires it. A fourth consecutive 429 blocks for manual
+recovery. Pause/Stop and restarting collection cannot bypass an unexpired cooldown.
+Successful work-limit batches read at most one feed page, at least two minutes
+apart. These are conservative application limits, not a guarantee of X access. This policy applies
 to collection reads only; it never retries likes or changes account permissions.
+
+**Require topic review** is optional per project. When enabled, the normal
+resource query and its counter include only current pertinent decisions. Choose
+**Topic review pending** or **All topic candidates** to inspect uncertain evidence.
+This is independent of quality qualification and can be completed manually.
